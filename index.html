@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#0d1117">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta http-equiv="Cache-Control" content="no-cache">
 <title>警察考題庫 Pro</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <style>
+
 
 :root{--bg0:#0d1117;--bg1:#161b22;--bg2:#21262d;--bg3:#30363d;--bd:#30363d;--t0:#f0f6fc;--t1:#c9d1d9;--t2:#8b949e;--acc:#58a6ff;--acc2:#1f6feb;--grn:#3fb950;--grn2:#0d4a1e;--red:#f85149;--red2:#4a1010;--org:#e3b341;--org2:#3d2c00;--pur:#bc8cff;--pur2:#2d1f5e;--r:10px;--rs:6px;--tr:.18s cubic-bezier(.4,0,.2,1);}
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -132,10 +132,10 @@ textarea{resize:vertical;line-height:1.65}
 .fdi{animation:fdi .2s ease}
 @keyframes fdi{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 
+
 </style>
 </head>
 <body>
-
 <div id="app">
 <!-- HOME -->
 <div id="pg-home" class="page hide">
@@ -430,57 +430,88 @@ textarea{resize:vertical;line-height:1.65}
 </div>
 <div class="toast" id="toast"></div>
 <script>
+// ══ db.js — IndexedDB 核心 ══════════════════════════════════
+const DB_NAME = 'PoliceExamPro', DB_VER = 2;
+let db;
 
+function initDB(){
+  return new Promise((res,rej)=>{
+    const r=indexedDB.open(DB_NAME,DB_VER);
+    r.onupgradeneeded=e=>{
+      const d=e.target.result;
+      if(!d.objectStoreNames.contains('questions')){
+        const s=d.createObjectStore('questions',{keyPath:'id',autoIncrement:true});
+        s.createIndex('subject','subject',{unique:false});
+        s.createIndex('createdAt','createdAt',{unique:false});
+      }
+      if(!d.objectStoreNames.contains('laws')){
+        const s=d.createObjectStore('laws',{keyPath:'id',autoIncrement:true});
+        s.createIndex('lawName','lawName',{unique:false});
+        s.createIndex('category','category',{unique:false});
+        s.createIndex('articleNumber','articleNumber',{unique:false});
+      }
+      if(!d.objectStoreNames.contains('attempts')){
+        const s=d.createObjectStore('attempts',{keyPath:'id',autoIncrement:true});
+        s.createIndex('qid','qid',{unique:false});
+        s.createIndex('date','date',{unique:false});
+      }
+    };
+    r.onsuccess=e=>{db=e.target.result;res(db);};
+    r.onerror=e=>rej(e.target.error);
+  });
+}
 
-
-// ══ IndexedDB ══
-const DB='PoliceExamPro',VER=2;let db;
-function initDB(){return new Promise((res,rej)=>{const r=indexedDB.open(DB,VER);r.onupgradeneeded=e=>{const d=e.target.result;if(!d.objectStoreNames.contains('questions')){const s=d.createObjectStore('questions',{keyPath:'id',autoIncrement:true});s.createIndex('subject','subject',{unique:false});s.createIndex('createdAt','createdAt',{unique:false});}if(!d.objectStoreNames.contains('laws')){const s=d.createObjectStore('laws',{keyPath:'id',autoIncrement:true});s.createIndex('lawName','lawName',{unique:false});s.createIndex('category','category',{unique:false});s.createIndex('articleNumber','articleNumber',{unique:false});}if(!d.objectStoreNames.contains('attempts')){const s=d.createObjectStore('attempts',{keyPath:'id',autoIncrement:true});s.createIndex('qid','qid',{unique:false});s.createIndex('date','date',{unique:false});}};r.onsuccess=e=>{db=e.target.result;res(db);};r.onerror=e=>rej(e.target.error);});}
 const dg=(st,k)=>new Promise((r,j)=>{const t=db.transaction(st,'readonly');const q=t.objectStore(st).get(k);q.onsuccess=()=>r(q.result);q.onerror=()=>j();});
 const da=(st,idx,qry)=>new Promise((r,j)=>{const t=db.transaction(st,'readonly');const o=t.objectStore(st);const q=idx?o.index(idx).getAll(qry):o.getAll();q.onsuccess=()=>r(q.result);q.onerror=()=>j([]);});
 const dp=(st,data)=>new Promise((r,j)=>{const t=db.transaction(st,'readwrite');const q=t.objectStore(st).put(data);q.onsuccess=()=>r(q.result);q.onerror=()=>j();});
 const dd=(st,k)=>new Promise((r,j)=>{const t=db.transaction(st,'readwrite');t.objectStore(st).delete(k).onsuccess=()=>r();});
 const dc=(st)=>new Promise((r,j)=>{const t=db.transaction(st,'readwrite');t.objectStore(st).clear().onsuccess=()=>r();});
-function bulkPut(st,items){return new Promise((res,rej)=>{const tx=db.transaction(st,'readwrite');const os=tx.objectStore(st);let n=0;tx.oncomplete=()=>res(n);tx.onerror=e=>rej(e);items.forEach(it=>{os.put(it).onsuccess=()=>n++;});});}
-
-// ══ State ══
-const S={page:'home',filter:'all',subF:'all',lawCat:'all',editId:null,editLawId:null,qType:'mc',correct:'A',quiz:{q:[],idx:0,ans:false,res:[],mode:''},curLaw:null,bulkParsed:[],aiMd:'',aiJson:''};
-
-// ══ Utils ══
-function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
-function br(s){return esc(s||'').split('\n').join('<br>').split('\r').join('');}
-function toast(m,d=2200){const e=document.getElementById('toast');e.textContent=m;e.classList.add('on');clearTimeout(e._t);e._t=setTimeout(()=>e.classList.remove('on'),d);}
-function today(){return new Date().toISOString().slice(0,10);}
-function dl(c,fn,t='text/plain'){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([c],{type:t}));a.download=fn;a.click();}
-function norm(s){
-  if(!s)return'';
-  // 全形英數 → 半形
-  s=s.replace(/[Ａ-Ｚａ-ｚ０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0));
-  // 全形括號 → 半形（保留，之後 parser 一起處理）
-  // 統一換行
-  s=s.replace(/\r\n/g,'\n').replace(/\r/g,'\n');
-  // 全形空格 → 半形
-  s=s.replace(/\u3000/g,' ');
-  // 連續空格 → 單一空格（但保留換行）
-  s=s.replace(/[ \t]{2,}/g,' ');
-  // 移除行尾空白
-  s=s.replace(/[ \t]+$/gm,'');
-  return s.trim();
-}
-function kwArr(s){return(s||'').split(/[,，、\s]+/).map(k=>k.trim()).filter(Boolean);}
-
-// ══ Navigation ══
-function goPage(pg,btn){
-  document.querySelectorAll('.page').forEach(p=>p.classList.add('hide'));
-  document.querySelectorAll('.nb').forEach(b=>b.classList.remove('on'));
-  const el=document.getElementById('pg-'+pg);if(el)el.classList.remove('hide');
-  if(btn)btn.classList.add('on');
-  else{const b=document.querySelector(`.nb[onclick*="'${pg}'"]`);if(b)b.classList.add('on');}
-  S.page=pg;
-  ({home:renderHome,list:renderList,laws:renderDB,db:renderDB,stats:renderStats,set:renderSet,bulk:()=>{}})[pg]?.();
+function bulkPut(st,items){
+  return new Promise((res,rej)=>{
+    const tx=db.transaction(st,'readwrite');
+    const os=tx.objectStore(st);
+    let n=0;
+    tx.oncomplete=()=>res(n);
+    tx.onerror=e=>rej(e);
+    items.forEach(it=>{os.put(it).onsuccess=()=>n++;});
+  });
 }
 
-// ══ Wrong logic ══
+// ══ utils.js — 工具函式 ═════════════════════════════════════
+// 全域狀態
+const S = {
+  page:'home', filter:'all', subF:'all', lawCat:'all',
+  editId:null, editLawId:null,
+  qType:'mc', correct:'A',
+  quiz:{q:[],idx:0,ans:false,res:[],mode:''},
+  curLaw:null, bulkParsed:[], aiMd:'', aiJson:''
+};
+
+function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function br(s){ return esc(s||'').split('\n').join('<br>').split('\r').join(''); }
+function toast(m,d=2200){ const e=document.getElementById('toast');if(!e)return;e.textContent=m;e.classList.add('on');clearTimeout(e._t);e._t=setTimeout(()=>e.classList.remove('on'),d); }
+function today(){ return new Date().toISOString().slice(0,10); }
+function dl(c,fn,t='text/plain'){ const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([c],{type:t}));a.download=fn;a.click(); }
+function norm(s){ if(!s)return'';s=s.replace(/[Ａ-Ｚａ-ｚ０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0));s=s.replace(/\r\n/g,'\n').replace(/\r/g,'\n');s=s.replace(/\u3000/g,' ');s=s.replace(/[ \t]{2,}/g,' ');s=s.replace(/[ \t]+$/gm,'');return s.trim(); }
+function kwArr(s){ return (s||'').split(/[,，、\s]+/).map(k=>k.trim()).filter(Boolean); }
+
+// 關鍵字自動提取
+const KW_POOL = ['比例原則','正當法律程序','臨檢','身分查證','即時強制','行政裁量',
+  '警械使用','強制力','合理懷疑','現行犯','通知到場','管束','扣留',
+  '警察職權','公共秩序','社會安全','行政救濟','陳述意見','書面告知',
+  '告知義務','蒐集資料','偵查','搜索','扣押','逮捕','拘提',
+  '通訊監察','秘密蒐證','釣魚偵查','控制下交付','陷害教唆',
+  '法律保留','裁量怠惰','裁量濫用','警察補充性','緊急危難','正當防衛',
+  '緊急避難','正當理由','警察勤務','勤區查察','巡邏','臨檢','守望',
+  '值班','備勤','社維法','集遊法','警職法','警察法','警勤條例','警械條例'];
+function autoKeywords(text){ return KW_POOL.filter(kw=>(text||'').includes(kw)); }
+
+// 條號轉數字
+const ZHN = {'零':0,'一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10,'百':100,'千':1000};
+function zh2n(s){ let n=0,c=0;for(const ch of s){const v=ZHN[ch];if(v===undefined)continue;if(v>=10){if(c===0)c=1;n+=c*v;c=0;}else c=v;}return n+c; }
+function art2n(art){ const m=art.match(/第([一二三四五六七八九十百千\d]+)條/);if(!m)return 0;const s=m[1];return /^\d+$/.test(s)?parseInt(s):zh2n(s); }
+
+// 錯題演算法
 function getWrong(qs,ats){
   const s=new Set();
   for(const q of qs){
@@ -488,301 +519,24 @@ function getWrong(qs,ats){
     if(!qa.length)continue;
     const r=qa.slice(0,3);
     if(r.every(a=>!a.correct)||(qa.filter(a=>!a.correct).length/qa.length>0.5&&qa.length>=2))s.add(q.id);
-  }return s;
-}
-
-// ══ HOME ══
-async function renderHome(){
-  const[qs,ls,ats]=await Promise.all([da('questions'),da('laws'),da('attempts')]);
-  const now=new Date();
-  document.getElementById('h-date').textContent=now.toLocaleDateString('zh-TW',{month:'long',day:'numeric',weekday:'short'});
-  const td=today(),tAts=ats.filter(a=>a.date?.startsWith(td));
-  const wids=getWrong(qs,ats);
-  document.getElementById('hs-q').textContent=qs.length;
-  document.getElementById('hs-l').textContent=ls.length;
-  document.getElementById('hs-t').textContent=tAts.length;
-  document.getElementById('hs-w').textContent=wids.size;
-  const plan=document.getElementById('h-plan');
-  if(!qs.length)plan.textContent='尚未新增題目，點「大量貼題」開始！';
-  else if(wids.size>0)plan.textContent=`有 ${wids.size} 題錯題待複習`;
-  else plan.textContent=`題庫 ${qs.length} 題 · 法條 ${ls.length} 條`;
-  const recent=[...qs].sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).slice(0,4);
-  document.getElementById('h-recent').innerHTML=recent.length?
-    recent.map(q=>`<div class="qc" onclick="editQ(${q.id})"><div class="qch"><span class="badge ${q.type==='mc'?'bmc':'bes'}">${q.type==='mc'?'選擇':'申論'}</span><span class="tag">${esc(q.subject||'未分類')}</span>${q.starred?'<span style="color:var(--org)">⭐</span>':''}</div><div class="qst">${esc(q.stem||'')}</div></div>`).join(''):
-    '<div class="empty"><span class="ic">📝</span><span>尚無題目</span></div>';
-  // Update datalists
-  const subs=[...new Set(qs.map(q=>q.subject).filter(Boolean))];
-  ['f-subs','bi-subs'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML=subs.map(s=>`<option value="${esc(s)}">`).join('');});
-}
-
-// ══ QUESTION LIST ══
-async function renderList(){
-  const[qs,ats]=await Promise.all([da('questions'),da('attempts')]);
-  const subs=[...new Set(qs.map(q=>q.subject).filter(Boolean))].sort();
-  const sc=document.getElementById('schips');
-  if(sc)sc.innerHTML='<button class="chip'+(S.subF==='all'?' on':'')+'" onclick="setSF(this,\'all\')">全部科目</button>'+subs.map(s=>`<button class="chip${S.subF===s?' on':''}" onclick="setSF(this,'${esc(s)}')">${esc(s)}</button>`).join('');
-  const kw=(document.getElementById('si')?.value||'').toLowerCase().trim();
-  const wids=getWrong(qs,ats);
-  let fl=qs.filter(q=>{
-    if(S.subF!=='all'&&q.subject!==S.subF)return false;
-    if(S.filter==='mc'&&q.type!=='mc')return false;
-    if(S.filter==='es'&&q.type!=='es')return false;
-    if(S.filter==='wrong'&&!wids.has(q.id))return false;
-    if(S.filter==='star'&&!q.starred)return false;
-    if(kw){const h=((q.stem||'')+(q.subject||'')+(q.keywords||[]).join(' ')+(q.tags||'')).toLowerCase();if(!h.includes(kw))return false;}
-    return true;
-  }).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
-  document.getElementById('lc').textContent=`共 ${fl.length} 題`;
-  const el=document.getElementById('qlist');
-  if(!fl.length){el.innerHTML='<div class="empty"><span class="ic">🔍</span><span>沒有符合的題目</span></div>';return;}
-  el.innerHTML=fl.map(q=>{
-    const qa=ats.filter(a=>a.qid===q.id&&a.correct!==null);
-    const acc=qa.length>0?Math.round(qa.filter(a=>a.correct).length/qa.length*100):null;
-    const iw=wids.has(q.id);
-    const kws=(q.keywords||[]).slice(0,3).map(k=>`<span class="tag">${esc(k)}</span>`).join('');
-    return `<div class="qc ${iw?'wrong':''} ${q.starred?'star':''}"><div class="qch">
-      <span class="badge ${q.type==='mc'?'bmc':'bes'}">${q.type==='mc'?'選擇':'申論'}</span>
-      <span class="tag">${esc(q.subject||'未分類')}</span>
-      ${q.year?`<span class="tag">${esc(q.year)}</span>`:''}
-      ${q.starred?'<span style="color:var(--org)">⭐</span>':''}
-      ${acc!==null?`<span class="tag" style="color:${acc>=60?'var(--grn)':'var(--red)'}">${acc}%</span>`:''}
-      ${kws}</div>
-      <div class="qst">${esc(q.stem||'')}</div>
-      <div class="qa">
-        <button class="qabn" onclick="editQ(${q.id})">✏ 編輯</button>
-        <button class="qabn" onclick="toggleStar(${q.id})">${q.starred?'★ 取消':'☆ 收藏'}</button>
-        ${(q.relatedLaws||[]).length?`<button class="qabn" style="color:var(--pur)" onclick="showQLaws(${q.id})">⚖ 法條</button>`:''}
-        <button class="qabn" style="color:var(--red)" onclick="delQ(${q.id})">🗑</button>
-      </div></div>`;
-  }).join('');
-}
-function setF(el,v){document.querySelectorAll('#fchips .chip').forEach(c=>c.classList.remove('on'));el.classList.add('on');S.filter=v;renderList();}
-function setSF(el,v){document.querySelectorAll('#schips .chip').forEach(c=>c.classList.remove('on'));el.classList.add('on');S.subF=v;renderList();}
-
-// ══ LAWS ══
-async function renderDB(){
-  const ls=await da('laws');
-  const kw=(document.getElementById('lsi')?.value||'').toLowerCase().trim();
-  let fl=ls.filter(l=>{
-    if(S.lawCat!=='all'&&l.category!==S.lawCat)return false;
-    if(kw){const h=((l.lawName||'')+(l.article||'')+(l.content||'')+(l.keywords||[]).join(' ')).toLowerCase();if(!h.includes(kw))return false;}
-    return true;
-  });
-
-  // 按法規名稱分組，只顯示法規名稱（摺疊）
-  const byName={};
-  fl.forEach(l=>{const n=l.lawName||'未分類';if(!byName[n])byName[n]=[];byName[n].push(l);});
-
-  const el=document.getElementById('llist');
-  if(!fl.length){el.innerHTML='<div class="empty"><span class="ic">🗄</span><span>尚無資料，點右上角新增</span></div>';return;}
-
-  el.innerHTML=Object.entries(byName).map(([name,laws])=>{
-    const cat=laws[0].category||'statute';
-    const catLabel={'statute':'法律條文','sop':'SOP','supplement':'補充資料','interpretation':'函釋','law':'法律','rule':'細則','regulation':'規範'}[cat]||cat;
-    const favCount=laws.filter(l=>l.favorite).length;
-    return `<div class="card" style="cursor:pointer;margin-bottom:6px" onclick="openLawGroup('${esc(name)}')">
-      <div style="display:flex;align-items:center;gap:8px">
-        <span style="font-size:20px">${cat==='sop'?'📋':cat==='supplement'?'📄':'⚖'}</span>
-        <div style="flex:1">
-          <div style="font-size:15px;font-weight:700;color:var(--t0)">${esc(name)}</div>
-          <div style="font-size:11px;color:var(--t2);margin-top:2px">${catLabel} · ${laws.length} 條${favCount?` · ⭐${favCount}`:''}</div>
-        </div>
-        <span style="color:var(--t2);font-size:18px">›</span>
-      </div>
-    </div>`;
-  }).join('');
-}
-async function renderLaws(){ return renderDB(); }
-
-
-function setLC(el,v){document.querySelectorAll('#lchips .chip').forEach(c=>c.classList.remove('on'));el.classList.add('on');S.lawCat=v;renderLaws();}
-
-async function openLaw(id){
-  const l=await dg('laws',id);if(!l)return;S.curLaw=l;
-  document.getElementById('lv-name').textContent=(l.lawName||'')+(l.article?' '+l.article:'');
-  const starBtn=document.getElementById('lv-star');
-  starBtn.textContent=l.favorite?'★':'☆';
-  starBtn.style.color=l.favorite?'var(--org)':'var(--t2)';
-  starBtn.style.background=l.favorite?'var(--org2)':'var(--bg2)';
-  starBtn.style.borderColor=l.favorite?'var(--org)':'var(--bd)';
-  const qs=await da('questions');
-  const related=qs.filter(q=>(q.relatedLaws||[]).some(rl=>rl.lawId===id));
-  document.getElementById('lbody').innerHTML=
-    `<div class="labt">${esc(l.article||'')}${l.title?' — '+esc(l.title):''}</div>`+
-    `<div class="lcntb">${br(l.content)}</div>`+
-    ((l.keywords||[]).length?'<div style="margin-top:11px">'+l.keywords.map(k=>`<span class="tag">${esc(k)}</span>`).join('')+'</div>':'')+
-    (l.source?`<div style="margin-top:7px;font-size:11px;color:var(--t2)">來源：${esc(l.source)}</div>`:'')+
-    (related.length?`<div class="sec" style="padding:14px 0 7px">相關考題（${related.length}題）</div>`+
-      related.map(q=>`<div class="qc" onclick="editQ(${q.id});exitLaw()"><div class="qst">${esc(q.stem||'')}</div><div style="font-size:11px;color:var(--t2);margin-top:3px">${esc(q.subject||'')} ${esc(q.year||'')}</div></div>`).join(''):'');
-  document.getElementById('lv').style.display='flex';
-}
-
-function exitLaw(){document.getElementById('lv').style.display='none';}
-
-// ══ 題目閱覽 ══════════════════════════════════════════════════
-let _browseAll=[], _browseFiltered=[];
-
-
-function setBrYear(el,yr){
-  document.querySelectorAll('#br-year-chips .chip').forEach(c=>c.classList.remove('on'));
-  el.classList.add('on');
-  S._brYear=yr;
-  browseSearch();
-}
-
-function renderBrowse(){
-  const el=document.getElementById('browse-list');
-  if(!el)return;
-  if(!_browseFiltered.length){
-    el.innerHTML='<div class="empty"><span class="ic">🔍</span><span>沒有符合的題目</span></div>';return;
   }
-  el.innerHTML=_browseFiltered.map(q=>{
-    const laws=(q.relatedLaws||[]).map(l=>
-      `<span style="color:var(--pur);cursor:pointer;font-size:11px;text-decoration:underline"
-        onclick="openLawPopupByRef('${esc(l.ref||l.lawName||'')}')">⚖ ${esc(l.ref||l.lawName||'')}</span>`
-    ).join(' ');
-    return `<div style="background:var(--bg1);border:1px solid var(--bd);border-radius:var(--r);padding:12px;margin-bottom:7px">
-      <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:7px;align-items:center">
-        <span class="badge ${q.type==='mc'?'bmc':'bes'}">${q.type==='mc'?'選擇':'申論'}</span>
-        <span class="tag">${esc(q.subject||'未分類')}</span>
-        ${q.year?`<span class="tag">${esc(q.year)}</span>`:''}
-        ${q.exam?`<span class="tag">${esc(q.exam)}</span>`:''}
-        ${q.num?`<span class="tag">第${esc(q.num)}題</span>`:''}
-        ${q.starred?'<span style="color:var(--org)">⭐</span>':''}
-      </div>
-      <div style="font-size:14px;line-height:1.7;color:var(--t1);margin-bottom:8px">${esc(q.stem||'')}</div>
-      ${q.type==='mc'?`<div style="font-size:12px;color:var(--t2)">${Object.entries(q.options||{}).map(([k,v])=>`<div>(${k}) ${esc(v)}</div>`).join('')}</div>`:''}
-      ${q.answer?`<div style="margin-top:6px;font-size:12px;font-weight:700;color:var(--grn)">答案：${esc(q.answer)}</div>`:''}
-      ${q.answerEs?`<div style="margin-top:6px;font-size:12px;color:var(--t2);line-height:1.6">💡 ${esc(q.answerEs)}</div>`:''}
-      ${(q.relatedLaws||[]).length?`<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">${laws}</div>`:''}
-      ${(q.keywords||[]).length?`<div style="margin-top:6px">${q.keywords.map(k=>`<span class="tag">${esc(k)}</span>`).join('')}</div>`:''}
-    </div>`;
-  }).join('');
+  return s;
 }
 
-// ══ 法條內容 Popup（小視窗，不離開當前頁）════════════════════════
-async function openLawPopup(lawId){
-  const l=await dg('laws',lawId);
-  if(!l)return;
-  _showLawPopup(l);
+// Confirm dialog
+let _cfmCb=null;
+function cfm(t,s,cb){
+  _cfmCb=cb;
+  document.getElementById('cfm-t').textContent=t;
+  document.getElementById('cfm-s').textContent=s;
+  document.getElementById('cfm-ok').onclick=()=>{closeCfm();_cfmCb?.();};
+  document.getElementById('cfm-ov').classList.add('on');
 }
-async function openLawPopupByRef(ref){
-  if(!ref)return;
-  const all=await da('laws');
-  // 比對 lawName+article 或 ref 字串
-  const l=all.find(l=>{
-    const full=(l.lawName||'')+(l.article||'');
-    return full.includes(ref)||ref.includes(l.lawName||'');
-  });
-  if(l) _showLawPopup(l);
-  else toast('找不到對應法條：'+ref);
-}
-function _showLawPopup(l){
-  document.getElementById('lawpop-title').textContent=(l.lawName||'')+(l.article?' '+l.article:'');
-  document.getElementById('lawpop-body').innerHTML=
-    br(l.content||'')+
-    ((l.keywords||[]).length?'<div style="margin-top:10px">'+l.keywords.map(k=>`<span class="tag">${esc(k)}</span>`).join('')+'</div>':'')+
-    (l.source?`<div style="margin-top:8px;font-size:11px;color:var(--t2)">來源：${esc(l.source)}</div>`:'');
+function closeCfm(){ document.getElementById('cfm-ov').classList.remove('on'); }
 
-  // 母子法連結
-  const links=(l.relatedLawLinks||[]);
-  const lpLinks=document.getElementById('lp-links');
-  const lpLinksList=document.getElementById('lp-links-list');
-  if(links.length>0){
-    lpLinksList.innerHTML=links.map(lk=>
-      `<button class="chip" style="font-size:11px" onclick="openLawPopupByRef('${esc(lk.ref)}')" title="${esc(lk.type||'')}">
-        ${lk.type==='parent'?'⬆ 母法':lk.type==='child'?'⬇ 子法':lk.type==='auth'?'📋 授權':'🔗 相關'}
-        ${esc(lk.ref)}
-      </button>`
-    ).join('');
-    lpLinks.style.display='block';
-  } else {
-    lpLinks.style.display='none';
-  }
+// ══ parser.js — 題目與法條解析 ═════════════════════════════
+// 依賴：utils.js (autoKeywords, norm, art2n)
 
-  document.getElementById('lawpop-ov').style.display='flex';
-}
-function closeLawPopup(){
-  document.getElementById('lawpop-ov').style.display='none';
-}
-
-// ══ 母子法關聯系統 ════════════════════════════════════════════════
-// relatedLawLinks 結構：[{ref:'警察法第1條', type:'parent|child|auth|related'}]
-// 在 saveLaw 時解析 content 裡的關鍵字自動建議連結
-
-function autoDetectLawLinks(content, lawName){
-  const links=[];
-  // 偵測「依XXX第X條」「根據XXX」等授權來源
-  const authRE=/依(?:據)?[《【]?([^，。；\n《》【】]{2,15})[》】]?第([一二三四五六七八九十百千\d]+)條/g;
-  let m;
-  while((m=authRE.exec(content))!==null){
-    const ref=m[1]+'第'+m[2]+'條';
-    if(!links.find(l=>l.ref===ref)) links.push({ref,type:'auth'});
-  }
-  // 偵測「施行細則」「子法」關鍵字
-  if(/施行細則/.test(content)) links.push({ref:lawName+'施行細則',type:'child'});
-  if(/辦法/.test(content)&&/另定/.test(content)) links.push({ref:'（相關辦法）',type:'child'});
-  return links;
-}
-
-async function editLawInView(id){
-  const l = await dg('laws',id);
-  if(l) showAddLaw(l);
-}
-
-async function toggleLawStar(){
-  if(!S.curLaw)return;S.curLaw.favorite=!S.curLaw.favorite;await dp('laws',S.curLaw);
-  const starBtn=document.getElementById('lv-star');
-  starBtn.textContent=S.curLaw.favorite?'★':'☆';
-  starBtn.style.color=S.curLaw.favorite?'var(--org)':'var(--t2)';
-  starBtn.style.background=S.curLaw.favorite?'var(--org2)':'var(--bg2)';
-  starBtn.style.borderColor=S.curLaw.favorite?'var(--org)':'var(--bd)';
-  toast(S.curLaw.favorite?'已收藏':'已取消收藏');
-}
-async function toggleLawFav(id){
-  const l=await dg('laws',id);if(!l)return;l.favorite=!l.favorite;await dp('laws',l);renderLaws();toast(l.favorite?'已收藏':'已取消收藏');}
-function editCurLaw(){if(S.curLaw)showAddLaw(S.curLaw);}
-async function quizFromLaw(){
-  if(!S.curLaw)return;exitLaw();
-  const qs=await da('questions');
-  const id=S.curLaw.id;
-  const pool=qs.filter(q=>(q.relatedLaws||[]).some(rl=>rl.lawId===id));
-  if(!pool.length){toast('此法條尚無關聯題目');return;}
-  startQWithPool(pool,'law');
-}
-function showQLaws(id){toast('請在編輯題目中查看關聯法條');}
-
-// ══ LAW PARSER ══
-const ZHN={'零':0,'一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10,'百':100,'千':1000};
-function zh2n(s){let n=0,c=0;for(const ch of s){const v=ZHN[ch];if(v===undefined)continue;if(v>=10){if(c===0)c=1;n+=c*v;c=0;}else c=v;}return n+c;}
-function art2n(art){const m=art.match(/第([一二三四五六七八九十百千\d]+)條/);if(!m)return 0;const s=m[1];return/^\d+$/.test(s)?parseInt(s):zh2n(s);}
-function parseLawText(text,lawName,category,source){
-  // 正規化：把「第 一 條」「第 二 條」等帶空格格式統一成「第一條」
-  let t=norm(text);
-  t=t.replace(/第\s+([一二三四五六七八九十百千\d]+)\s+條/g,'第$1條');
-  t=t.replace(/第\s+([一二三四五六七八九十百千\d]+)\s+條\s*之\s*([一二三四五六七八九十\d]+)/g,'第$1條之$2');
-  // 同時移除全形空格（常見於官方法條複製）
-  t=t.replace(/\u3000/g,' ').replace(/[ \t]{2,}/g,' ');
-  const parts=t.split(/(?=第[一二三四五六七八九十百千\d]+條(?:之[一二三四五六七八九十\d]+)?)/g).map(p=>p.trim()).filter(Boolean);
-  const items=[];
-  for(const part of parts){
-    const am=part.match(/^(第[一二三四五六七八九十百千\d]+條(?:之[一二三四五六七八九十\d]+)?)/);
-    if(!am)continue;
-    const article=am[1];
-    const content=part.slice(article.length).trim();
-    if(!content)continue;
-    const articleNumber=art2n(article);
-    const kws=autoKeywords(content);
-    items.push({lawName,article,articleNumber,content,category:category||'law',source:source||'',keywords:kws,tags:[],notes:'',highlights:[],relatedQuestions:[],favorite:false,createdAt:Date.now(),updatedAt:Date.now()});
-  }
-  return items;
-}
-
-// ══ KEYWORD EXTRACTION ══
-const KW_POOL=['比例原則','正當法律程序','臨檢','身分查證','即時強制','行政裁量','警械使用','警銬','強制力','合理懷疑','現行犯','通知到場','管束','扣留','警察職權','公共秩序','社會安全','行政救濟','陳述意見','書面告知','告知義務','蒐集資料','偵查','搜索','扣押','逮捕','拘提','通訊監察','秘密蒐證','釣魚偵查','控制下交付','陷害教唆','行政執行','法律保留','比例原則','裁量怠惰','裁量濫用','警察補充性','緊急危難','正當防衛','緊急避難','正當理由'];
-function autoKeywords(text){return KW_POOL.filter(kw=>text.includes(kw));}
-
-// ══ BULK IMPORT PARSER ══
 function parseBulkText(text){
   console.log('[parseBulkText] 輸入長度:', text?.length, '前30字:', text?.slice(0,30));
   if(!text)return[];
@@ -972,104 +726,215 @@ function parseAnswerStr(ans){
 }
 
 // ══ BULK UI ══
-function parseBulk(){
-  try{
-    console.log('[parseBulk] 開始執行');
-    const biEl=document.getElementById('bi-text');
-    if(!biEl){toast('找不到輸入框');return;}
-    const text=biEl.value||'';
-    if(!text.trim()){toast('請先在下方文字框貼入題目文字');return;}
-    const parsed=parseBulkText(text);
-    S.bulkParsed=parsed;
-    // 套用答案列
-    const ansStr=(document.getElementById('bi-ans')||{}).value||'';
-    const ansMap=parseAnswerStr(ansStr);
-    parsed.forEach((q,i)=>{
-      const n=parseInt(q.num)||i+1;
-      if(ansMap[n])q.answer=ansMap[n];
+
+
+
+function parseLawText(text, lawName, category, source){
+  let t = norm(text);
+  // 「第 六 條」帶空格 → 「第六條」
+  t = t.replace(/第\s+([一二三四五六七八九十百千\d]+)\s+條/g, '第$1條');
+  t = t.replace(/第\s+([一二三四五六七八九十百千\d]+)\s+條\s*之\s*([一二三四五六七八九十\d]+)/g, '第$1條之$2');
+  t = t.replace(/\u3000/g, ' ');
+
+  const parts = t.split(/(?=第[一二三四五六七八九十百千\d]+條(?:之[一二三四五六七八九十\d]+)?)/g)
+                  .map(p=>p.trim()).filter(Boolean);
+  const items = [];
+  for(const part of parts){
+    const am = part.match(/^(第[一二三四五六七八九十百千\d]+條(?:之[一二三四五六七八九十\d]+)?)/);
+    if(!am) continue;
+    const article = am[1];
+    const content = part.slice(article.length).trim();
+    if(!content) continue;
+    const articleNumber = art2n(article);
+    items.push({
+      lawName: lawName||'', article, articleNumber,
+      category: category||'statute', source: source||'',
+      content, keywords: autoKeywords(content),
+      tags:[], notes:'', highlights:[], relatedLaws:[], relatedQuestions:[],
+      favorite:false, createdAt:Date.now(), updatedAt:Date.now()
     });
-    const mc=parsed.filter(q=>q.type==='mc').length;
-    const es=parsed.filter(q=>q.type==='es').length;
-    const noAns=parsed.filter(q=>q.type==='mc'&&!q.answer).length;
-    // 顯示統計
-    const statsEl=document.getElementById('bulk-stats');
-    if(statsEl) statsEl.innerHTML=
-      '<span class="tag" style="background:var(--acc2);color:#fff">'+parsed.length+' 題</span>'+
-      '<span class="tag" style="background:#1f3a5f;color:var(--acc)">選擇 '+mc+'</span>'+
-      '<span class="tag" style="background:var(--red2);color:var(--red)">申論 '+es+'</span>'+
-      (noAns?'<span class="tag" style="background:var(--org2);color:var(--org)">⚠ '+noAns+' 題未填答案</span>':'');
-    // 顯示預覽
-    const prevEl=document.getElementById('prev-list');
-    if(prevEl) prevEl.innerHTML=parsed.map(function(q){
-      const typeLabel=q.type==='mc'?'選擇題':'申論題';
-      const ansLabel=q.answer?' · 答案:'+q.answer:'';
-      const optLabel=q.type==='mc'?'<div class="pi-o">選項：'+Object.keys(q.options).join(' ')+'</div>':'';
-      const cls=q.answer||q.type==='es'?'ok':'warn';
-      return '<div class="pi '+cls+'">'+
-        '<div class="pi-n">第'+q.num+'題 · '+typeLabel+ansLabel+'</div>'+
-        '<div class="pi-s">'+esc(q.stem||'')+'</div>'+
-        optLabel+'</div>';
-    }).join('');
-    // 顯示結果區
-    const resEl=document.getElementById('bulk-result');
-    if(resEl) resEl.classList.remove('hide');
-    if(!parsed.length) toast('解析結果為0題，請確認格式');
-    else toast('解析完成：'+parsed.length+' 題 ✓');
-  }catch(err){
-    toast('解析錯誤：'+err.message);
-    console.error('parseBulk error:',err);
+  }
+  return items;
+}
+
+// ══ quiz.js — 刷題模式 ══════════════════════════════════
+// 依賴：db.js, utils.js
+
+async function startQ(mode){
+  const[qs,ats]=await Promise.all([da('questions'),da('attempts')]);
+  const wids=getWrong(qs,ats);
+  let pool=mode==='all'?[...qs]:mode==='wrong'?qs.filter(q=>wids.has(q.id)):mode==='star'?qs.filter(q=>q.starred):[...qs].sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).slice(0,30);
+  if(!pool.length){toast(mode==='wrong'?'沒有錯題！先去刷題吧':'沒有題目可練習');return;}
+  startQWithPool(pool,mode);
+}
+
+function startQWithPool(pool,mode){
+  pool=pool.sort(()=>Math.random()-.5);
+  S.quiz={q:pool,idx:0,ans:false,res:[],mode};
+  document.getElementById('qv').style.display='flex';
+  renderQCard();
+}
+
+function renderQCard(){
+  const{q,idx}=S.quiz;
+  if(idx>=q.length){showQDone();return;}
+  const cur=q[idx];
+  S.quiz.ans=false;
+  document.getElementById('qpb').style.width=(idx/q.length*100)+'%';
+  document.getElementById('qct').textContent=(idx+1)+'/'+q.length;
+  document.getElementById('qbadge').textContent=cur.type==='mc'?'選擇題':'申論題';
+  document.getElementById('qbadge').className='badge '+(cur.type==='mc'?'bmc':'bes');
+  document.getElementById('qmeta').textContent=[cur.subject,cur.year,cur.exam,cur.num?'第'+cur.num+'題':''].filter(Boolean).join(' · ');
+  document.getElementById('qstem').textContent=cur.stem||'';
+  const qstar=document.getElementById('qstar');
+  qstar.textContent=cur.starred?'★':'☆';
+  qstar.className='qfb qstar'+(cur.starred?' on':'');
+  document.getElementById('qres').className='qres';document.getElementById('qres').innerHTML='';
+  document.getElementById('qnote').style.display='none';
+  document.getElementById('qnxt').classList.add('hide');
+  document.getElementById('qfoot').style.display='flex';
+  // Related laws
+  const rl=cur.relatedLaws||[];
+  if(rl.length){document.getElementById('qlaw').style.display='block';document.getElementById('qlaw-list').innerHTML=rl.map(l=>`<span class="tag" style="color:var(--pur);cursor:pointer">⚖ ${esc(l.ref||l.lawName||'')}</span>`).join('');}
+  else document.getElementById('qlaw').style.display='none';
+  if(cur.type==='mc'){
+    document.getElementById('qes').style.display='none';
+    document.getElementById('qopts').innerHTML=Object.entries(cur.options||{}).map(([k,v])=>`<div class="qopt" id="qo-${k}" onclick="ansQ('${k}')"><div class="qok">${k}</div><div class="qov">${esc(v)}</div></div>`).join('');
+  } else {
+    document.getElementById('qopts').innerHTML='';
+    document.getElementById('qes').style.display='block';
+    document.getElementById('qrevbtn').style.display='block';
   }
 }
 
-
-async function importBulk(){
-  if(!S.bulkParsed.length){toast('請先解析題目');return;}
-  const sub=(document.getElementById('bi-sub')||{}).value||'';
-  const yr=(document.getElementById('bi-yr')||{}).value||'';
-  const ex=(document.getElementById('bi-ex')||{}).value||'';
-  const items=S.bulkParsed.map(q=>({...q,subject:sub||q.subject||'',year:yr||q.year||'',exam:ex||q.exam||''}));
-  try{
-    await bulkPut('questions',items);
-    toast('已匯入 '+items.length+' 題 ✓');
-    S.bulkParsed=[];
-    document.getElementById('bulk-result').classList.add('hide');
-    renderHome();
-  }catch(err){
-    toast('匯入失敗：'+err.message);
-  }
+function ansQ(key){
+  if(S.quiz.ans)return;S.quiz.ans=true;
+  const cur=S.quiz.q[S.quiz.idx];
+  const correct=key===cur.answer;
+  recAttempt(cur.id,correct);S.quiz.res.push({qid:cur.id,correct});
+  Object.keys(cur.options||{}).forEach(k=>{
+    const el=document.getElementById('qo-'+k);if(!el)return;
+    if(k===cur.answer)el.classList.add('correct');
+    else if(k===key&&!correct)el.classList.add('wrong');
+    else el.classList.add('dim');
+  });
+  const res=document.getElementById('qres');
+  res.className='qres on '+(correct?'c':'w');
+  res.innerHTML=`<div style="font-size:15px;font-weight:700;color:${correct?'var(--grn)':'var(--red)'}">${correct?'✓ 答對了！':'✗ 答錯了，正確答案是 '+cur.answer}</div>`;
+  if(cur.note||cur.answerEs){const n=document.getElementById('qnote');n.style.display='block';n.innerHTML=(cur.note?'📝 '+esc(cur.note)+'<br>':'')+(cur.answerEs?'💡 '+esc(cur.answerEs):'');}
+  document.getElementById('qnxt').classList.remove('hide');
 }
 
-function clearBulk(){
-  document.getElementById('bi-text').value='';
-  document.getElementById('bi-ans').value='';
-  document.getElementById('bulk-result').classList.add('hide');
-  S.bulkParsed=[];
+function revealES(){
+  if(S.quiz.ans)return;S.quiz.ans=true;
+  const cur=S.quiz.q[S.quiz.idx];
+  recAttempt(cur.id,null);
+  document.getElementById('qrevbtn').style.display='none';
+  const res=document.getElementById('qres');
+  res.className='qres on r';
+  res.innerHTML=`<div style="font-size:14px;font-weight:700;margin-bottom:7px">📖 參考解析</div><div style="font-size:14px;line-height:1.8">${esc(cur.answerEs||'（無參考解析）')}</div>${cur.note?`<div style="margin-top:7px;font-size:12px;color:var(--t2)">📝 ${esc(cur.note)}</div>`:''}`;
+  document.getElementById('qnxt').classList.remove('hide');
 }
 
-// ══ BULK LAW ══
-function showBulkLaw(){document.getElementById('blaw-ov').classList.add('on');}
-function closeBulkLaw(){document.getElementById('blaw-ov').classList.remove('on');}
-function prevBulkLaw(){
-  const text=document.getElementById('bl-text').value;
-  const name=document.getElementById('bl-name').value||'未命名';
-  const parsed=parseLawText(text,name);
-  document.getElementById('bl-prev').textContent=`預計匯入 ${parsed.length} 條`;
-}
-async function importBulkLaw(){
-  const text=document.getElementById('bl-text').value;
-  if(!text.trim()){toast('請貼入法條文字');return;}
-  const name=document.getElementById('bl-name').value.trim()||'未命名';
-  const cat=document.getElementById('bl-cat').value;
-  const src=document.getElementById('bl-src').value.trim();
-  const items=parseLawText(text,name,cat,src);
-  if(!items.length){toast('解析結果為0條，請確認格式（需有「第X條」）');return;}
-  await bulkPut('laws',items);
-  toast(`已匯入 ${items.length} 條法條`);
-  closeBulkLaw();
-  renderLaws();
+function nextQ(){S.quiz.idx++;renderQCard();}
+
+function exitQ(){document.getElementById('qv').style.display='none';}
+
+async function toggleQStar(){
+  const cur=S.quiz.q[S.quiz.idx];if(!cur)return;
+  cur.starred=!cur.starred;await dp('questions',cur);
+  const btn=document.getElementById('qstar');
+  btn.textContent=cur.starred?'★':'☆';
+  btn.className='qfb qstar'+(cur.starred?' on':'');
+  toast(cur.starred?'已收藏 ⭐':'已取消收藏');
 }
 
-// ══ ADD/EDIT QUESTION ══
+function showQDone(){
+  const{res}=S.quiz;
+  const total=res.length,correct=res.filter(r=>r.correct===true).length,wrong=res.filter(r=>r.correct===false).length;
+  const pct=total>0?Math.round(correct/(correct+wrong||1)*100):0;
+  const col=pct>=80?'var(--grn)':pct>=60?'var(--org)':'var(--red)';
+  document.getElementById('qbody').innerHTML=`<div class="qdone"><div style="font-size:52px">🎉</div><div style="font-size:21px;font-weight:700">練習完成！</div><div style="font-size:56px;font-weight:700;color:${col}">${pct}%</div><div style="color:var(--t2);font-size:13px">正確率</div><div style="display:flex;gap:20px;margin-top:4px"><div style="text-align:center"><div style="font-size:26px;font-weight:700;color:var(--grn)">${correct}</div><div style="font-size:11px;color:var(--t2)">答對</div></div><div style="text-align:center"><div style="font-size:26px;font-weight:700;color:var(--red)">${wrong}</div><div style="font-size:11px;color:var(--t2)">答錯</div></div><div style="text-align:center"><div style="font-size:26px;font-weight:700;color:var(--t2)">${total}</div><div style="font-size:11px;color:var(--t2)">共答</div></div></div><button class="btn bp bw" style="padding:15px;font-size:15px" onclick="exitQ()">返回首頁</button>${wrong>0?`<button class="btn bg bw" style="padding:13px;font-size:13px" onclick="startQ('wrong')">再練錯題 ${wrong} 題</button>`:''}</div>`;
+  document.getElementById('qfoot').style.display='none';
+  document.getElementById('qpb').style.width='100%';
+}
+
+async function recAttempt(qid,correct){await dp('attempts',{qid,correct,date:new Date().toISOString()});}
+
+
+// ══ questions.js — 題目管理 ════════════════════════════
+// 依賴：db.js, utils.js
+
+let _dupResolve=null;
+
+async function renderHome(){
+  const[qs,ls,ats]=await Promise.all([da('questions'),da('laws'),da('attempts')]);
+  const now=new Date();
+  document.getElementById('h-date').textContent=now.toLocaleDateString('zh-TW',{month:'long',day:'numeric',weekday:'short'});
+  const td=today(),tAts=ats.filter(a=>a.date?.startsWith(td));
+  const wids=getWrong(qs,ats);
+  document.getElementById('hs-q').textContent=qs.length;
+  document.getElementById('hs-l').textContent=ls.length;
+  document.getElementById('hs-t').textContent=tAts.length;
+  document.getElementById('hs-w').textContent=wids.size;
+  const plan=document.getElementById('h-plan');
+  if(!qs.length)plan.textContent='尚未新增題目，點「大量貼題」開始！';
+  else if(wids.size>0)plan.textContent=`有 ${wids.size} 題錯題待複習`;
+  else plan.textContent=`題庫 ${qs.length} 題 · 法條 ${ls.length} 條`;
+  const recent=[...qs].sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).slice(0,4);
+  document.getElementById('h-recent').innerHTML=recent.length?
+    recent.map(q=>`<div class="qc" onclick="editQ(${q.id})"><div class="qch"><span class="badge ${q.type==='mc'?'bmc':'bes'}">${q.type==='mc'?'選擇':'申論'}</span><span class="tag">${esc(q.subject||'未分類')}</span>${q.starred?'<span style="color:var(--org)">⭐</span>':''}</div><div class="qst">${esc(q.stem||'')}</div></div>`).join(''):
+    '<div class="empty"><span class="ic">📝</span><span>尚無題目</span></div>';
+  // Update datalists
+  const subs=[...new Set(qs.map(q=>q.subject).filter(Boolean))];
+  ['f-subs','bi-subs'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML=subs.map(s=>`<option value="${esc(s)}">`).join('');});
+}
+
+async function renderList(){
+  const[qs,ats]=await Promise.all([da('questions'),da('attempts')]);
+  const subs=[...new Set(qs.map(q=>q.subject).filter(Boolean))].sort();
+  const sc=document.getElementById('schips');
+  if(sc)sc.innerHTML='<button class="chip'+(S.subF==='all'?' on':'')+'" onclick="setSF(this,\'all\')">全部科目</button>'+subs.map(s=>`<button class="chip${S.subF===s?' on':''}" onclick="setSF(this,'${esc(s)}')">${esc(s)}</button>`).join('');
+  const kw=(document.getElementById('si')?.value||'').toLowerCase().trim();
+  const wids=getWrong(qs,ats);
+  let fl=qs.filter(q=>{
+    if(S.subF!=='all'&&q.subject!==S.subF)return false;
+    if(S.filter==='mc'&&q.type!=='mc')return false;
+    if(S.filter==='es'&&q.type!=='es')return false;
+    if(S.filter==='wrong'&&!wids.has(q.id))return false;
+    if(S.filter==='star'&&!q.starred)return false;
+    if(kw){const h=((q.stem||'')+(q.subject||'')+(q.keywords||[]).join(' ')+(q.tags||'')).toLowerCase();if(!h.includes(kw))return false;}
+    return true;
+  }).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+  document.getElementById('lc').textContent=`共 ${fl.length} 題`;
+  const el=document.getElementById('qlist');
+  if(!fl.length){el.innerHTML='<div class="empty"><span class="ic">🔍</span><span>沒有符合的題目</span></div>';return;}
+  el.innerHTML=fl.map(q=>{
+    const qa=ats.filter(a=>a.qid===q.id&&a.correct!==null);
+    const acc=qa.length>0?Math.round(qa.filter(a=>a.correct).length/qa.length*100):null;
+    const iw=wids.has(q.id);
+    const kws=(q.keywords||[]).slice(0,3).map(k=>`<span class="tag">${esc(k)}</span>`).join('');
+    return `<div class="qc ${iw?'wrong':''} ${q.starred?'star':''}"><div class="qch">
+      <span class="badge ${q.type==='mc'?'bmc':'bes'}">${q.type==='mc'?'選擇':'申論'}</span>
+      <span class="tag">${esc(q.subject||'未分類')}</span>
+      ${q.year?`<span class="tag">${esc(q.year)}</span>`:''}
+      ${q.starred?'<span style="color:var(--org)">⭐</span>':''}
+      ${acc!==null?`<span class="tag" style="color:${acc>=60?'var(--grn)':'var(--red)'}">${acc}%</span>`:''}
+      ${kws}</div>
+      <div class="qst">${esc(q.stem||'')}</div>
+      <div class="qa">
+        <button class="qabn" onclick="editQ(${q.id})">✏ 編輯</button>
+        <button class="qabn" onclick="toggleStar(${q.id})">${q.starred?'★ 取消':'☆ 收藏'}</button>
+        ${(q.relatedLaws||[]).length?`<button class="qabn" style="color:var(--pur)" onclick="showQLaws(${q.id})">⚖ 法條</button>`:''}
+        <button class="qabn" style="color:var(--red)" onclick="delQ(${q.id})">🗑</button>
+      </div></div>`;
+  }).join('');
+}
+
+function setF(el,v){document.querySelectorAll('#fchips .chip').forEach(c=>c.classList.remove('on'));el.classList.add('on');S.filter=v;renderList();}
+
+function setSF(el,v){document.querySelectorAll('#schips .chip').forEach(c=>c.classList.remove('on'));el.classList.add('on');S.subF=v;renderList();}
+
 function showAdd(q){
   S.editId=q?q.id:null;
   document.getElementById('add-title').textContent=q?'編輯題目':'新增題目';
@@ -1089,7 +954,9 @@ function showAdd(q){
   document.getElementById('add-ov').classList.add('on');
   setTimeout(()=>document.getElementById('f-stem').focus(),300);
 }
+
 function closeAdd(){document.getElementById('add-ov').classList.remove('on');S.editId=null;}
+
 function setQT(t){
   S.qType=t;
   document.getElementById('tmc').className='btn '+(t==='mc'?'bp':'bg');
@@ -1099,6 +966,7 @@ function setQT(t){
   document.getElementById('mc-opts').classList.toggle('hide',t!=='mc');
   document.getElementById('es-area').classList.toggle('hide',t!=='es');
 }
+
 function buildOpts(opts){
   const v=opts||{A:'',B:'',C:'',D:''};
   document.getElementById('opts-c').innerHTML=['A','B','C','D','E'].map(k=>`
@@ -1108,8 +976,8 @@ function buildOpts(opts){
     </div>`).join('');
 }
 
-
 function setCorr(k){S.correct=k;document.querySelectorAll('.cb').forEach((b,i)=>{b.classList.toggle('sel',['A','B','C','D','E'][i]===k);});}
+
 async function saveQ(){
   const stem=document.getElementById('f-stem').value.trim();
   if(!stem){toast('請填寫題目內容');return;}
@@ -1169,12 +1037,175 @@ async function saveQ(){
   if(S.page==='list')renderList();else renderHome();
 }
 
-
 async function editQ(id){const q=await dg('questions',id);if(q)showAdd(q);}
+
 async function toggleStar(id){const q=await dg('questions',id);if(!q)return;q.starred=!q.starred;await dp('questions',q);toast(q.starred?'已收藏':'已取消收藏');renderList();}
+
 function delQ(id){cfm('刪除題目','確定要刪除這道題目嗎？',async()=>{await dd('questions',id);const ats=await da('attempts','qid',id);for(const a of ats)await dd('attempts',a.id);toast('已刪除');renderList();});}
 
-// ══ ADD/EDIT LAW ══
+async function checkDuplicate(data){
+  const qs=await da('questions');
+  const stem30=(data.stem||'').slice(0,30);
+  return qs.find(q=>
+    q.id!==data.id&&(
+      (q.subject===data.subject&&q.year===data.year&&q.num&&data.num&&q.num===data.num)||
+      ((q.stem||'').slice(0,30)===stem30&&stem30.length>5)
+    )
+  )||null;
+}
+
+function showDupDialog(newData,existing){
+  return new Promise(res=>{
+    _dupResolve=res;
+    const diff='【現有題目】\n科目：'+(existing.subject||'—')+' 年度：'+(existing.year||'—')+
+      '\n題幹：'+(existing.stem||'').slice(0,80)+'…\n\n【新題目】\n科目：'+(newData.subject||'—')+
+      ' 年度：'+(newData.year||'—')+'\n題幹：'+(newData.stem||'').slice(0,80)+'…';
+    document.getElementById('dup-diff').textContent=diff;
+    document.getElementById('dup-ov').style.display='flex';
+  });
+}
+
+function dupAction(action){
+  document.getElementById('dup-ov').style.display='none';
+  if(_dupResolve){_dupResolve(action);_dupResolve=null;}
+}
+
+
+// ══ laws.js — 資料庫（法條）管理 ══════════════════════════
+// 依賴：db.js, utils.js, parser.js
+
+async function renderDB(){
+  const ls=await da('laws');
+  const kw=(document.getElementById('lsi')?.value||'').toLowerCase().trim();
+  let fl=ls.filter(l=>{
+    if(S.lawCat!=='all'&&l.category!==S.lawCat)return false;
+    if(kw){const h=((l.lawName||'')+(l.article||'')+(l.content||'')+(l.keywords||[]).join(' ')).toLowerCase();if(!h.includes(kw))return false;}
+    return true;
+  });
+
+  // 按法規名稱分組，只顯示法規名稱（摺疊）
+  const byName={};
+  fl.forEach(l=>{const n=l.lawName||'未分類';if(!byName[n])byName[n]=[];byName[n].push(l);});
+
+  const el=document.getElementById('llist');
+  if(!fl.length){el.innerHTML='<div class="empty"><span class="ic">🗄</span><span>尚無資料，點右上角新增</span></div>';return;}
+
+  el.innerHTML=Object.entries(byName).map(([name,laws])=>{
+    const cat=laws[0].category||'statute';
+    const catLabel={'statute':'法律條文','sop':'SOP','supplement':'補充資料','interpretation':'函釋','law':'法律','rule':'細則','regulation':'規範'}[cat]||cat;
+    const favCount=laws.filter(l=>l.favorite).length;
+    return `<div class="card" style="cursor:pointer;margin-bottom:6px" onclick="openLawGroup('${esc(name)}')">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:20px">${cat==='sop'?'📋':cat==='supplement'?'📄':'⚖'}</span>
+        <div style="flex:1">
+          <div style="font-size:15px;font-weight:700;color:var(--t0)">${esc(name)}</div>
+          <div style="font-size:11px;color:var(--t2);margin-top:2px">${catLabel} · ${laws.length} 條${favCount?` · ⭐${favCount}`:''}</div>
+        </div>
+        <span style="color:var(--t2);font-size:18px">›</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function renderLaws(){ return renderDB(); }
+
+function setLC(el,v){document.querySelectorAll('#lchips .chip').forEach(c=>c.classList.remove('on'));el.classList.add('on');S.lawCat=v;renderLaws();}
+
+async function openLawGroup(lawName){
+  const allLaws=await da('laws');
+  const laws=allLaws.filter(l=>l.lawName===lawName)
+    .sort((a,b)=>(a.articleNumber||0)-(b.articleNumber||0));
+  if(!laws.length)return;
+  const allNames=[...new Set(allLaws.map(l=>l.lawName).filter(Boolean))];
+  const others=allNames.filter(n=>n!==lawName).slice(0,8);
+  const cat=laws[0].category||'statute';
+  const icon=cat==='sop'?'📋':cat==='supplement'?'📄':'⚖';
+  document.getElementById('lv-name').textContent=icon+' '+lawName;
+  const sb=document.getElementById('lv-star');
+  const favN=laws.filter(l=>l.favorite).length;
+  sb.textContent=favN?'★':'☆';
+  sb.style.color=favN?'var(--org)':'var(--t2)';
+  sb.onclick=async()=>{
+    const nf=laws.filter(l=>l.favorite).length>0;
+    for(const l of laws){l.favorite=!nf;await dp('laws',l);}
+    openLawGroup(lawName);
+  };
+  // 跳轉 chips
+  const jumpHtml=others.map(n=>`<button class="chip" style="flex-shrink:0;font-size:11px" onclick="openLawGroup('${esc(n)}')">${esc(n)}</button>`).join('');
+  // 條文列表
+  const arts=laws.map(l=>`
+    <div style="margin-bottom:12px;padding:12px;background:var(--bg2);border-radius:8px;border-left:3px solid var(--pur2)">
+      <div style="font-size:14px;font-weight:700;color:var(--pur);margin-bottom:6px;display:flex;align-items:center;justify-content:space-between">
+        <span>${esc(l.article||'')}${l.title?' — '+esc(l.title):''}</span>
+        <button onclick="editLawInView(${l.id})" style="background:none;border:none;color:var(--t2);font-size:12px;cursor:pointer">✏</button>
+      </div>
+      <div style="font-size:14px;line-height:1.85;color:var(--t1)">${br(l.content||'')}</div>
+      ${(l.keywords||[]).length?'<div style="margin-top:8px">'+l.keywords.map(k=>`<span class="tag">${esc(k)}</span>`).join('')+'</div>':''}
+      ${(l.relatedLaws||[]).length?
+        '<div style="margin-top:9px;font-size:11px;color:var(--t2)">🔗 關聯法條：</div>'+
+        l.relatedLaws.map(r=>`<button class="chip" style="font-size:11px;margin:2px" onclick="showLawPop('${esc(r.ref||r.lawName||'')}')">⚖ ${esc(r.ref||r.lawName||'')}</button>`).join('')
+        :''}
+    </div>`).join('');
+  document.getElementById('lbody').innerHTML=
+    `<div style="padding:4px 0 10px">
+      ${others.length?'<div class="sec" style="padding:0 0 4px;font-size:11px">快速跳轉其他法規</div><div style="overflow-x:auto;display:flex;gap:6px;padding:6px 0">'+jumpHtml+'</div>':''}
+      <div class="sec" style="padding:8px 0 6px;font-size:11px">${esc(lawName)} · ${laws.length} 條</div>
+      ${arts}
+    </div>`;
+  document.getElementById('lv').style.display='flex';
+}
+
+async function openLaw(id){
+  const l=await dg('laws',id);if(!l)return;S.curLaw=l;
+  document.getElementById('lv-name').textContent=(l.lawName||'')+(l.article?' '+l.article:'');
+  const starBtn=document.getElementById('lv-star');
+  starBtn.textContent=l.favorite?'★':'☆';
+  starBtn.style.color=l.favorite?'var(--org)':'var(--t2)';
+  starBtn.style.background=l.favorite?'var(--org2)':'var(--bg2)';
+  starBtn.style.borderColor=l.favorite?'var(--org)':'var(--bd)';
+  const qs=await da('questions');
+  const related=qs.filter(q=>(q.relatedLaws||[]).some(rl=>rl.lawId===id));
+  document.getElementById('lbody').innerHTML=
+    `<div class="labt">${esc(l.article||'')}${l.title?' — '+esc(l.title):''}</div>`+
+    `<div class="lcntb">${br(l.content)}</div>`+
+    ((l.keywords||[]).length?'<div style="margin-top:11px">'+l.keywords.map(k=>`<span class="tag">${esc(k)}</span>`).join('')+'</div>':'')+
+    (l.source?`<div style="margin-top:7px;font-size:11px;color:var(--t2)">來源：${esc(l.source)}</div>`:'')+
+    (related.length?`<div class="sec" style="padding:14px 0 7px">相關考題（${related.length}題）</div>`+
+      related.map(q=>`<div class="qc" onclick="editQ(${q.id});exitLaw()"><div class="qst">${esc(q.stem||'')}</div><div style="font-size:11px;color:var(--t2);margin-top:3px">${esc(q.subject||'')} ${esc(q.year||'')}</div></div>`).join(''):'');
+  document.getElementById('lv').style.display='flex';
+}
+
+function exitLaw(){document.getElementById('lv').style.display='none';}
+
+async function toggleLawStar(){
+  if(!S.curLaw)return;S.curLaw.favorite=!S.curLaw.favorite;await dp('laws',S.curLaw);
+  const starBtn=document.getElementById('lv-star');
+  starBtn.textContent=S.curLaw.favorite?'★':'☆';
+  starBtn.style.color=S.curLaw.favorite?'var(--org)':'var(--t2)';
+  starBtn.style.background=S.curLaw.favorite?'var(--org2)':'var(--bg2)';
+  starBtn.style.borderColor=S.curLaw.favorite?'var(--org)':'var(--bd)';
+  toast(S.curLaw.favorite?'已收藏':'已取消收藏');
+}
+
+async function toggleLawFav(id){
+  const l=await dg('laws',id);if(!l)return;l.favorite=!l.favorite;await dp('laws',l);renderLaws();toast(l.favorite?'已收藏':'已取消收藏');}
+
+function editCurLaw(){if(S.curLaw)showAddLaw(S.curLaw);}
+
+async function quizFromLaw(){
+  if(!S.curLaw)return;exitLaw();
+  const qs=await da('questions');
+  const id=S.curLaw.id;
+  const pool=qs.filter(q=>(q.relatedLaws||[]).some(rl=>rl.lawId===id));
+  if(!pool.length){toast('此法條尚無關聯題目');return;}
+  startQWithPool(pool,'law');
+}
+
+async function editLawInView(id){
+  const l = await dg('laws',id);
+  if(l) showAddLaw(l);
+}
+
 async function showAddLaw(l, editId){
   if(editId&&!l){l=await dg('laws',editId);}
   S.editLawId=l?l.id:null;
@@ -1191,7 +1222,9 @@ async function showAddLaw(l, editId){
   if(document.getElementById('l-related'))document.getElementById('l-related').value=(l?.relatedLawRefs||[]).map(r=>(r.dir==='parent'?'↑':r.dir==='child'?'↓':r.dir==='auth'?'⇌':'→')+r.ref).join(',');
   document.getElementById('law-ov').classList.add('on');
 }
+
 function closeLawSh(){document.getElementById('law-ov').classList.remove('on');S.editLawId=null;}
+
 async function saveLaw(){
   const content=document.getElementById('l-content').value.trim();
   if(!content){toast('請填寫法條內容');return;}
@@ -1224,104 +1257,263 @@ async function saveLaw(){
   renderLaws();if(S.curLaw?.id===S.editLawId)openLaw(S.editLawId);
 }
 
-
 async function delLaw(id){cfm('刪除法條','確定要刪除這條法條嗎？',async()=>{await dd('laws',id);toast('已刪除');renderLaws();});}
 
-// ══ QUIZ ══
-async function startQ(mode){
-  const[qs,ats]=await Promise.all([da('questions'),da('attempts')]);
-  const wids=getWrong(qs,ats);
-  let pool=mode==='all'?[...qs]:mode==='wrong'?qs.filter(q=>wids.has(q.id)):mode==='star'?qs.filter(q=>q.starred):[...qs].sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).slice(0,30);
-  if(!pool.length){toast(mode==='wrong'?'沒有錯題！先去刷題吧':'沒有題目可練習');return;}
-  startQWithPool(pool,mode);
+function showBulkLaw(){document.getElementById('blaw-ov').classList.add('on');}
+
+function closeBulkLaw(){document.getElementById('blaw-ov').classList.remove('on');}
+
+function prevBulkLaw(){
+  const text=document.getElementById('bl-text').value;
+  const name=document.getElementById('bl-name').value||'未命名';
+  const parsed=parseLawText(text,name);
+  document.getElementById('bl-prev').textContent=`預計匯入 ${parsed.length} 條`;
 }
-function startQWithPool(pool,mode){
-  pool=pool.sort(()=>Math.random()-.5);
-  S.quiz={q:pool,idx:0,ans:false,res:[],mode};
-  document.getElementById('qv').style.display='flex';
-  renderQCard();
+
+async function importBulkLaw(){
+  const text=document.getElementById('bl-text').value;
+  if(!text.trim()){toast('請貼入法條文字');return;}
+  const name=document.getElementById('bl-name').value.trim()||'未命名';
+  const cat=document.getElementById('bl-cat').value;
+  const src=document.getElementById('bl-src').value.trim();
+  const items=parseLawText(text,name,cat,src);
+  if(!items.length){toast('解析結果為0條，請確認格式（需有「第X條」）');return;}
+  await bulkPut('laws',items);
+  toast(`已匯入 ${items.length} 條法條`);
+  closeBulkLaw();
+  renderLaws();
 }
-function renderQCard(){
-  const{q,idx}=S.quiz;
-  if(idx>=q.length){showQDone();return;}
-  const cur=q[idx];
-  S.quiz.ans=false;
-  document.getElementById('qpb').style.width=(idx/q.length*100)+'%';
-  document.getElementById('qct').textContent=(idx+1)+'/'+q.length;
-  document.getElementById('qbadge').textContent=cur.type==='mc'?'選擇題':'申論題';
-  document.getElementById('qbadge').className='badge '+(cur.type==='mc'?'bmc':'bes');
-  document.getElementById('qmeta').textContent=[cur.subject,cur.year,cur.exam,cur.num?'第'+cur.num+'題':''].filter(Boolean).join(' · ');
-  document.getElementById('qstem').textContent=cur.stem||'';
-  const qstar=document.getElementById('qstar');
-  qstar.textContent=cur.starred?'★':'☆';
-  qstar.className='qfb qstar'+(cur.starred?' on':'');
-  document.getElementById('qres').className='qres';document.getElementById('qres').innerHTML='';
-  document.getElementById('qnote').style.display='none';
-  document.getElementById('qnxt').classList.add('hide');
-  document.getElementById('qfoot').style.display='flex';
-  // Related laws
-  const rl=cur.relatedLaws||[];
-  if(rl.length){document.getElementById('qlaw').style.display='block';document.getElementById('qlaw-list').innerHTML=rl.map(l=>`<span class="tag" style="color:var(--pur);cursor:pointer">⚖ ${esc(l.ref||l.lawName||'')}</span>`).join('');}
-  else document.getElementById('qlaw').style.display='none';
-  if(cur.type==='mc'){
-    document.getElementById('qes').style.display='none';
-    document.getElementById('qopts').innerHTML=Object.entries(cur.options||{}).map(([k,v])=>`<div class="qopt" id="qo-${k}" onclick="ansQ('${k}')"><div class="qok">${k}</div><div class="qov">${esc(v)}</div></div>`).join('');
-  } else {
-    document.getElementById('qopts').innerHTML='';
-    document.getElementById('qes').style.display='block';
-    document.getElementById('qrevbtn').style.display='block';
+
+async function showLawPop(ref){
+  if(!ref)return;
+  const laws=await da('laws');
+  const artM=ref.match(/§?第?(\d+)條?/);
+  const artNum=artM?parseInt(artM[1]):null;
+  const namePart=ref.replace(/§?第?\d+條?/,'').replace(/§\d+/,'').trim();
+  let matched=laws.filter(l=>{
+    const ln=l.lawName||'';
+    let nm=!namePart||ln.includes(namePart)||namePart.includes(ln);
+    if(!nm){const cs=namePart.replace(/[法條例規則]/g,'').split('');if(cs.length>=2)nm=cs.every(c=>ln.includes(c));}
+    if(!nm)return false;
+    return artNum===null||l.articleNumber===artNum;
+  });
+  if(matched.length>1){const ex=matched.filter(l=>(l.lawName||'').includes(namePart));if(ex.length)matched=ex;}
+  const el=document.getElementById('lawpop-ov');if(!el)return;
+  if(!matched.length){
+    document.getElementById('lawpop-title').textContent=ref;
+    document.getElementById('lawpop-body').innerHTML=`<span style="color:var(--t2)">查無「${esc(ref)}」，請先在資料庫新增。</span>`;
+    document.getElementById('lawpop-related').innerHTML='';
+    el.style.display='flex';return;
+  }
+  const l=matched[0];
+  document.getElementById('lawpop-title').textContent=`${l.lawName||''} ${l.article||''}`;
+  document.getElementById('lawpop-body').innerHTML=br(l.content||'');
+  const rl=(l.relatedLaws||[]).map(r=>`<button class="chip" style="font-size:11px" onclick="showLawPop('${esc(r.ref||r.lawName||'')}')">⚖ ${esc(r.ref||r.lawName||'')}</button>`).join('');
+  document.getElementById('lawpop-related').innerHTML=rl?`<div style="margin-top:8px;font-size:12px;color:var(--t2)">關聯法條：</div><div style="flex-wrap:wrap;display:flex;gap:4px;margin-top:3px">${rl}</div>`:'';
+  el.style.display='flex';
+}
+
+function closeLawPop(){document.getElementById('lawpop-ov').style.display='none';}
+
+function autoDetectLawLinks(content, lawName){
+  const links=[];
+  // 偵測「依XXX第X條」「根據XXX」等授權來源
+  const authRE=/依(?:據)?[《【]?([^，。；\n《》【】]{2,15})[》】]?第([一二三四五六七八九十百千\d]+)條/g;
+  let m;
+  while((m=authRE.exec(content))!==null){
+    const ref=m[1]+'第'+m[2]+'條';
+    if(!links.find(l=>l.ref===ref)) links.push({ref,type:'auth'});
+  }
+  // 偵測「施行細則」「子法」關鍵字
+  if(/施行細則/.test(content)) links.push({ref:lawName+'施行細則',type:'child'});
+  if(/辦法/.test(content)&&/另定/.test(content)) links.push({ref:'（相關辦法）',type:'child'});
+  return links;
+}
+
+
+// ── Shims（相容舊版 onclick）──────────────────────────────
+function openLawPopupByRef(ref){ showLawPop(ref); }
+function showQLaws(qid){ toast('請在編輯題目中查看關聯法條'); }
+
+// ══ browse.js — 題目閱覽 ══════════════════════════════
+// 依賴：db.js, utils.js
+
+let _browseQs=[];
+
+async function openBrowse(){
+  _browseQs=await da('questions');
+  const subs=[...new Set(_browseQs.map(q=>q.subject).filter(Boolean))].sort();
+  const chEl=document.getElementById('br-chips');
+  if(chEl)chEl.innerHTML='<button class="chip on" onclick="setBrFilter(this,\'all\')">全部科目</button>'+
+    subs.map(s=>`<button class="chip" onclick="setBrFilter(this,'${esc(s)}')">${esc(s)}</button>`).join('');
+  const years=[...new Set(_browseQs.map(q=>q.year).filter(Boolean))].sort().reverse();
+  const yrEl=document.getElementById('br-year-chips');
+  if(yrEl)yrEl.innerHTML='<button class="chip on" onclick="setBrYear(this,\'\')">全部年度</button>'+
+    years.map(y=>`<button class="chip" onclick="setBrYear(this,'${esc(y)}')">${esc(y)}</button>`).join('');
+  window._brFilter='all';window._brYear='';
+  const kwEl=document.getElementById('br-search');if(kwEl)kwEl.value='';
+  browseSearch();
+  document.getElementById('browse-ov').style.display='flex';
+}
+
+function closeBrowse(){document.getElementById('browse-ov').style.display='none';}
+
+function browseSearch(){
+  const kw=(document.getElementById('br-search')?.value||'').toLowerCase().trim();
+  const f=window._brFilter||'all',yr=window._brYear||'';
+  let fl=_browseQs.filter(q=>{
+    if(f!=='all'&&q.subject!==f)return false;
+    if(yr&&q.year!==yr)return false;
+    if(kw){const h=((q.stem||'')+(q.subject||'')+(q.year||'')+(q.exam||'')+(q.keywords||[]).join(' ')).toLowerCase();if(!h.includes(kw))return false;}
+    return true;
+  }).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+  const el=document.getElementById('br-list');if(!el)return;
+  if(!fl.length){el.innerHTML='<div class="empty"><span class="ic">🔍</span><span>沒有符合的題目</span></div>';return;}
+  el.innerHTML=fl.map(q=>{
+    const rl=(q.relatedLaws||[]).map(l=>`<span class="tag" style="color:var(--pur);cursor:pointer" onclick="showLawPop('${esc(l.ref||l.lawName||'')}')">⚖ ${esc(l.ref||l.lawName||'')}</span>`).join('');
+    return `<div class="card" style="margin:5px 12px">
+      <div style="display:flex;align-items:center;gap:5px;margin-bottom:6px;flex-wrap:wrap">
+        <span class="badge ${q.type==='mc'?'bmc':'bes'}">${q.type==='mc'?'選擇':'申論'}</span>
+        <span class="tag">${esc(q.subject||'未分類')}</span>
+        ${q.year?`<span class="tag">${esc(q.year)}</span>`:''}
+        ${q.exam?`<span class="tag">${esc(q.exam)}</span>`:''}
+        ${q.num?`<span class="tag">第${esc(q.num)}題</span>`:''}
+        ${q.starred?'<span style="color:var(--org)">⭐</span>':''}
+      </div>
+      <div style="font-size:14px;line-height:1.65;color:var(--t1);margin-bottom:6px;word-break:break-all">${esc(q.stem||'')}</div>
+      ${q.type==='mc'?Object.entries(q.options||{}).map(([k,v])=>`<div style="font-size:12px;color:var(--t2);padding:1px 0">(${k}) ${esc(v)}</div>`).join(''):''}
+      ${q.answer?`<div style="font-size:12px;color:var(--grn);margin-top:4px;font-weight:600">答案：${esc(q.answer)}</div>`:''}
+      ${q.answerEs?`<div style="font-size:12px;color:var(--t2);margin-top:3px">解析：${esc(q.answerEs).slice(0,80)}…</div>`:''}
+      ${rl?`<div style="margin-top:6px">${rl}</div>`:''}
+    </div>`;
+  }).join('');
+}
+
+function setBrFilter(el,v){
+  document.querySelectorAll('#br-chips .chip').forEach(c=>c.classList.remove('on'));
+  el.classList.add('on');window._brFilter=v;browseSearch();
+}
+
+function setBrYear(el,yr){
+  document.querySelectorAll('#br-year-chips .chip').forEach(c=>c.classList.remove('on'));
+  el.classList.add('on');
+  S._brYear=yr;
+  browseSearch();
+}
+
+function renderBrowse(){
+  const el=document.getElementById('browse-list');
+  if(!el)return;
+  if(!_browseFiltered.length){
+    el.innerHTML='<div class="empty"><span class="ic">🔍</span><span>沒有符合的題目</span></div>';return;
+  }
+  el.innerHTML=_browseFiltered.map(q=>{
+    const laws=(q.relatedLaws||[]).map(l=>
+      `<span style="color:var(--pur);cursor:pointer;font-size:11px;text-decoration:underline"
+        onclick="openLawPopupByRef('${esc(l.ref||l.lawName||'')}')">⚖ ${esc(l.ref||l.lawName||'')}</span>`
+    ).join(' ');
+    return `<div style="background:var(--bg1);border:1px solid var(--bd);border-radius:var(--r);padding:12px;margin-bottom:7px">
+      <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:7px;align-items:center">
+        <span class="badge ${q.type==='mc'?'bmc':'bes'}">${q.type==='mc'?'選擇':'申論'}</span>
+        <span class="tag">${esc(q.subject||'未分類')}</span>
+        ${q.year?`<span class="tag">${esc(q.year)}</span>`:''}
+        ${q.exam?`<span class="tag">${esc(q.exam)}</span>`:''}
+        ${q.num?`<span class="tag">第${esc(q.num)}題</span>`:''}
+        ${q.starred?'<span style="color:var(--org)">⭐</span>':''}
+      </div>
+      <div style="font-size:14px;line-height:1.7;color:var(--t1);margin-bottom:8px">${esc(q.stem||'')}</div>
+      ${q.type==='mc'?`<div style="font-size:12px;color:var(--t2)">${Object.entries(q.options||{}).map(([k,v])=>`<div>(${k}) ${esc(v)}</div>`).join('')}</div>`:''}
+      ${q.answer?`<div style="margin-top:6px;font-size:12px;font-weight:700;color:var(--grn)">答案：${esc(q.answer)}</div>`:''}
+      ${q.answerEs?`<div style="margin-top:6px;font-size:12px;color:var(--t2);line-height:1.6">💡 ${esc(q.answerEs)}</div>`:''}
+      ${(q.relatedLaws||[]).length?`<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">${laws}</div>`:''}
+      ${(q.keywords||[]).length?`<div style="margin-top:6px">${q.keywords.map(k=>`<span class="tag">${esc(k)}</span>`).join('')}</div>`:''}
+    </div>`;
+  }).join('');
+}
+
+
+// ══ bulk.js — 大量貼題 ════════════════════════════════
+// 依賴：db.js, utils.js, parser.js
+
+function parseBulk(){
+  try{
+    console.log('[parseBulk] 開始執行');
+    const biEl=document.getElementById('bi-text');
+    if(!biEl){toast('找不到輸入框');return;}
+    const text=biEl.value||'';
+    if(!text.trim()){toast('請先在下方文字框貼入題目文字');return;}
+    const parsed=parseBulkText(text);
+    S.bulkParsed=parsed;
+    // 套用答案列
+    const ansStr=(document.getElementById('bi-ans')||{}).value||'';
+    const ansMap=parseAnswerStr(ansStr);
+    parsed.forEach((q,i)=>{
+      const n=parseInt(q.num)||i+1;
+      if(ansMap[n])q.answer=ansMap[n];
+    });
+    const mc=parsed.filter(q=>q.type==='mc').length;
+    const es=parsed.filter(q=>q.type==='es').length;
+    const noAns=parsed.filter(q=>q.type==='mc'&&!q.answer).length;
+    // 顯示統計
+    const statsEl=document.getElementById('bulk-stats');
+    if(statsEl) statsEl.innerHTML=
+      '<span class="tag" style="background:var(--acc2);color:#fff">'+parsed.length+' 題</span>'+
+      '<span class="tag" style="background:#1f3a5f;color:var(--acc)">選擇 '+mc+'</span>'+
+      '<span class="tag" style="background:var(--red2);color:var(--red)">申論 '+es+'</span>'+
+      (noAns?'<span class="tag" style="background:var(--org2);color:var(--org)">⚠ '+noAns+' 題未填答案</span>':'');
+    // 顯示預覽
+    const prevEl=document.getElementById('prev-list');
+    if(prevEl) prevEl.innerHTML=parsed.map(function(q){
+      const typeLabel=q.type==='mc'?'選擇題':'申論題';
+      const ansLabel=q.answer?' · 答案:'+q.answer:'';
+      const optLabel=q.type==='mc'?'<div class="pi-o">選項：'+Object.keys(q.options).join(' ')+'</div>':'';
+      const cls=q.answer||q.type==='es'?'ok':'warn';
+      return '<div class="pi '+cls+'">'+
+        '<div class="pi-n">第'+q.num+'題 · '+typeLabel+ansLabel+'</div>'+
+        '<div class="pi-s">'+esc(q.stem||'')+'</div>'+
+        optLabel+'</div>';
+    }).join('');
+    // 顯示結果區
+    const resEl=document.getElementById('bulk-result');
+    if(resEl) resEl.classList.remove('hide');
+    if(!parsed.length) toast('解析結果為0題，請確認格式');
+    else toast('解析完成：'+parsed.length+' 題 ✓');
+  }catch(err){
+    toast('解析錯誤：'+err.message);
+    console.error('parseBulk error:',err);
   }
 }
-function ansQ(key){
-  if(S.quiz.ans)return;S.quiz.ans=true;
-  const cur=S.quiz.q[S.quiz.idx];
-  const correct=key===cur.answer;
-  recAttempt(cur.id,correct);S.quiz.res.push({qid:cur.id,correct});
-  Object.keys(cur.options||{}).forEach(k=>{
-    const el=document.getElementById('qo-'+k);if(!el)return;
-    if(k===cur.answer)el.classList.add('correct');
-    else if(k===key&&!correct)el.classList.add('wrong');
-    else el.classList.add('dim');
-  });
-  const res=document.getElementById('qres');
-  res.className='qres on '+(correct?'c':'w');
-  res.innerHTML=`<div style="font-size:15px;font-weight:700;color:${correct?'var(--grn)':'var(--red)'}">${correct?'✓ 答對了！':'✗ 答錯了，正確答案是 '+cur.answer}</div>`;
-  if(cur.note||cur.answerEs){const n=document.getElementById('qnote');n.style.display='block';n.innerHTML=(cur.note?'📝 '+esc(cur.note)+'<br>':'')+(cur.answerEs?'💡 '+esc(cur.answerEs):'');}
-  document.getElementById('qnxt').classList.remove('hide');
-}
-function revealES(){
-  if(S.quiz.ans)return;S.quiz.ans=true;
-  const cur=S.quiz.q[S.quiz.idx];
-  recAttempt(cur.id,null);
-  document.getElementById('qrevbtn').style.display='none';
-  const res=document.getElementById('qres');
-  res.className='qres on r';
-  res.innerHTML=`<div style="font-size:14px;font-weight:700;margin-bottom:7px">📖 參考解析</div><div style="font-size:14px;line-height:1.8">${esc(cur.answerEs||'（無參考解析）')}</div>${cur.note?`<div style="margin-top:7px;font-size:12px;color:var(--t2)">📝 ${esc(cur.note)}</div>`:''}`;
-  document.getElementById('qnxt').classList.remove('hide');
-}
-function nextQ(){S.quiz.idx++;renderQCard();}
-async function toggleQStar(){
-  const cur=S.quiz.q[S.quiz.idx];if(!cur)return;
-  cur.starred=!cur.starred;await dp('questions',cur);
-  const btn=document.getElementById('qstar');
-  btn.textContent=cur.starred?'★':'☆';
-  btn.className='qfb qstar'+(cur.starred?' on':'');
-  toast(cur.starred?'已收藏 ⭐':'已取消收藏');
-}
-function exitQ(){document.getElementById('qv').style.display='none';}
-function showQDone(){
-  const{res}=S.quiz;
-  const total=res.length,correct=res.filter(r=>r.correct===true).length,wrong=res.filter(r=>r.correct===false).length;
-  const pct=total>0?Math.round(correct/(correct+wrong||1)*100):0;
-  const col=pct>=80?'var(--grn)':pct>=60?'var(--org)':'var(--red)';
-  document.getElementById('qbody').innerHTML=`<div class="qdone"><div style="font-size:52px">🎉</div><div style="font-size:21px;font-weight:700">練習完成！</div><div style="font-size:56px;font-weight:700;color:${col}">${pct}%</div><div style="color:var(--t2);font-size:13px">正確率</div><div style="display:flex;gap:20px;margin-top:4px"><div style="text-align:center"><div style="font-size:26px;font-weight:700;color:var(--grn)">${correct}</div><div style="font-size:11px;color:var(--t2)">答對</div></div><div style="text-align:center"><div style="font-size:26px;font-weight:700;color:var(--red)">${wrong}</div><div style="font-size:11px;color:var(--t2)">答錯</div></div><div style="text-align:center"><div style="font-size:26px;font-weight:700;color:var(--t2)">${total}</div><div style="font-size:11px;color:var(--t2)">共答</div></div></div><button class="btn bp bw" style="padding:15px;font-size:15px" onclick="exitQ()">返回首頁</button>${wrong>0?`<button class="btn bg bw" style="padding:13px;font-size:13px" onclick="startQ('wrong')">再練錯題 ${wrong} 題</button>`:''}</div>`;
-  document.getElementById('qfoot').style.display='none';
-  document.getElementById('qpb').style.width='100%';
-}
-async function recAttempt(qid,correct){await dp('attempts',{qid,correct,date:new Date().toISOString()});}
 
-// ══ STATS ══
-let _dc=null;
+async function importBulk(){
+  if(!S.bulkParsed.length){toast('請先解析題目');return;}
+  const sub=(document.getElementById('bi-sub')||{}).value||'';
+  const yr=(document.getElementById('bi-yr')||{}).value||'';
+  const ex=(document.getElementById('bi-ex')||{}).value||'';
+  const items=S.bulkParsed.map(q=>({...q,subject:sub||q.subject||'',year:yr||q.year||'',exam:ex||q.exam||''}));
+  try{
+    await bulkPut('questions',items);
+    toast('已匯入 '+items.length+' 題 ✓');
+    S.bulkParsed=[];
+    document.getElementById('bulk-result').classList.add('hide');
+    renderHome();
+  }catch(err){
+    toast('匯入失敗：'+err.message);
+  }
+}
+
+function clearBulk(){
+  document.getElementById('bi-text').value='';
+  document.getElementById('bi-ans').value='';
+  document.getElementById('bulk-result').classList.add('hide');
+  S.bulkParsed=[];
+}
+
+
+// ══ stats.js — 統計與 AI 匯出 ═════════════════════════
+// 依賴：db.js, utils.js
+
+let _dchart=null;
+
 async function renderStats(){
   const[qs,ats]=await Promise.all([da('questions'),da('attempts')]);
   const mcAts=ats.filter(a=>a.correct!==null);
@@ -1357,7 +1549,6 @@ async function renderStats(){
   document.getElementById('kw-cloud').innerHTML=topKws.map(([kw,cnt])=>`<span class="tag" style="font-size:${Math.min(10+cnt,16)}px;background:${cnt>=5?'var(--acc2)':'var(--bg3)'};color:${cnt>=5?'#fff':'var(--t2)'}">${esc(kw)} ${cnt}</span>`).join('');
 }
 
-// ══ AI EXPORT ══
 async function buildAI(){
   const[qs,ats,ls]=await Promise.all([da('questions'),da('attempts'),da('laws')]);
   const mcAts=ats.filter(a=>a.correct!==null);
@@ -1422,30 +1613,35 @@ ${subStats.filter(s=>s.accuracy!==null&&s.accuracy<70).slice(0,3).map(s=>`- 加�
   document.getElementById('ai-out').scrollIntoView({behavior:'smooth'});
   toast('AI分析完成！');
 }
+
 function copyAI(type){
   const text=type==='md'?S.aiMd:S.aiJson;
   if(!text){toast('請先點「AI匯出」');return;}
   navigator.clipboard.writeText(text).then(()=>toast('已複製到剪貼簿！')).catch(()=>{const ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);toast('已複製！');});
 }
+
 function dlAI(type){
   if(type==='md'){if(!S.aiMd){toast('請先點「AI匯出」');return;}dl(S.aiMd,'警察考試分析_'+today()+'.md','text/markdown');}
   else{if(!S.aiJson){toast('請先點「AI匯出」');return;}dl(S.aiJson,'警察考試分析_'+today()+'.json','application/json');}
 }
-// Fix variable name typo in buildAI
-const subjectStats=[];
 
-// ══ SETTINGS ══
+
+// ══ settings.js — 設定與匯出 ══════════════════════════
+// 依賴：db.js, utils.js
+
 async function renderSet(){
   const[qs,ats,ls]=await Promise.all([da('questions'),da('attempts'),da('laws')]);
   document.getElementById('exp-info').textContent=`${qs.length} 題 · ${ls.length} 條法條 · ${ats.length} 筆作答`;
   const subs=[...new Set(qs.map(q=>q.subject).filter(Boolean))];
   document.getElementById('db-info').innerHTML=`總題數：${qs.length}<br>法條數：${ls.length}<br>作答記錄：${ats.length}<br>科目：${subs.join('、')||'無'}<br>題型：選擇 ${qs.filter(q=>q.type==='mc').length} / 申論 ${qs.filter(q=>q.type==='es').length}`;
 }
+
 async function expJSON(){
   const[qs,ats,ls]=await Promise.all([da('questions'),da('attempts'),da('laws')]);
   dl(JSON.stringify({version:2,exportedAt:new Date().toISOString(),questions:qs,laws:ls,attempts:ats},null,2),'警察考題庫_'+today()+'.json','application/json');
   toast('已匯出 JSON');
 }
+
 async function impJSON(e){
   const file=e.target.files[0];if(!file)return;
   try{const data=JSON.parse(await file.text());let n=0;
@@ -1455,16 +1651,19 @@ async function impJSON(e){
     toast(`已匯入 ${n} 題`);e.target.value='';renderSet();
   }catch(err){toast('匯入失敗：'+err.message);}
 }
+
 async function expWrong(){
   const[qs,ats]=await Promise.all([da('questions'),da('attempts')]);
   const wids=getWrong(qs,ats);const wqs=qs.filter(q=>wids.has(q.id));
   if(!wqs.length){toast('目前沒有錯題');return;}
   dl(buildHTML(wqs,'錯題整理'),'警察考題_錯題_'+today()+'.html','text/html');toast(`匯出 ${wqs.length} 題`);
 }
+
 async function expAll(){
   const qs=await da('questions');if(!qs.length){toast('題庫是空的');return;}
   dl(buildHTML(qs,'警察考題庫'),'警察考題庫_'+today()+'.html','text/html');toast(`匯出 ${qs.length} 題`);
 }
+
 function buildHTML(qs,title){
   const grp={};qs.forEach(q=>{const s=q.subject||'未分類';if(!grp[s])grp[s]=[];grp[s].push(q);});
   const d=new Date().toLocaleDateString('zh-TW');
@@ -1481,19 +1680,45 @@ function buildHTML(qs,title){
       out+='</div>';
     });
   });
-  return out+'
+  return out+'</body></html>';
+}
 
-<!-- ══ 模組載入順序（注意依賴關係） ══ -->
-<script src="db.js"></script>
-<script src="utils.js"></script>
-<script src="parser.js"></script>
-<script src="quiz.js"></script>
-<script src="questions.js"></script>
-<script src="laws.js"></script>
-<script src="browse.js"></script>
-<script src="bulk.js"></script>
-<script src="stats.js"></script>
-<script src="settings.js"></script>
-<script src="nav.js"></script>
+
+async function clearAts(){
+  await dc('attempts');
+  toast('作答記錄已清除');
+  renderSet();
+}
+
+async function delAll(){
+  await dc('questions');
+  await dc('attempts');
+  await dc('laws');
+  toast('已全部刪除');
+  renderSet();
+}
+
+// ══ nav.js — 導覽與初始化 ══════════════════════════════
+// 依賴：全部模組
+
+function goPage(pg,btn){
+  document.querySelectorAll('.page').forEach(p=>p.classList.add('hide'));
+  document.querySelectorAll('.nb').forEach(b=>b.classList.remove('on'));
+  const el=document.getElementById('pg-'+pg);if(el)el.classList.remove('hide');
+  if(btn)btn.classList.add('on');
+  else{const b=document.querySelector(`.nb[onclick*="'${pg}'"]`);if(b)b.classList.add('on');}
+  S.page=pg;
+  ({home:renderHome,list:renderList,laws:renderDB,db:renderDB,stats:renderStats,set:renderSet,bulk:()=>{}})[pg]?.();
+}
+
+async function init(){
+  await initDB();
+  buildOpts({});
+  goPage('home',document.querySelector('.nb'));
+}
+init();
+
+
+</script>
 </body>
 </html>
