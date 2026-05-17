@@ -976,105 +976,173 @@ function normalizeOptions(text){
 }
 
 // ── 3. parseQuestions 主解析函式 ───────────────────────────
+// ═══════════════════════════════════════════════════════════════════
+// 新解析邏輯：按用戶指定的規則
+// 規則1：行首是數字 → 題號，題幹讀到 ？ 或 ： 為止
+// 規則2：行首是不明符號（重複出現）→ 選項分隔
+// 規則3：選項跨行 → 遇到下一個符號前都追加到同一選項
+// 規則4：(A)(B)/①② 等已知符號照常辨識
+// 規則5：題目/選項內空格跳行整理整齊
+// ═══════════════════════════════════════════════════════════════════
+
+
+
+// ─────── 輔助：找題幹結尾（？ 或 ：）的位置 ──────────────────────
+function _findQEnd(str){
+  // 找第一個「？」「?」「：」「:」的位置
+  for(let i=0;i<str.length;i++){
+    if(str[i]==='？'||str[i]==='?'||str[i]==='：'||str[i]===':') return i;
+  }
+  return -1;
+}
+
+// ─────── 整理文字：去多餘空白、標點後空格 ─────────────────────────
+function _tidyText(s){
+  if(!s) return '';
+  return cleanSpaces(
+    s.replace(/\s+/g,' ')
+     .replace(/([，。！？、：；,.!?:;])\s+/g,'$1')
+     .trim()
+  );
+}
+
 function parseQuestions(rawText){
   if(!rawText||!rawText.trim()) return [];
 
-  // 前處理
-  let text=preprocessQuestionText(rawText);
+  // ★ 直接呼叫 preprocessQuestionText（含 OPT_SYMBOL_MAP、行首符號偵測、？/：切行等）
+  let t = preprocessQuestionText(rawText);
 
-  // 中文題號轉換
-  const ZH={'一':'1','二':'2','三':'3','四':'4','五':'5','六':'6','七':'7','八':'8','九':'9','十':'10'};
-  text=text.replace(/^([一二三四五六七八九十]+)[、．。.]/gm,(_,n)=>(ZH[n]||n)+'. ');
-  text=text.replace(/^Q\s*(\d+)[.、]?\s*/gim,'$1. ');
-  text=text.replace(/^第\s*(\d+)\s*題[.、]?\s*/gim,'$1. ');
+  // 中文題號：一、二、 → 1. 2.（preprocessQuestionText 未處理）
+  const ZH={'一':'1','二':'2','三':'3','四':'4','五':'5',
+             '六':'6','七':'7','八':'8','九':'9','十':'10'};
+  t=t.replace(/^([一二三四五六七八九十]+)[、．。.]/gm,(_,n)=>(ZH[n]||n)+'. ');
 
-  // 對每題的 §OPT§ 重置計數（用特殊佔位，稍後替換）
-  // 先切題，各題內部再處理 §OPT§
-  // 切題：數字+標點 OR 數字+空格+題幹關鍵字
-  const Q_SPLIT=/(?=(?:^|\n)\s*(?:\d{1,3}[.、．）)）]|[（(]\d{1,3}[）)]|第\d{1,3}題|Q\d{1,3}[.．]|\d{1,3} (?=[\u4e00-\u9fff（(](?:.{5,}|.+?[？?：:])))\s*[^\s])/gm;
-  const blocks=('\n'+text).split(Q_SPLIT)
-    .map(b=>b.trim()).filter(b=>b.length>2);
-
+  // ── 逐行解析 ─────────────────────────────────────────────────────
+  const allLines=t.split('\n').map(l=>l.trim()).filter(Boolean);
   const questions=[];
-  for(const block of blocks){
-    const q=parseOneBlock(block);
-    if(q) questions.push(q);
+  let curQ=null, curOptKey=null, optIdx=0;
+  const OPT_KEYS=['A','B','C','D','E','F','G','H'];
+
+  function finishQ(){
+    if(!curQ) return;
+    curQ.stem=_tidyText(curQ.stem);
+    Object.keys(curQ.options).forEach(k=>{ curQ.options[k]=_tidyText(curQ.options[k]); });
+    curQ.type=Object.keys(curQ.options).length>=2?'mc':'es';
+    if(curQ.stem) questions.push(curQ);
+    curQ=null; curOptKey=null; optIdx=0;
   }
-  return questions;
-}
 
-// ── 4. parseOneBlock 單題解析 ───────────────────────────────
-function parseOneBlock(block){
-  // 每個 block 獨立處理 §OPT§ 計數
-  let idx=0;
-  const KEYS=['A','B','C','D','E'];
-  let b=block.replace(/§OPT§/g,()=>'§'+(KEYS[idx++]||'?')+'§ ');
+  function newQ(num, stemStart){
+    finishQ();
+    curQ={
+      num, stem:stemStart, type:'es', options:{},
+      answer:'', answerEs:'', keywords:[], mustKeywords:[], tags:[],
+      note:'', starred:false, createdAt:Date.now(),
+      reviewLevel:0, nextReview:Date.now(), lastReview:null,
+      wrongCount:0, correctStreak:0, difficultyScore:5,
+    };
+    curOptKey=null; optIdx=0;
+  }
 
-  // 行首 (A 和 A. 標準化
-  b=b.replace(/^[（(]\s*([A-Ea-e])\s+/gm,(_,k)=>'§'+k.toUpperCase()+'§ ');
-  b=b.replace(/^([A-Ea-e])[.、．]\s*/gm,(_,k)=>'§'+k.toUpperCase()+'§ ');
+  function addOpt(content){
+    if(!curQ||!content.trim()) return;
+    const key=OPT_KEYS[optIdx++]||'?';
+    curQ.options[key]=content.trim();
+    curOptKey=key;
+  }
 
-  const lines=b.split('\n');
-  let num='?', stem='';
-  const options={};
-  let curKey=null;
-
-  for(let i=0;i<lines.length;i++){
-    const t=lines[i].trim();
-    if(!t) continue;
-
-    // 選項行
-    const optM=t.match(/^§([A-E])§\s*(.*)/);
-    if(optM){
-      const key=optM[1];
-      options[key]=optM[2].trim();
-      curKey=key;
-      // 下一行若不是選項/題號，繼續追加
-      continue;
-    }
-
-    // 題號行
-    const qM=t.match(/^(\d{1,3})[.、．）)]\s*(.*)/)
-      ||t.match(/^[（(](\d{1,3})[）)]\s*(\S.*)/) ; // 支援 (1)題目 格式
-    if(qM&&i===0){
-      num=qM[1]; stem=qM[2].trim();
-      curKey=null;
-      continue;
-    }
-
-    // 「1 題目」空格格式
-    const qSpaceM=(i===0&&!curKey)?t.match(/^(\d{1,3})\s+(\S.{2,})/):null;
-    if(qSpaceM&&parseInt(qSpaceM[1])<=500){
-      num=qSpaceM[1]; stem=qSpaceM[2].trim();
-      curKey=null;
-      continue;
-    }
-
-    // 追加
-    if(curKey&&options[curKey]!==undefined){
-      options[curKey]+=' '+t;
+  function appendLine(text){
+    if(!curQ||!text.trim()) return;
+    if(curOptKey && curQ.options[curOptKey]!==undefined){
+      // 【規則3】選項跨行：合併到當前選項
+      curQ.options[curOptKey]+=' '+text;
     } else {
-      stem+=(stem?' ':'')+t;
+      // 【規則3】題幹跨行：合併到題幹
+      curQ.stem+=(curQ.stem?' ':'')+text;
     }
   }
 
-  const optCount=Object.keys(options).length;
-  const finalStem=cleanSpaces(stem.trim());
-  if(!finalStem) return null;
+  for(const line of allLines){
+    // ── 已知字母選項 §A§ §B§ ─────────────────────────────────────
+    const mAlpha=line.match(/^§([A-E])§\s*(.*)/);
+    if(mAlpha){
+      if(!curQ) continue;
+      const key=mAlpha[1];
+      if(curQ.options[key]!==undefined){
+        curQ.options[key]+=' '+mAlpha[2]; // 跨行追加
+      } else {
+        curQ.options[key]=mAlpha[2].trim();
+        const ki=OPT_KEYS.indexOf(key);
+        if(ki>=optIdx) optIdx=ki+1;
+      }
+      curOptKey=key;
+      continue;
+    }
 
-  return {
-    num, type:optCount>=2?'mc':'es',
-    stem:finalStem,
-    options:Object.fromEntries(Object.entries(options).map(([k,v])=>[k,cleanSpaces(v.trim())])),
-    answer:'', answerEs:'',
-    keywords:autoKeywords(finalStem),
-    mustKeywords:autoKeywords(finalStem),
-    tags:[], note:'', starred:false,
-    createdAt:Date.now(),
-    reviewLevel:0, nextReview:Date.now(), lastReview:null,
-    wrongCount:0, correctStreak:0, difficultyScore:5,
-  };
+    // ── §OPT§ 未命名選項 ──────────────────────────────────────────
+    const mAnon=line.match(/^§OPT§\s*(.*)/);
+    if(mAnon){
+      if(!curQ){ continue; }
+      let optContent=mAnon[1];
+      // 【選項夾題號】：若選項內容含「...？ 數字 中文長句」→ 切出下一題
+      const hiddenNumM=optContent.match(/^(.*?[？?：:])[\s]*(\d{1,3})[.\s]([\u4e00-\u9fff（(].{4,})$/s);
+      if(hiddenNumM){
+        // 選項只取 ？ 前的部分
+        addOpt(hiddenNumM[1].trim());
+        // ？後面的是新題
+        const rest=hiddenNumM[3].trim();
+        const endIdx2=_findQEnd(rest);
+        const stemP=endIdx2>=0?rest.slice(0,endIdx2+1):rest;
+        const after2=endIdx2>=0?rest.slice(endIdx2+1).trim():'';
+        newQ(hiddenNumM[2], stemP);
+        if(after2) appendLine(after2);
+      } else {
+        addOpt(optContent);
+      }
+      continue;
+    }
+
+    // ── 【規則1】行首數字 → 新題目 ───────────────────────────────
+    const mNum=line.match(/^(\d{1,3})(?:[.、．）)）]\s*|\s+)([\s\S]+)/);
+    if(mNum && parseInt(mNum[1])<=500){
+      const num=mNum[1];
+      const rest=mNum[2].trim();
+      // 【規則1】找題幹結尾（？ 或 ：）
+      const endIdx=_findQEnd(rest);
+      const stemPart=endIdx>=0 ? rest.slice(0,endIdx+1) : rest;
+      const after=endIdx>=0 ? rest.slice(endIdx+1).trim() : '';
+      newQ(num, stemPart);
+      // ？/：後面可能還有選項內容（同行）
+      if(after) appendLine(after);
+      continue;
+    }
+
+    // ── 中文題號 一、二、 ────────────────────────────────────────
+    const mZh=line.match(/^([一二三四五六七八九十]+)[、．。]\s*([\s\S]+)/);
+    if(mZh && ZH[mZh[1]]){
+      const rest=mZh[2].trim();
+      const endIdx=_findQEnd(rest);
+      newQ(ZH[mZh[1]], endIdx>=0 ? rest.slice(0,endIdx+1) : rest);
+      continue;
+    }
+
+    // ── 其他行：追加到選項或題幹 ────────────────────────────────
+    appendLine(line);
+  }
+
+  finishQ();
+
+  return questions.map(q=>({
+    ...q,
+    keywords: autoKeywords(q.stem),
+    mustKeywords: [],
+    searchBlob: ((q.stem||'')+' '+(autoKeywords(q.stem)||[]).join(' ')).toLowerCase(),
+  }));
 }
+
+// parseOneBlock 保留空殼（不再使用）
+function parseOneBlock(block){ return null; }
+
 
 // ── 5. parseAnswerStr ────────────────────────────────────────
 function parseAnswerStr(str){
@@ -3319,7 +3387,9 @@ async function init(){
 init().then(()=>{ if(typeof applyCustomIcons==="function")applyCustomIcons(); });
 
 
-if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('./sw.js').catch(()=>{});}); }
+
+if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('./sw.js').catch(()=>{});});}
+
 </script>
 </body>
 </html>
