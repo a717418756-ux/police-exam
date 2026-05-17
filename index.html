@@ -859,6 +859,14 @@ function preprocessQuestionText(text){
 
   // 全形括號選項：（A）(A) → §A§
   t=t.replace(/[（(]\s*([A-Ea-e])\s*[）)]/g,(_,k)=>'§'+k.toUpperCase()+'§');
+  // 數字括號選項：(1)(2)(3)(4) → §A§§B§§C§§D§
+  // 只在沒有字母選項(A)(B)(C)(D)的情況下才啟用（有字母選項時 (1) 是題號）
+  if(!/[（(][A-Ea-e][）)]/.test(t) && !/[§][A-E][§]/.test(t)){
+    t=t.replace(/(?:^|(?<=\n))[（(]([1-4１-４])[）)]\s*/gm,(_,n)=>{
+      const MAP={'1':'A','2':'B','3':'C','4':'D','１':'A','２':'B','３':'C','４':'D'};
+      return '\n§'+(MAP[n]||n)+'§ ';
+    });
+  }
 
   // 讓選項各自換行（§OPT§ 和 §A§ 前後加換行）
   t=t.replace(/([^\n])§OPT§/g,'$1\n§OPT§');
@@ -909,7 +917,7 @@ function parseQuestions(rawText){
 
   // 對每題的 §OPT§ 重置計數（用特殊佔位，稍後替換）
   // 先切題，各題內部再處理 §OPT§
-  const Q_SPLIT=/(?=(?:^|\n)\s*\d{1,3}[.、．）)]\s*\S)/gm;
+  const Q_SPLIT=/(?=(?:^|\n)\s*(?:\d{1,3}(?:[.、．）)]|\s+\S)|[（(]\d{1,3}[）)]\s*\S))/gm;
   const blocks=('\n'+text).split(Q_SPLIT)
     .map(b=>b.trim()).filter(b=>b.length>2);
 
@@ -952,7 +960,8 @@ function parseOneBlock(block){
     }
 
     // 題號行
-    const qM=t.match(/^(\d{1,3})[.、．）)]\s*(.*)/);
+    const qM=t.match(/^(\d{1,3})[.、．）)]\s*(.*)/)
+      ||t.match(/^[（(](\d{1,3})[）)]\s*(\S.*)/) ; // 支援 (1)題目 格式
     if(qM&&i===0){
       num=qM[1]; stem=qM[2].trim();
       curKey=null;
