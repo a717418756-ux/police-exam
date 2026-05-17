@@ -289,7 +289,7 @@ textarea{resize:vertical;line-height:1.65}
   <div class="srow"><div><div class="slb" style="color:var(--red)">清除作答記錄</div><div class="ssb">保留題目</div></div>
   <button class="btn br" style="padding:6px 10px;font-size:12px" onclick="cfm('清除作答記錄','確定清除？',clearAts)">清除</button></div>
   <div class="srow"><div><div class="slb" style="color:var(--red)">刪除全部題目</div><div class="ssb">無法復原</div></div><button class="btn br" style="padding:6px 10px;font-size:12px" onclick="cfm('刪除全部題目','無法復原，確定嗎？',delAll)">全刪</button></div>
-  <div style="text-align:center;padding:20px;font-size:11px;color:var(--t2)">考題庫 v11505171</div>
+  <div style="text-align:center;padding:20px;font-size:11px;color:var(--t2)">考題庫 v11505172</div>
 </div>
 <nav class="nav">
   <button class="nb on" onclick="goPage('home',this)"><span class="ic">🏠</span>首頁</button>
@@ -942,21 +942,7 @@ function preprocessQuestionText(text){
   // 【重要】選項行中間夾著下一個題號時，在題號前插入換行
   // 例：「§OPT§ 休息日 11 行政執行...？」→ 在「11」前換行
   // 中文清理後標點已變 ASCII（，→, ？→?），所以用寬鬆匹配
-  // 【題幹結尾訊號強化】
-  // 利用「？」「?」「：」「:」這些題幹結尾符號，精確定位下一題號的位置
-  // A. 任意行中：「？/: 空格 數字 空格 中文」→ 在數字前切行（最常見場景）
-  t=t.replace(/([？?：:])\s*(\d{1,3})\s+([\u4e00-\u9fff（(][^\n]{4,})/g,
-    (_,end,num,rest)=>end+'\n'+num+'. '+rest);
-  // B. 任意行中：「？/: 數字 標點」→ 切（如「？11.題目」無空格）
-  t=t.replace(/([？?：:])\s*(\d{1,3})([.、．])/g,
-    (_,end,num,punct)=>end+'\n'+num+punct);
-
-  // 條件1：§OPT§ 行中，「空格+數字+標點+中文」→ 切（數字.題目格式）
-  t=t.replace(/^(§OPT§[^\n]*?) (\d{1,3})([.、．）)）]\s*[\u4e00-\u9fff（(])/gm,
-    (_,opt,num,rest)=>opt+'\n'+num+rest);
-  // 條件2：§OPT§ 行中，「空格+數字+空格+中文長句（5字以上）」→ 切
-  t=t.replace(/^(§OPT§[^\n]+?) (\d{1,3}) ([\u4e00-\u9fff].{5,})$/gm,
-    (_,opt,num,rest)=>opt+'\n'+num+'. '+rest);
+  // 選項夾題號由使用者自行換行（不自動切割）
 
   return t.trim();
 }
@@ -1083,22 +1069,8 @@ function parseQuestions(rawText){
     const mAnon=line.match(/^§OPT§\s*(.*)/);
     if(mAnon){
       if(!curQ){ continue; }
-      let optContent=mAnon[1];
-      // 【選項夾題號】：若選項內容含「...？ 數字 中文長句」→ 切出下一題
-      const hiddenNumM=optContent.match(/^(.*?[？?：:])[\s]*(\d{1,3})[.\s]([\u4e00-\u9fff（(].{4,})$/s);
-      if(hiddenNumM){
-        // 選項只取 ？ 前的部分
-        addOpt(hiddenNumM[1].trim());
-        // ？後面的是新題
-        const rest=hiddenNumM[3].trim();
-        const endIdx2=_findQEnd(rest);
-        const stemP=endIdx2>=0?rest.slice(0,endIdx2+1):rest;
-        const after2=endIdx2>=0?rest.slice(endIdx2+1).trim():'';
-        newQ(hiddenNumM[2], stemP);
-        if(after2) appendLine(after2);
-      } else {
-        addOpt(optContent);
-      }
+      const optContent=mAnon[1];
+      addOpt(optContent);
       continue;
     }
 
