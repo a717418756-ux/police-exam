@@ -866,11 +866,21 @@ function preprocessQuestionText(text){
       .sort((a,b)=>b[1]-a[1]);
     if(detected.length>0){
       detected.forEach(([sep])=>{
-        // 在每個出現行首的符號前插入換行並替換為 §OPT§
+        // 行首符號替換為 §OPT§
+        // 同時處理行中出現的同一符號（如「▩甲 ▩乙 ▩丙」在同一行）
+        const escapedSep=sep.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
         t=t.split('\n').map(line=>{
           const trimmed=line.trim();
+          if(!trimmed) return line;
           if(trimmed.startsWith(sep)){
-            return '\n§OPT§ '+trimmed.slice(sep.length).trim();
+            // 行首有符號：整行替換（含行中的同一符號）
+            const replaced=trimmed.slice(sep.length).trim()
+              .replace(new RegExp('\\s*'+escapedSep+'\\s*','g'),'\n§OPT§ ');
+            return '\n§OPT§ '+replaced;
+          }
+          // 行中有符號但行首沒有：也切開
+          if(trimmed.includes(sep)){
+            return '\n'+trimmed.replace(new RegExp('\\s*'+escapedSep+'\\s*','g'),'\n§OPT§ ');
           }
           return line;
         }).join('\n');
