@@ -790,10 +790,6 @@ function cfm(t,s,cb){
 }
 function closeCfm(){ document.getElementById('cfm-ov').classList.remove('on'); }
 
-// ══ parser.js — 超高容錯解析引擎 v3 ═══════════════════════
-// 依賴：utils.js (autoKeywords, norm, art2n, kwArr)
-
-// ── OCR 錯字對照 ────────────────────────────────────────────
 const OCR_FIX = {
   '職橾':'職權','職棰':'職權','職権':'職權',
   '集會游行':'集會遊行','行政執亍':'行政執行',
@@ -965,7 +961,8 @@ function parseQuestions(rawText){
 
   // 對每題的 §OPT§ 重置計數（用特殊佔位，稍後替換）
   // 先切題，各題內部再處理 §OPT§
-  const Q_SPLIT=/(?=(?:^|\n)\s*(?:\d{1,3}(?:[.、．）)]|\s+\S)|[（(]\d{1,3}[）)]\s*\S))/gm;
+  // 切題：數字+標點 OR 數字+空格+題幹關鍵字
+  const Q_SPLIT=/(?=(?:^|\n)\s*(?:\d{1,3}[.、．）)）]|[（(]\d{1,3}[）)]|第\d{1,3}題|Q\d{1,3}[.．]|\d{1,3} (?=.*?(?:何者|下列|依據|依[^此]|試問|規定|說明|敘述|不正確|正確|錯誤|？|\?)))\s*[^\s])/gm;
   const blocks=('\n'+text).split(Q_SPLIT)
     .map(b=>b.trim()).filter(b=>b.length>2);
 
@@ -1068,61 +1065,6 @@ function parseBulkText(text){
     answerEs:q.answerEs||'',
   }));
 }
-
-// ── 7. 數字題偵測 ────────────────────────────────────────────
-function extractNumberQuestions(qs){
-  // 偵測含數字時間/數量的題目（題幹或選項）
-  const NUM_PAT=/\d+(?:日|小時|天|萬元|年|條|款|人|公尺|分鐘|秒|月|週|小時內|天內|日內|萬|千|百)/;
-  return qs.filter(q=>{
-    if(NUM_PAT.test(q.stem||''))return true;
-    // 也搜尋選項
-    return Object.values(q.options||{}).some(v=>NUM_PAT.test(v||''));
-  });
-}
-
-// ── 8. 法條挖空 ──────────────────────────────────────────────
-function generateCloze(content, rate=0.3){
-  if(!content) return content;
-  const segs=content.split(/(?<=。|，|；|：|、)/);
-  return segs.map(s=>{
-    if(Math.random()<rate&&s.length>2){
-      return s.slice(0,Math.ceil(s.length/3))+'【　　　】';
-    }
-    return s;
-  }).join('');
-}
-
-// ── 9. 法條分條解析 ─────────────────────────────────────────
-function parseLawText(text, lawName, category, source){
-  let t=norm(text||'');
-  Object.entries(OCR_FIX).forEach(([w,r])=>{ t=t.split(w).join(r); });
-  t=t.replace(/第\s+(\d+)\s+條/g,'第$1條'); // 只處理數字條號
-  t=t.replace(/\u3000/g,' ');
-  const parts=t.split(/(?=第\d+條(?:之\d+)?)/g)
-    .map(p=>p.trim()).filter(Boolean);
-  const items=[];
-  for(const part of parts){
-    const am=part.match(/^(第\d+條(?:之\d+)?)/);
-    if(!am) continue;
-    const article=am[1];
-    const content=part.slice(article.length).trim();
-    if(!content) continue;
-    const NUM_PAT=/\d+(?:日|小時|天|萬元|年)/;
-    items.push({
-      lawName:lawName||'', article,
-      articleNumber:art2n(article)||0,
-      category:category||'statute', source:source||'',
-      content, keywords:autoKeywords(content),
-      hasNumberTrap:NUM_PAT.test(content),
-      tags:[], relatedLaws:[], favorite:false, createdAt:Date.now()
-    });
-  }
-  return items;
-}
-
-// finishQ 相容函式
-function finishQ(q){ return q; }
-
 // ══ quiz.js — 刷題模式（含遺忘曲線、計時、危險等級）══════
 // 依賴：db.js, utils.js
 
@@ -3349,13 +3291,7 @@ init().then(()=>{ if(typeof applyCustomIcons==="function")applyCustomIcons(); })
 
 
 
-if('serviceWorker' in navigator){
-  window.addEventListener('load', ()=>{
-    navigator.serviceWorker.register('./sw.js')
-      .then(reg=>console.log('[SW] 已註冊:', reg.scope))
-      .catch(err=>console.warn('[SW] 註冊失敗:', err));
-  });
-}
+if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('./sw.js').catch(()=>{});});}
 
 </script>
 </body>
