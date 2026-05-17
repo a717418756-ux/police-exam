@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#0d1117">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<link rel="manifest" href="data:application/manifest+json;base64,eyJuYW1lIjogIuitpuWvn+iAg+mhjOW6qyBQcm8iLCAic2hvcnRfbmFtZSI6ICLogIPpoYzluqsiLCAiZGVzY3JpcHRpb24iOiAi6K2m5a+f54m56ICD5pm65oWn5YKZ6ICD57O757WxIiwgInN0YXJ0X3VybCI6ICIuLyIsICJkaXNwbGF5IjogInN0YW5kYWxvbmUiLCAiYmFja2dyb3VuZF9jb2xvciI6ICIjMGQxMTE3IiwgInRoZW1lX2NvbG9yIjogIiMwZDExMTciLCAib3JpZW50YXRpb24iOiAicG9ydHJhaXQiLCAiaWNvbnMiOiBbeyJzcmMiOiAiZGF0YTppbWFnZS9zdmcreG1sLDxzdmcgeG1sbnM9J2h0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnJyB2aWV3Qm94PScwIDAgMTAwIDEwMCc+PHRleHQgeT0nLjllbScgZm9udC1zaXplPSc5MCc+4pqWPC90ZXh0Pjwvc3ZnPiIsICJzaXplcyI6ICJhbnkiLCAidHlwZSI6ICJpbWFnZS9zdmcreG1sIn1dfQ==">
+<link rel="manifest" href="manifest.json">
 <title>警察考題庫 Pro</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <style>
@@ -289,7 +289,7 @@ textarea{resize:vertical;line-height:1.65}
   <div class="srow"><div><div class="slb" style="color:var(--red)">清除作答記錄</div><div class="ssb">保留題目</div></div>
   <button class="btn br" style="padding:6px 10px;font-size:12px" onclick="cfm('清除作答記錄','確定清除？',clearAts)">清除</button></div>
   <div class="srow"><div><div class="slb" style="color:var(--red)">刪除全部題目</div><div class="ssb">無法復原</div></div><button class="btn br" style="padding:6px 10px;font-size:12px" onclick="cfm('刪除全部題目','無法復原，確定嗎？',delAll)">全刪</button></div>
-  <div style="text-align:center;padding:20px;font-size:11px;color:var(--t2)">警察考題庫 Pro v2.1 · 完全本地 · 資料存於裝置</div>
+  <div style="text-align:center;padding:20px;font-size:11px;color:var(--t2)">考題庫 v11505171</div>
 </div>
 <nav class="nav">
   <button class="nb on" onclick="goPage('home',this)"><span class="ic">🏠</span>首頁</button>
@@ -3292,7 +3292,6 @@ init().then(()=>{ if(typeof applyCustomIcons==="function")applyCustomIcons(); })
 
 
 
-// ── Service Worker 註冊（PWA）───────────────────────────────
 if('serviceWorker' in navigator){
   window.addEventListener('load', ()=>{
     navigator.serviceWorker.register('./sw.js')
@@ -3300,6 +3299,7 @@ if('serviceWorker' in navigator){
       .catch(err=>console.warn('[SW] 註冊失敗:', err));
   });
 }
+
 </script>
 </body>
 </html>
