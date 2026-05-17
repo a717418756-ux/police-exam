@@ -814,6 +814,15 @@ const OPT_SYMBOL_MAP = {
   '◉':'§OPT§','◎':'§OPT§','▪':'§OPT§','▫':'§OPT§',
   '◆':'§OPT§','◇':'§OPT§','▶':'§OPT§','▷':'§OPT§',
   '►':'§OPT§','▸':'§OPT§','‣':'§OPT§',
+  // 幾何圖形區塊補充（U+25A3~U+25FF，PDF常見）
+  '▣':'§OPT§','▤':'§OPT§','▥':'§OPT§','▦':'§OPT§','▧':'§OPT§','▨':'§OPT§','▩':'§OPT§',
+  '▬':'§OPT§','▭':'§OPT§','▮':'§OPT§','▯':'§OPT§','▰':'§OPT§','▱':'§OPT§',
+  '◈':'§OPT§','◊':'§OPT§','◌':'§OPT§','◍':'§OPT§','◐':'§OPT§','◑':'§OPT§',
+  '◒':'§OPT§','◓':'§OPT§','◔':'§OPT§','◕':'§OPT§','◖':'§OPT§','◗':'§OPT§',
+  '◼':'§OPT§','◻':'§OPT§','◾':'§OPT§','◽':'§OPT§',
+  // Dingbats / Misc Symbols
+  '✦':'§OPT§','✧':'§OPT§','✪':'§OPT§','✫':'§OPT§','✬':'§OPT§','✭':'§OPT§',
+  '❑':'§OPT§','❒':'§OPT§','❏':'§OPT§',
 };
 
 // ── 1. preprocessQuestionText ───────────────────────────────
@@ -833,13 +842,21 @@ function preprocessQuestionText(text){
     }
   });
 
-  // PDF 私有字元（U+E000–U+F8FF）偵測：重複3次以上視為選項符號
+  // PDF 私有字元（U+E000–U+F8FF）+ 幾何圖形 Unicode 區塊掃描
+  // 凡出現 3 次以上的特殊符號，視為選項分隔
   const pvtMap={};
   for(const ch of t){
     const cp=ch.codePointAt(0);
-    if(cp>=0xE000&&cp<=0xF8FF) pvtMap[ch]=(pvtMap[ch]||0)+1;
+    const isSpecial=
+      (cp>=0xE000&&cp<=0xF8FF)||          // Private Use Area
+      (cp>=0x25A3&&cp<=0x25FF&&            // 幾何圖形（排除已加入 map 的常見符號）
+       cp!==0x25A4&&cp!==0x25B6&&cp!==0x25B7&&cp!==0x25BA&&cp!==0x25B8&&
+       cp!==0x25C6&&cp!==0x25C7&&cp!==0x25C9&&cp!==0x25CB&&cp!==0x25CE&&
+       cp!==0x25CF&&cp!==0x25EF)||
+      (cp>=0x2700&&cp<=0x27BF);           // Dingbats
+    if(isSpecial) pvtMap[ch]=(pvtMap[ch]||0)+1;
   }
-  const pvtSep=Object.entries(pvtMap).filter(([,n])=>n>=3).sort((a,b)=>b[1]-a[1])[0];
+  const pvtSep=Object.entries(pvtMap).filter(([,n])=>n>=2).sort((a,b)=>b[1]-a[1])[0];
   if(pvtSep) t=t.split(pvtSep[0]).join('§OPT§');
 
   // NFKC 正規化（全形→半形）
