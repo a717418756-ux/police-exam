@@ -842,22 +842,53 @@ function preprocessQuestionText(text){
     }
   });
 
-  // PDF 私有字元（U+E000–U+F8FF）+ 幾何圖形 Unicode 區塊掃描
-  // 凡出現 3 次以上的特殊符號，視為選項分隔
-  const pvtMap={};
-  for(const ch of t){
-    const cp=ch.codePointAt(0);
-    const isSpecial=
-      (cp>=0xE000&&cp<=0xF8FF)||          // Private Use Area
-      (cp>=0x25A3&&cp<=0x25FF&&            // 幾何圖形（排除已加入 map 的常見符號）
-       cp!==0x25A4&&cp!==0x25B6&&cp!==0x25B7&&cp!==0x25BA&&cp!==0x25B8&&
-       cp!==0x25C6&&cp!==0x25C7&&cp!==0x25C9&&cp!==0x25CB&&cp!==0x25CE&&
-       cp!==0x25CF&&cp!==0x25EF)||
-      (cp>=0x2700&&cp<=0x27BF);           // Dingbats
-    if(isSpecial) pvtMap[ch]=(pvtMap[ch]||0)+1;
+  // 「行首未知符號偵測」：任何非字母/數字/中文的符號，
+  // 只要重複出現在 2 行以上的行首，就視為選項分隔符號
+  {
+    const lineArr=t.split('\n');
+    const lineStartMap={};
+    lineArr.forEach(line=>{
+      const trimmed=line.trim();
+      if(!trimmed)return;
+      const ch=trimmed[0];
+      const cp=ch.codePointAt(0);
+      // 排除：字母、數字、中文、常見標點、已知選項標記
+      const isWordOrPunct=
+        (cp>=0x41&&cp<=0x7A)||(cp>=0x61&&cp<=0x7A)||  // A-Z a-z
+        (cp>=0x30&&cp<=0x39)||                          // 0-9
+        (cp>=0x4E00&&cp<=0x9FFF)||                      // 中文
+        (cp>=0xFF01&&cp<=0xFF60)||                      // 全形字母數字
+        '（(）)【】「」『』。，、；：！？…—'.includes(ch)||
+        ch==='§';  // 已轉換的標記
+      if(!isWordOrPunct){
+        lineStartMap[ch]=(lineStartMap[ch]||0)+1;
+      }
+    });
+    // 找出現 2 次以上且不是已知選項標記 §A§ 的符號
+    const detected=Object.entries(lineStartMap)
+      .filter(([ch,n])=>n>=2&&!ch.match(/^[①②③④⑤❶❷❸❹]$/))
+      .sort((a,b)=>b[1]-a[1]);
+    if(detected.length>0){
+      detected.forEach(([sep])=>{
+        // 在每個出現行首的符號前插入換行並替換為 §OPT§
+        t=t.split('\n').map(line=>{
+          const trimmed=line.trim();
+          if(trimmed.startsWith(sep)){
+            return '\n§OPT§ '+trimmed.slice(sep.length).trim();
+          }
+          return line;
+        }).join('\n');
+      });
+    }
+    // 同時保留 Private Use Area 偵測（PDF 私有字元）
+    const pvtMap2={};
+    for(const ch of t){
+      const cp=ch.codePointAt(0);
+      if(cp>=0xE000&&cp<=0xF8FF) pvtMap2[ch]=(pvtMap2[ch]||0)+1;
+    }
+    const pvtSep2=Object.entries(pvtMap2).filter(([,n])=>n>=2).sort((a,b)=>b[1]-a[1])[0];
+    if(pvtSep2) t=t.split(pvtSep2[0]).join('§OPT§');
   }
-  const pvtSep=Object.entries(pvtMap).filter(([,n])=>n>=2).sort((a,b)=>b[1]-a[1])[0];
-  if(pvtSep) t=t.split(pvtSep[0]).join('§OPT§');
 
   // NFKC 正規化（全形→半形）
   t=t.normalize('NFKC');
