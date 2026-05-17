@@ -862,7 +862,7 @@ function preprocessQuestionText(text){
     });
     // 找出現 2 次以上且不是已知選項標記 §A§ 的符號
     const detected=Object.entries(lineStartMap)
-      .filter(([ch,n])=>n>=2&&!ch.match(/^[①②③④⑤❶❷❸❹]$/))
+      .filter(([ch,n])=>n>=1&&!ch.match(/^[①②③④⑤❶❷❸❹]$/))
       .sort((a,b)=>b[1]-a[1]);
     if(detected.length>0){
       detected.forEach(([sep])=>{
@@ -939,6 +939,25 @@ function preprocessQuestionText(text){
   // 行尾空白
   t=t.replace(/[ \t]+$/gm,'');
 
+  // 【重要】選項行中間夾著下一個題號時，在題號前插入換行
+  // 例：「§OPT§ 休息日 11 行政執行...？」→ 在「11」前換行
+  // 中文清理後標點已變 ASCII（，→, ？→?），所以用寬鬆匹配
+  // 【題幹結尾訊號強化】
+  // 利用「？」「?」「：」「:」這些題幹結尾符號，精確定位下一題號的位置
+  // A. 任意行中：「？/: 空格 數字 空格 中文」→ 在數字前切行（最常見場景）
+  t=t.replace(/([？?：:])\s*(\d{1,3})\s+([\u4e00-\u9fff（(][^\n]{4,})/g,
+    (_,end,num,rest)=>end+'\n'+num+'. '+rest);
+  // B. 任意行中：「？/: 數字 標點」→ 切（如「？11.題目」無空格）
+  t=t.replace(/([？?：:])\s*(\d{1,3})([.、．])/g,
+    (_,end,num,punct)=>end+'\n'+num+punct);
+
+  // 條件1：§OPT§ 行中，「空格+數字+標點+中文」→ 切（數字.題目格式）
+  t=t.replace(/^(§OPT§[^\n]*?) (\d{1,3})([.、．）)）]\s*[\u4e00-\u9fff（(])/gm,
+    (_,opt,num,rest)=>opt+'\n'+num+rest);
+  // 條件2：§OPT§ 行中，「空格+數字+空格+中文長句（5字以上）」→ 切
+  t=t.replace(/^(§OPT§[^\n]+?) (\d{1,3}) ([\u4e00-\u9fff].{5,})$/gm,
+    (_,opt,num,rest)=>opt+'\n'+num+'. '+rest);
+
   return t.trim();
 }
 
@@ -972,7 +991,7 @@ function parseQuestions(rawText){
   // 對每題的 §OPT§ 重置計數（用特殊佔位，稍後替換）
   // 先切題，各題內部再處理 §OPT§
   // 切題：數字+標點 OR 數字+空格+題幹關鍵字
-  const Q_SPLIT=/(?=(?:^|\n)\s*(?:\d{1,3}[.、．）)）]|[（(]\d{1,3}[）)]|第\d{1,3}題|Q\d{1,3}[.．]|\d{1,3} (?=.*?(?:何者|下列|依據|依[^此]|試問|規定|說明|敘述|不正確|正確|錯誤|？|\?)))\s*[^\s])/gm;
+  const Q_SPLIT=/(?=(?:^|\n)\s*(?:\d{1,3}[.、．）)）]|[（(]\d{1,3}[）)]|第\d{1,3}題|Q\d{1,3}[.．]|\d{1,3} (?=[\u4e00-\u9fff（(](?:.{5,}|.+?[？?：:])))\s*[^\s])/gm;
   const blocks=('\n'+text).split(Q_SPLIT)
     .map(b=>b.trim()).filter(b=>b.length>2);
 
@@ -3300,9 +3319,7 @@ async function init(){
 init().then(()=>{ if(typeof applyCustomIcons==="function")applyCustomIcons(); });
 
 
-
-if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('./sw.js').catch(()=>{});});}
-
+if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('./sw.js').catch(()=>{});}); }
 </script>
 </body>
 </html>
