@@ -289,7 +289,7 @@ textarea{resize:vertical;line-height:1.65}
   <div class="srow"><div><div class="slb" style="color:var(--red)">清除作答記錄</div><div class="ssb">保留題目</div></div>
   <button class="btn br" style="padding:6px 10px;font-size:12px" onclick="cfm('清除作答記錄','確定清除？',clearAts)">清除</button></div>
   <div class="srow"><div><div class="slb" style="color:var(--red)">刪除全部題目</div><div class="ssb">無法復原</div></div><button class="btn br" style="padding:6px 10px;font-size:12px" onclick="cfm('刪除全部題目','無法復原，確定嗎？',delAll)">全刪</button></div>
-  <div style="text-align:center;padding:20px;font-size:11px;color:var(--t2)">考題庫 v11505172</div>
+  <div style="text-align:center;padding:20px;font-size:11px;color:var(--t2)">考題庫 <span id="app-ver"></span></div>
 </div>
 <nav class="nav">
   <button class="nb on" onclick="goPage('home',this)"><span class="ic">🏠</span>首頁</button>
@@ -703,6 +703,7 @@ async function getPriorityPool(mode='all'){  try{
   return pool;
   }catch(e){ logError('getPriorityPool',e); }}
 
+const APP_VER = 'v11505172';
 // ══ utils.js — 工具函式 ═════════════════════════════════════
 // 全域狀態
 const S = {
@@ -939,10 +940,7 @@ function preprocessQuestionText(text){
   // 行尾空白
   t=t.replace(/[ \t]+$/gm,'');
 
-  // 【重要】選項行中間夾著下一個題號時，在題號前插入換行
-  // 例：「§OPT§ 休息日 11 行政執行...？」→ 在「11」前換行
-  // 中文清理後標點已變 ASCII（，→, ？→?），所以用寬鬆匹配
-  // 選項夾題號由使用者自行換行（不自動切割）
+
 
   return t.trim();
 }
@@ -1076,7 +1074,13 @@ function parseQuestions(rawText){
 
     // ── 【規則1】行首數字 → 新題目 ───────────────────────────────
     const mNum=line.match(/^(\d{1,3})(?:[.、．）)）]\s*|\s+)([\s\S]+)/);
-    if(mNum && parseInt(mNum[1])<=500){
+    // 確認是題號行：數字後面有標點分隔 OR 後面是中文長句（非量詞開頭）
+    const mNumIsQ = mNum && parseInt(mNum[1])<=500 && (
+      /^(\d{1,3})[.、．）)）]/.test(line) || // 標點型：1. 1、1） 絕對是題號
+      (mNum[2].trim().length > 3 &&           // 空格型：後面要夠長
+       !/^[年月日時分秒週天個件名條款項元萬千百公里]/.test(mNum[2].trim())) // 非量詞開頭
+    );
+    if(mNumIsQ){
       const num=mNum[1];
       const rest=mNum[2].trim();
       // 【規則1】找題幹結尾（？ 或 ：）
@@ -2308,7 +2312,91 @@ async function saveLaw(){
 function showBulkLaw(){ document.getElementById('blaw-ov').classList.add('on'); }
 function closeBulkLaw(){ document.getElementById('blaw-ov').classList.remove('on'); }
 
-async function prevBulkLaw(){
+function parseLawText(rawText, lawName, category, source){
+  if(!rawText||!rawText.trim()) return [];
+
+  const lines = rawText.split('\n').map(l=>l.trim()).filter(Boolean);
+  const items = [];
+  let currentChapter = '';   // 當前章節名稱
+  let currentArticleNum = null;  // 當前條號
+  let currentTitle = '';         // 當前標題（括號內）
+  let contentLines = [];         // 當前條文內容行
+
+  // 章節正規表達式：「第 一 章 總則」「第1章 總則」「第二章　勤務機構」
+  const chapterRe = /^第\s*([一二三四五六七八九十百千\d]+)\s*章\s+(.+)/;
+  // 條號正規表達式：「第 1 條」「第 一 條」「第1條（標題）」
+  const articleRe = /^第\s*([一二三四五六七八九十百千\d]+)\s*條\s*(?:[（(]([^）)]+)[）)])?(.*)$/;
+
+  // 中文數字轉阿拉伯數字
+  const zh2num = (s) => {
+    const map = {'一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10,
+                 '百':100,'千':1000};
+    if(/^\d+$/.test(s)) return parseInt(s);
+    let result=0, temp=0;
+    for(const ch of s){
+      const v=map[ch];
+      if(!v) continue;
+      if(v>=10){ result+=(temp||1)*v; temp=0; }
+      else temp=v;
+    }
+    return result+temp;
+  };
+
+  // 儲存目前條文
+  const saveArticle = () => {
+    if(currentArticleNum===null) return;
+    const content = contentLines.join('\n').trim();
+    if(!content && !currentTitle) return;
+    items.push({
+      lawName: lawName||'',
+      articleNumber: String(zh2num(currentArticleNum)),
+      title: currentTitle||'',
+      content: content||currentTitle||'',
+      category: category||'statute',
+      chapter: currentChapter||'',
+      source: source||'',
+      keywords: [],
+      relatedLaws: [],
+      createdAt: Date.now(),
+    });
+    currentArticleNum = null;
+    currentTitle = '';
+    contentLines = [];
+  };
+
+  for(const line of lines){
+    // 章節行
+    const chM = line.match(chapterRe);
+    if(chM){
+      saveArticle();
+      currentChapter = '第'+zh2num(chM[1])+'章 '+chM[2].trim();
+      continue;
+    }
+
+    // 條號行
+    const artM = line.match(articleRe);
+    if(artM){
+      saveArticle();
+      currentArticleNum = artM[1];
+      currentTitle = (artM[2]||'').trim();
+      // 條號同行的剩餘文字當內容第一行
+      const tail = (artM[3]||'').trim();
+      if(tail) contentLines.push(tail);
+      continue;
+    }
+
+    // 內容行（追加到當前條文）
+    if(currentArticleNum!==null){
+      contentLines.push(line);
+    }
+    // 條號前的文字（前言/總則說明）忽略
+  }
+  saveArticle(); // 最後一條
+
+  return items;
+}
+
+function prevBulkLaw(){
   try{
   const text=document.getElementById('bl-text').value;
   const name=document.getElementById('bl-name').value.trim()||'未命名';
@@ -3356,7 +3444,12 @@ async function init(){
   goPage('home',document.querySelector('.nb'));
   if(typeof applyIconSettings==='function') applyIconSettings();
 }
-init().then(()=>{ if(typeof applyCustomIcons==="function")applyCustomIcons(); });
+init().then(()=>{
+  if(typeof applyCustomIcons==="function") applyCustomIcons();
+  // 填入版本號
+  const verEl=document.getElementById('app-ver');
+  if(verEl) verEl.textContent=typeof APP_VER!=='undefined'?APP_VER:'';
+});
 
 
 
