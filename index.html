@@ -703,7 +703,7 @@ async function getPriorityPool(mode='all'){  try{
   return pool;
   }catch(e){ logError('getPriorityPool',e); }}
 
-const APP_VER = 'v11505172';
+const APP_VER = 'v11505181';
 // ══ utils.js — 工具函式 ═════════════════════════════════════
 // 全域狀態
 const S = {
@@ -2324,8 +2324,8 @@ function parseLawText(rawText, lawName, category, source){
 
   // 章節正規表達式：「第 一 章 總則」「第1章 總則」「第二章　勤務機構」
   const chapterRe = /^第\s*([一二三四五六七八九十百千\d]+)\s*章\s+(.+)/;
-  // 條號正規表達式：「第 1 條」「第 一 條」「第1條（標題）」
-  const articleRe = /^第\s*([一二三四五六七八九十百千\d]+)\s*條\s*(?:[（(]([^）)]+)[）)])?(.*)$/;
+  // 條號正規表達式：只認阿拉伯數字（第 1 條、第1條），不認中文數字（避免論述誤判）
+  const articleRe = /^第\s*(\d+)\s*條\s*(?:[（(]([^）)]+)[）)])?(.*)$/;
 
   // 中文數字轉阿拉伯數字
   const zh2num = (s) => {
@@ -2347,9 +2347,11 @@ function parseLawText(rawText, lawName, category, source){
     if(currentArticleNum===null) return;
     const content = contentLines.join('\n').trim();
     if(!content && !currentTitle) return;
+    const artNum = parseInt(currentArticleNum, 10);
     items.push({
       lawName: lawName||'',
-      articleNumber: String(zh2num(currentArticleNum)),
+      article: '第 '+artNum+' 條',           // 顯示欄位（配合 renderLawView）
+      articleNumber: artNum,                   // 數字（排序、篩選用）
       title: currentTitle||'',
       content: content||currentTitle||'',
       category: category||'statute',
@@ -2357,6 +2359,7 @@ function parseLawText(rawText, lawName, category, source){
       source: source||'',
       keywords: [],
       relatedLaws: [],
+      favorite: false,
       createdAt: Date.now(),
     });
     currentArticleNum = null;
