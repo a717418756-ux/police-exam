@@ -222,7 +222,7 @@ textarea{resize:vertical;line-height:1.65}
       <div><label class="fl">答案列（可空）</label><input id="bi-ans" placeholder="DACB 或 1.D 2.A"></div>
     </div>
     <div class="fr" style="align-items:flex-start">
-      <div style="flex:1"><label class="fl" style="color:var(--org);font-weight:700">📙 篇（選填）</label><input id="bi-part" placeholder="第一篇 總則"></div>
+      <div style="flex:1"><label class="fl" style="color:var(--org);font-weight:700">📙 編（選填）</label><input id="bi-part" placeholder="第一編 總則"></div>
       <div style="flex:1"><label class="fl" style="color:var(--pur);font-weight:700">📗 章（選填）</label><input id="bi-chapter" placeholder="第一章 一般規定"></div>
       <div style="flex:1"><label class="fl" style="color:var(--acc);font-weight:700">📘 節（選填）</label><input id="bi-section" placeholder="第一節 定義"></div>
     </div>
@@ -1973,11 +1973,23 @@ function setLSort(el,sort){
 }
 
 const LEVEL_STYLE = {
-    // 由外而內：篇=金橙、章=紫、節=藍
-    part:    {color:'var(--org)',  border:'var(--org)',  bg:'var(--org2)',             size:'15px', fw:'800', pt:'14px', pb:'5px',  ml:'0',    icon:'📙'},
-    chapter: {color:'var(--pur)',  border:'var(--pur)',  bg:'var(--pur2)',             size:'13px', fw:'700', pt:'10px', pb:'4px',  ml:'0',    icon:'📗'},
-    section: {color:'var(--acc)',  border:'var(--acc)',  bg:'rgba(31,111,235,0.15)',   size:'12px', fw:'600', pt:'6px',  pb:'3px',  ml:'16px', icon:'📘'},
-  };
+  // ── 由外而內：編(金橙) > 章(紫) > 節(藍) ──────────────
+  part: {
+    color:'var(--org)', border:'var(--org)', bg:'var(--org2)',
+    size:'14px', fw:'800', pt:'10px', pb:'4px', mt:'16px', ml:'0',
+    br:'0 8px 8px 0', bw:'4px', label:'編',
+  },
+  chapter: {
+    color:'var(--pur)', border:'var(--pur)', bg:'var(--pur2)',
+    size:'13px', fw:'700', pt:'7px', pb:'3px', mt:'10px', ml:'0',
+    br:'0 6px 6px 0', bw:'3px', label:'章',
+  },
+  section: {
+    color:'var(--acc)', border:'var(--acc)', bg:'rgba(88,166,255,0.10)',
+    size:'12px', fw:'600', pt:'4px', pb:'2px', mt:'5px', ml:'18px',
+    br:'0 4px 4px 0', bw:'2px', label:'節',
+  },
+};
 
 async function openLawGroup(lawName){  try{
   const allLaws=await da('laws');
@@ -2006,7 +2018,7 @@ async function openLawGroup(lawName){  try{
   };
   const jumpHtml=others.map(n=>'<button class="chip" style="flex-shrink:0;font-size:11px" onclick="openLawGroup(\''+esc(n)+'\')">'+esc(n)+'</button>').join('');
 
-  // ── 三層分組（篇 > 章 > 節）────────────────────────────────
+  // ── 三層分組（編 > 章 > 節）────────────────────────────────
   const parts    = [...new Set(laws.map(l=>l.part   ||''))];
   const chapters = [...new Set(laws.map(l=>l.chapter||''))];
   const sections = [...new Set(laws.map(l=>l.section||''))];
@@ -2032,7 +2044,7 @@ async function openLawGroup(lawName){  try{
     +'</div>';
   };
 
-  // 篇=橙(--org) 章=紫(--pur) 節=藍(--acc) 由外而內
+  // 編=橙(--org) 章=紫(--pur) 節=藍(--acc) 由外而內
 
   const renderHeading = (type, text) => {
     if(!text) return '';
@@ -2040,12 +2052,18 @@ async function openLawGroup(lawName){  try{
     const id = 'ch-'+encodeURIComponent(type+'-'+text);
     return '<div id="'+id+'" style="'
       +'font-size:'+s.size+';font-weight:'+s.fw+';color:'+s.color+';'
-      +'padding:'+s.pt+' 12px '+s.pb+';margin-top:6px;'
+      +'padding:'+s.pt+' 14px '+s.pb+';margin-top:'+s.mt+';'
       +'margin-left:'+s.ml+';'
-      +'border-left:4px solid '+s.border+';'
-      +'background:'+s.bg+';border-radius:0 6px 6px 0;'
-      +'letter-spacing:.3px'
-      +'">'+(s.icon?s.icon+' ':'')+esc(text)+'</div>';
+      +'border-left:'+s.bw+' solid '+s.border+';'
+      +'background:'+s.bg+';border-radius:'+s.br+';'
+      +'display:flex;align-items:center;gap:6px;'
+      +'letter-spacing:.4px;line-height:1.4'
+      +'">'
+      +'<span style="opacity:.7;font-size:10px;font-weight:400;'
+        +'border:1px solid '+s.border+';border-radius:3px;'
+        +'padding:0 4px;margin-right:2px">'+s.label+'</span>'
+      +esc(text)
+    +'</div>';
   };
 
   let arts='';
@@ -2081,7 +2099,7 @@ async function openLawGroup(lawName){  try{
   } else {
     laws.forEach(l=>{arts+=renderArtCard(l);});
   }
-  // 章節列表（快速跳轉用，含篇/章/節）
+  // 章節列表（快速跳轉用，含編/章/節）
   const chapterList=[...new Set([
     ...parts.filter(Boolean),
     ...chapters.filter(Boolean),
@@ -2093,8 +2111,15 @@ async function openLawGroup(lawName){  try{
   const chTagsHtml=chapterList.map(ch=>{
     const isP=parts.filter(Boolean).includes(ch);
     const isS=sections.filter(Boolean).includes(ch);
-    const s=isP?LEVEL_STYLE.part:isS?LEVEL_STYLE.section:LEVEL_STYLE.chapter;
-    return '<span class="tag" style="color:'+s.color+';background:'+s.bg+';border:1px solid '+s.border+';cursor:pointer;margin:2px" onclick="scrollToChapter(this,\''+encodeURIComponent(ch)+'\')" title="點擊跳轉">'+(s.icon?s.icon+' ':'')+esc(ch)+'</span>';
+    const type=isP?'part':isS?'section':'chapter';
+    const s=LEVEL_STYLE[type];
+    const typeKey=isP?'part':isS?'sec':'ch';
+    return '<span class="tag" style="color:'+s.color+';background:'+s.bg+';border:1px solid '+s.border
+      +';cursor:pointer;margin:2px;font-size:11px" '
+      +'onclick="scrollToChapter(this,\''+encodeURIComponent(ch)+'\',\''+type+'\')" title="點擊跳轉">'
+      +'<span style="opacity:.65;font-size:9px;border:1px solid '+s.border
+        +';border-radius:3px;padding:0 3px;margin-right:3px">'+s.label+'</span>'
+      +esc(ch)+'</span>';
   }).join('');
   const chapterMgmtHtml=chapterList.length
     ?'<div style="margin-bottom:8px"><div style="font-size:11px;color:var(--t2);margin-bottom:4px">章節：'+chTagsHtml+chMgrBtn+'</div></div>'
@@ -2385,17 +2410,20 @@ function parseLawText(rawText, lawName, category, source){
   const items = [];
 
   // ── 三層結構狀態 ──────────────────────────────────────────
-  let curPart    = '';  // 篇（最上層）：第一篇 總則
+  let curPart    = '';  // 編（最上層）：第一編 總則
   let curChapter = '';  // 章（中層）：第一章 總則
   let curSection = '';  // 節（最下層）：第一節 一般規定
   let curArtNum  = null;
   let curTitle   = '';
   let contentLines = [];
 
-  // 正規表達式：只認「章節篇節」行，條號只認阿拉伯數字
-  const partRe    = /^第\s*([一二三四五六七八九十百千\d]+)\s*篇\s*(.+)?/;
-  const chapterRe = /^第\s*([一二三四五六七八九十百千\d]+)\s*章\s*(.+)?/;
-  const sectionRe = /^第\s*([一二三四五六七八九十百千\d]+)\s*節\s*(.+)?/;
+  // 正規表達式：只認「章節編節」行，條號只認阿拉伯數字
+  // 數字部分：支援阿拉伯數字、中文數字、及中文數字間有空格（如「十 三」）
+  // 支援「編」（最上層結構）
+  const _numPart = '((?:[一二三四五六七八九十百千\\d]+\\s*)+?)';
+  const partRe    = new RegExp('^第\\s*'+_numPart+'\\s*[篇編]\\s*(.+)?');
+  const chapterRe = new RegExp('^第\\s*'+_numPart+'\\s*章\\s*(.+)?');
+  const sectionRe = new RegExp('^第\\s*'+_numPart+'\\s*節\\s*(.+)?');
   const articleRe = /^第\s*(\d+)\s*條\s*(?:[（(]([^）)]+)[）)])?(.*)$/;
 
   // 中文數字→阿拉伯數字
@@ -2411,9 +2439,11 @@ function parseLawText(rawText, lawName, category, source){
     return result+temp;
   };
 
-  // 格式化層級名稱（「第N篇/章/節 名稱」→ 標準格式）
+  // 格式化層級名稱（「第N編/章/節 名稱」→ 標準格式）
   const fmtLevel = (type, num, name) => {
-    const n = zh2num(num);
+    // 去除中文數字間的空格再轉換（如「十 三」→「十三」→13）
+    const cleanNum = typeof num==='string' ? num.replace(/\s+/g,'') : num;
+    const n = zh2num(cleanNum);
     const s = name ? name.trim() : '';
     return '第'+n+type+(s?' '+s:'');
   };
@@ -2431,7 +2461,7 @@ function parseLawText(rawText, lawName, category, source){
       title:         curTitle||'',
       content:       content||curTitle||'',
       category:      category||'statute',
-      part:          curPart||'',          // 篇
+      part:          curPart||'',          // 編
       chapter:       curChapter||'',       // 章
       section:       curSection||'',       // 節
       source:        source||'',
@@ -2444,9 +2474,9 @@ function parseLawText(rawText, lawName, category, source){
   };
 
   for(const line of lines){
-    // ── 篇（最優先）──────────────────────────────────────
+    // ── 編（最優先）──────────────────────────────────────
     const pM = line.match(partRe);
-    if(pM){ saveArticle(); curPart=fmtLevel('篇',pM[1],pM[2]); curChapter=''; curSection=''; continue; }
+    if(pM){ saveArticle(); curPart=fmtLevel('編',pM[1],pM[2]); curChapter=''; curSection=''; continue; }
 
     // ── 章 ───────────────────────────────────────────────
     const chM = line.match(chapterRe);
@@ -2495,7 +2525,7 @@ function prevBulkLaw(){
   html+='<span style="color:var(--t1);font-weight:600">共 '+items.length+' 條</span>　';
 
   if(parts.length){
-    html+='<br><span style="color:var(--org);font-size:11px">📙 篇：</span>';
+    html+='<br><span style="color:var(--org);font-size:11px">📙 編：</span>';
     parts.forEach(p=>{ html+=mkTag(p,'var(--org)','var(--org2)'); });
   }
   if(chapters.length){
@@ -2589,19 +2619,21 @@ function openLawPopupByRef(ref){ showLawPop(ref); }
 function showQLaws(){ toast('請在編輯題目中查看關聯法條'); }
 
 
-function scrollToChapter(tagEl, encodedCh){
-  // 新格式：ch-{type}-{text}，舊格式：ch-{text}，都嘗試
-  const types=['part','chapter','section'];
+function scrollToChapter(tagEl, encodedCh, typeHint){
+  // 先用 typeHint 找，再依序嘗試，最後用舊格式
+  const order = typeHint ? [typeHint,'part','chapter','section'] : ['part','chapter','section'];
   let el = null;
-  for(const t of types){
+  for(const t of [...new Set(order)]){
     el = document.getElementById('ch-'+t+'-'+encodedCh);
     if(el) break;
   }
-  if(!el) el = document.getElementById('ch-'+encodedCh); // 舊格式相容
+  if(!el) el = document.getElementById('ch-'+encodedCh);
   if(el){
     el.scrollIntoView({behavior:'smooth',block:'start'});
-    el.style.background='var(--pur2)';
-    setTimeout(()=>{el.style.background='';},800);
+    const orig=el.style.background;
+    el.style.transition='background .2s';
+    el.style.background='var(--bg3)';
+    setTimeout(()=>{ el.style.background=orig||''; },900);
   }
 }
 
@@ -2616,7 +2648,7 @@ async function openChapterMgr(lawName){  try{
   const curChapters =[...new Set(targets.map(l=>l.chapter||'').filter(Boolean))];
   const curSections =[...new Set(targets.map(l=>l.section||'').filter(Boolean))];
   const structInfo  =
-    (curParts.length   ?'📙 篇：'+curParts.join('、')+'\n':'')+
+    (curParts.length   ?'📙 編：'+curParts.join('、')+'\n':'')+
     (curChapters.length?'📗 章：'+curChapters.join('、')+'\n':'')+
     (curSections.length?'📘 節：'+curSections.join('、'):'');
 
@@ -2624,7 +2656,7 @@ async function openChapterMgr(lawName){  try{
   const levelInput=prompt(
     '【分層管理】目前結構：\n'+(structInfo||'（尚無分類）')+'\n\n'+
     '請選擇要設定的層級：\n'+
-    '1 = 📙 篇（最上層）→ 選哪些章屬於此篇\n'+
+    '1 = 📙 編（最上層）→ 選哪些章屬於此編\n'+
     '2 = 📗 章（中層）→ 選哪些節屬於此章\n'+
     '3 = 📘 節（最下層）→ 設定條號範圍\n'+
     '輸入 1、2 或 3：'
@@ -2632,8 +2664,8 @@ async function openChapterMgr(lawName){  try{
   if(!levelInput||!['1','2','3'].includes(levelInput.trim()))return;
   const lvIdx=parseInt(levelInput.trim())-1;
   const level    =['part','chapter','section'][lvIdx];
-  const levelName=['篇','章','節'][lvIdx];
-  const childLevel    =['chapter','section',null][lvIdx];   // 篇的子級=章，章的子級=節
+  const levelName=['編','章','節'][lvIdx];
+  const childLevel    =['chapter','section',null][lvIdx];   // 編的子級=章，章的子級=節
   const childLevelName=['章','節',null][lvIdx];
 
   // 步驟2：輸入名稱
@@ -2661,8 +2693,8 @@ async function openChapterMgr(lawName){  try{
       if(apply){l[level]=newVal;await dp('laws',l);count++;}
     }
   } else {
-    // 篇/章：顯示現有子層級清單，讓使用者選哪些歸入
-    const childList=lvIdx===0?curChapters:curSections; // 篇選章，章選節
+    // 編/章：顯示現有子層級清單，讓使用者選哪些歸入
+    const childList=lvIdx===0?curChapters:curSections; // 編選章，章選節
     if(!childList.length){
       // 子層級不存在，改用條號範圍
       const rangeInput=prompt(
@@ -3100,7 +3132,7 @@ function parseBulk(){
     // 套用答案列
     const ansStr=(document.getElementById('bi-ans')||{}).value||'';
     const ansMap=parseAnswerStr(ansStr);
-    // 讀取篇/章/節（批次套用到所有題目）
+    // 讀取編/章/節（批次套用到所有題目）
     const biPart   =(document.getElementById('bi-part'   )||{}).value||'';
     const biChapter=(document.getElementById('bi-chapter')||{}).value||'';
     const biSection=(document.getElementById('bi-section')||{}).value||'';
@@ -3114,7 +3146,7 @@ function parseBulk(){
     const mc=parsed.filter(q=>q.type==='mc').length;
     const es=parsed.filter(q=>q.type==='es').length;
     const noAns=parsed.filter(q=>q.type==='mc'&&!q.answer).length;
-    // 篇/章/節標籤
+    // 編/章/節標籤
     const hierTags=
       (biPart   ?'<span class="tag" style="background:var(--org2);color:var(--org);font-weight:700">📙'+biPart   +'</span>':'')+
       (biChapter?'<span class="tag" style="background:var(--pur2);color:var(--pur);font-weight:700">📗'+biChapter+'</span>':'')+
@@ -3127,7 +3159,7 @@ function parseBulk(){
       '<span class="tag" style="background:var(--red2);color:var(--red)">申論 '+es+'</span>'+
       (noAns?'<span class="tag" style="background:var(--org2);color:var(--org)">⚠ '+noAns+' 題未填答案</span>':'')+
       (hierTags?'<div style="margin-top:4px">'+hierTags+'</div>':'');
-    // 顯示預覽（含篇/章/節標籤）
+    // 顯示預覽（含編/章/節標籤）
     const prevEl=document.getElementById('prev-list');
     if(prevEl) prevEl.innerHTML=parsed.map(function(q){
       const typeLabel=q.type==='mc'?'選擇題':'申論題';
@@ -3135,9 +3167,9 @@ function parseBulk(){
       const optLabel=q.type==='mc'?'<div class="pi-o">選項：'+Object.keys(q.options).join(' ')+'</div>':'';
       const cls=q.answer||q.type==='es'?'ok':'warn';
       const hierLabel=
-        (q.part   ?'<span style="font-size:10px;color:var(--org)">📙'+esc(q.part)+'</span> ':'');+
-        (q.chapter?'<span style="font-size:10px;color:var(--pur)">📗'+esc(q.chapter)+'</span> ':'')+
-        (q.section?'<span style="font-size:10px;color:var(--acc)">📘'+esc(q.section)+'</span> ':'');
+        (q.part   ?'<span style="font-size:10px;font-weight:700;padding:1px 5px;border-radius:4px;background:var(--org2);color:var(--org)">📙'+esc(q.part)+'</span> ':'')+
+        (q.chapter?'<span style="font-size:10px;font-weight:700;padding:1px 5px;border-radius:4px;background:var(--pur2);color:var(--pur)">📗'+esc(q.chapter)+'</span> ':'')+
+        (q.section?'<span style="font-size:10px;font-weight:700;padding:1px 5px;border-radius:4px;background:rgba(31,111,235,0.15);color:var(--acc)">📘'+esc(q.section)+'</span> ':'');
       return '<div class="pi '+cls+'">'+
         '<div class="pi-n">第'+q.num+'題 · '+typeLabel+ansLabel+'</div>'+
         (hierLabel?'<div style="margin-top:2px">'+hierLabel+'</div>':'')+
@@ -3165,7 +3197,7 @@ async function importBulk(){
     subject: sub||q.subject||'',
     year:    yr||q.year||'',
     exam:    ex||q.exam||'',
-    // 篇/章/節已在 parseBulk 時寫入 q，直接帶過
+    // 編/章/節已在 parseBulk 時寫入 q，直接帶過
     part:    q.part||'',
     chapter: q.chapter||'',
     section: q.section||'',
