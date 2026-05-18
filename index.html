@@ -608,7 +608,7 @@ const da=(st,idx,qry)=>{
   }
   return new Promise((r,j)=>{const t=db.transaction(st,'readonly');const o=t.objectStore(st);const q=idx?o.index(idx).getAll(qry):o.getAll();q.onsuccess=()=>r(q.result);q.onerror=()=>j([]);});
 };
-const dp=(st,data)=>new Promise((r,j)=>{const t=db.transaction(st,'readwrite');const q=t.objectStore(st).put(data);q.onsuccess=()=>{_cacheInvalidate(st);r(q.result);};q.onerror=()=>j();});
+const dp=(st,data)=>new Promise((r,j)=>{const t=db.transaction(st,'readwrite');const q=t.objectStore(st).put(data);q.onsuccess=()=>{_cacheInvalidate(st);r(q.result);};q.onerror=e=>j(e.target.error||new Error('dp failed'));t.onerror=e=>j(e.target.error||new Error('tx failed'));});
 const dd=(st,k)=>new Promise((r,j)=>{const t=db.transaction(st,'readwrite');const req=t.objectStore(st).delete(k);req.onsuccess=()=>{_cacheInvalidate(st);r();};req.onerror=()=>j();});
 const dc=(st)=>new Promise((r,j)=>{const t=db.transaction(st,'readwrite');const req=t.objectStore(st).clear();req.onsuccess=()=>{_cacheInvalidate(st);r();};req.onerror=()=>j();});
 
@@ -3432,27 +3432,51 @@ async function expJSON(){  try{
   }catch(e){ logError('expJSON',e); }}
 
 async function impJSON(e){
-  const file=e.target.files[0];if(!file)return;
+  const file=e.target.files[0]; if(!file) return;
   try{
-    const raw=await file.text();
+    // 讀取並解析 JSON
     let data;
-    try{ data=JSON.parse(raw); }catch(pe){ toast('JSON 格式錯誤，無法解析');return; }
+    try{ data=JSON.parse(await file.text()); }
+    catch(pe){ toast('JSON 格式錯誤，無法解析'); return; }
+
     // 格式驗證
-    if(typeof data!=='object'||data===null){ toast('匯入失敗：格式不正確');return; }
-    const qs=Array.isArray(data)?data:(Array.isArray(data.questions)?data.questions:null);
-    if(!qs){ toast('匯入失敗：找不到題目資料（questions 欄位）');return; }
-    if(qs.length===0){ toast('匯入的題目數量為 0');return; }
-    // 抽查第一筆格式
-    const sample=qs[0];
-    if(typeof sample!=='object'||!sample.stem){ toast('匯入失敗：題目格式不正確（缺少 stem 欄位）');return; }
-    // 版本提示
-    if(data.version&&data.version>3){ toast('⚠ 此備份版本較新，部分欄位可能不相容'); }
-    let n=0;
-    for(const q of qs){const{id,...r}=q;await dp('questions',r);n++;}
-    if(Array.isArray(data.laws))for(const l of data.laws){const{id,...r}=l;await dp('laws',r);}
-    if(Array.isArray(data.attempts))for(const a of data.attempts){const{id,...r}=a;await dp('attempts',r);}
-    toast('已匯入 '+n+' 題 ✓');e.target.value='';renderSet();
-  }catch(err){ logError('impJSON',err); toast('匯入失敗：'+err.message); }
+    if(typeof data!=='object'||data===null){ toast('匯入失敗：格式不正確'); return; }
+
+    // 支援兩種格式：純陣列（舊版）或 {questions:[...]} 物件（新版）
+    const qs = Array.isArray(data) ? data
+              : Array.isArray(data.questions) ? data.questions
+              : null;
+    if(!qs){ toast('匯入失敗：找不到 questions 欄位'); return; }
+    if(qs.length===0){ toast('匯入的題目數量為 0'); return; }
+
+    // 確認第一筆有 stem（最基本欄位）
+    if(typeof qs[0]!=='object'||!qs[0].stem){ toast('匯入失敗：題目格式不正確（缺少 stem）'); return; }
+
+    // 版本提示（不阻止匯入）
+    if(data.version&&data.version>3) toast('⚠ 此備份版本較新，部分欄位可能不相容');
+
+    // ── 批量寫入（bulkPut 一次 transaction，比逐筆快得多）──────────
+    // 去掉 id，讓 autoIncrement 重新分配
+    const qItems    = qs.map(({id,...r})=>r);
+    const lawItems  = Array.isArray(data.laws)    ? data.laws.map(({id,...r})=>r)    : [];
+    const attItems  = Array.isArray(data.attempts) ? data.attempts.map(({id,...r})=>r) : [];
+
+    await bulkPut('questions', qItems);
+    if(lawItems.length)  await bulkPut('laws',     lawItems);
+    if(attItems.length)  await bulkPut('attempts',  attItems);
+
+    const msg = '已匯入 '+qItems.length+' 題'
+      +(lawItems.length ? '、'+lawItems.length+' 條法條' : '')
+      +(attItems.length ? '、'+attItems.length+' 筆作答記錄' : '')
+      +' ✓';
+    toast(msg);
+    e.target.value='';
+    renderSet();
+
+  }catch(err){
+    logError('impJSON',err);
+    toast('匯入失敗：'+(err&&err.message?err.message:String(err)));
+  }
 }
 
 async function expWrong(){  try{
