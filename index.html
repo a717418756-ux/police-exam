@@ -221,6 +221,11 @@ textarea{resize:vertical;line-height:1.65}
       <div><label class="fl">考試別</label><select id="bi-ex"><option value="">選擇考試</option><option>警佐班</option><option>升官等</option><option>警大二技</option><option>三等考試</option><option>其他</option></select></div>
       <div><label class="fl">答案列（可空）</label><input id="bi-ans" placeholder="DACB 或 1.D 2.A"></div>
     </div>
+    <div class="fr" style="align-items:flex-start">
+      <div style="flex:1"><label class="fl" style="color:var(--org);font-weight:700">📙 篇（選填）</label><input id="bi-part" placeholder="第一篇 總則"></div>
+      <div style="flex:1"><label class="fl" style="color:var(--pur);font-weight:700">📗 章（選填）</label><input id="bi-chapter" placeholder="第一章 一般規定"></div>
+      <div style="flex:1"><label class="fl" style="color:var(--acc);font-weight:700">📘 節（選填）</label><input id="bi-section" placeholder="第一節 定義"></div>
+    </div>
     <div><label class="fl">貼入考題文字</label>
       <textarea id="bi-text" class="bta" placeholder="1. 下列何者為警察之任務？&#10;▪維持公共秩序&#10;▪保護社會安全&#10;▪防止一切危害&#10;▪以上皆是&#10;&#10;2. 警察法第幾條規定警察任務？"></textarea>
     </div>
@@ -428,7 +433,7 @@ textarea{resize:vertical;line-height:1.65}
       <div class="fg"><label class="fl">貼入法條文字（自動分條）</label>
         <textarea id="bl-text" rows="8" placeholder="第 六 條&#10;警察於公共場所...&#10;&#10;第 七 條&#10;警察依前條規定..."></textarea>
       </div>
-      <div id="bl-prev" style="font-size:12px;color:var(--t2);min-height:20px;padding:0 12px"></div>
+      <div id="bl-prev" style="font-size:12px;color:var(--t2);min-height:20px;padding:4px 12px;line-height:1.8"></div>
       <div class="fg" style="display:flex;gap:7px;margin-top:4px">
         <button class="btn bg" style="flex:1;padding:11px" onclick="prevBulkLaw()">🔍 預覽</button>
         <button class="btn bpur" style="flex:2;padding:11px;font-size:14px" onclick="importBulkLaw()">✓ 批次匯入</button>
@@ -1967,6 +1972,13 @@ function setLSort(el,sort){
   el.classList.add('on');S.lawSort=sort;renderDB();
 }
 
+const LEVEL_STYLE = {
+    // 由外而內：篇=金橙、章=紫、節=藍
+    part:    {color:'var(--org)',  border:'var(--org)',  bg:'var(--org2)',             size:'15px', fw:'800', pt:'14px', pb:'5px',  ml:'0',    icon:'📙'},
+    chapter: {color:'var(--pur)',  border:'var(--pur)',  bg:'var(--pur2)',             size:'13px', fw:'700', pt:'10px', pb:'4px',  ml:'0',    icon:'📗'},
+    section: {color:'var(--acc)',  border:'var(--acc)',  bg:'rgba(31,111,235,0.15)',   size:'12px', fw:'600', pt:'6px',  pb:'3px',  ml:'16px', icon:'📘'},
+  };
+
 async function openLawGroup(lawName){  try{
   const allLaws=await da('laws');
   const laws=allLaws.filter(l=>l.lawName===lawName)
@@ -2020,17 +2032,20 @@ async function openLawGroup(lawName){  try{
     +'</div>';
   };
 
+  // 篇=橙(--org) 章=紫(--pur) 節=藍(--acc) 由外而內
+
   const renderHeading = (type, text) => {
     if(!text) return '';
-    const styles = {
-      part:    {color:'var(--t0)',   border:'var(--t0)',   size:'15px', pt:'14px', pb:'4px'},
-      chapter: {color:'var(--pur)',  border:'var(--pur)',  size:'13px', pt:'10px', pb:'3px'},
-      section: {color:'var(--t2)',   border:'var(--pur2)', size:'12px', pt:'6px',  pb:'2px'},
-    };
-    const s = styles[type]||styles.chapter;
+    const s = LEVEL_STYLE[type]||LEVEL_STYLE.chapter;
     const id = 'ch-'+encodeURIComponent(type+'-'+text);
-    return '<div id="'+id+'" style="font-size:'+s.size+';font-weight:700;color:'+s.color+';'
-      +'padding:'+s.pt+' 12px '+s.pb+';margin-top:4px;border-left:3px solid '+s.border+'">'+esc(text)+'</div>';
+    return '<div id="'+id+'" style="'
+      +'font-size:'+s.size+';font-weight:'+s.fw+';color:'+s.color+';'
+      +'padding:'+s.pt+' 12px '+s.pb+';margin-top:6px;'
+      +'margin-left:'+s.ml+';'
+      +'border-left:4px solid '+s.border+';'
+      +'background:'+s.bg+';border-radius:0 6px 6px 0;'
+      +'letter-spacing:.3px'
+      +'">'+(s.icon?s.icon+' ':'')+esc(text)+'</div>';
   };
 
   let arts='';
@@ -2076,10 +2091,10 @@ async function openLawGroup(lawName){  try{
   const chMgrBtn='<button onclick="openChapterMgr(window.currentLawName)" style="background:none;border:1px solid var(--bd);border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer;color:var(--t2);margin-left:4px">⚙ 管理章節</button>';
   const chMgrBtnNew='<div style="margin-bottom:6px"><button onclick="openChapterMgr(window.currentLawName)" style="background:none;border:1px solid var(--bd);border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;color:var(--t2)">⚙ 新增章節分類</button></div>';
   const chTagsHtml=chapterList.map(ch=>{
-    // 判斷層級決定顏色
-    const isP=parts.includes(ch), isS=sections.includes(ch);
-    const col=isP?'var(--t0)':isS?'var(--t2)':'var(--pur)';
-    return '<span class="tag" style="color:'+col+';cursor:pointer" onclick="scrollToChapter(this,\''+encodeURIComponent(ch)+'\')" title="點擊跳轉">'+esc(ch)+'</span>';
+    const isP=parts.filter(Boolean).includes(ch);
+    const isS=sections.filter(Boolean).includes(ch);
+    const s=isP?LEVEL_STYLE.part:isS?LEVEL_STYLE.section:LEVEL_STYLE.chapter;
+    return '<span class="tag" style="color:'+s.color+';background:'+s.bg+';border:1px solid '+s.border+';cursor:pointer;margin:2px" onclick="scrollToChapter(this,\''+encodeURIComponent(ch)+'\')" title="點擊跳轉">'+(s.icon?s.icon+' ':'')+esc(ch)+'</span>';
   }).join('');
   const chapterMgmtHtml=chapterList.length
     ?'<div style="margin-bottom:8px"><div style="font-size:11px;color:var(--t2);margin-bottom:4px">章節：'+chTagsHtml+chMgrBtn+'</div></div>'
@@ -2466,7 +2481,41 @@ function prevBulkLaw(){
   const cat=document.getElementById('bl-cat').value;
   const src=document.getElementById('bl-src').value.trim();
   const items=parseLawText(text,name,cat,src);
-  document.getElementById('bl-prev').textContent='預覽：共 '+items.length+' 條（'+items.slice(0,3).map(i=>i.article).join('、')+(items.length>3?'…':'')+'）';
+  const prevEl=document.getElementById('bl-prev');
+  if(!items.length){prevEl.innerHTML='<span style="color:var(--red)">無法解析，請確認格式（需有「第X條」）</span>';return;}
+
+  // 三層結構統計
+  const parts   =[...new Set(items.map(i=>i.part   ||'').filter(Boolean))];
+  const chapters=[...new Set(items.map(i=>i.chapter||'').filter(Boolean))];
+  const sections=[...new Set(items.map(i=>i.section||'').filter(Boolean))];
+
+  // 顏色標籤
+  const mkTag=(text,col,bg)=>'<span style="display:inline-block;padding:1px 7px;border-radius:4px;font-size:11px;font-weight:600;color:'+col+';background:'+bg+';margin:2px 3px">'+esc(text)+'</span>';
+  let html='<div style="font-size:12px;color:var(--t2);padding:6px 0">';
+  html+='<span style="color:var(--t1);font-weight:600">共 '+items.length+' 條</span>　';
+
+  if(parts.length){
+    html+='<br><span style="color:var(--org);font-size:11px">📙 篇：</span>';
+    parts.forEach(p=>{ html+=mkTag(p,'var(--org)','var(--org2)'); });
+  }
+  if(chapters.length){
+    html+='<br><span style="color:var(--pur);font-size:11px">📗 章：</span>';
+    chapters.forEach(c=>{ html+=mkTag(c,'var(--pur)','var(--pur2)'); });
+  }
+  if(sections.length){
+    html+='<br><span style="color:var(--acc);font-size:11px">📘 節：</span>';
+    sections.forEach(s=>{ html+=mkTag(s,'var(--acc)','rgba(31,111,235,0.15)'); });
+  }
+
+  // 前5條預覽
+  html+='<br style="margin:3px 0"><span style="font-size:11px">前5條：</span>';
+  items.slice(0,5).forEach(i=>{
+    const hier=[i.part,i.chapter,i.section].filter(Boolean).pop()||'';
+    html+='<span style="color:var(--t1);font-size:11px;margin-right:8px">'+esc(i.article)+(i.title?'（'+esc(i.title)+'）':'')+'</span>';
+  });
+  if(items.length>5) html+='<span style="color:var(--t2);font-size:11px">…</span>';
+  html+='</div>';
+  prevEl.innerHTML=html;
   }catch(e){logError('prevBulkLaw',e);}
 }
 
@@ -2558,48 +2607,110 @@ function scrollToChapter(tagEl, encodedCh){
 
 async function openChapterMgr(lawName){  try{
   const allLaws=await da('laws');
-  const targets=allLaws.filter(l=>l.lawName===lawName).sort((a,b)=>(a.articleNumber||0)-(b.articleNumber||0));
+  const targets=allLaws.filter(l=>l.lawName===lawName)
+    .sort((a,b)=>(a.articleNumber||0)-(b.articleNumber||0));
   if(!targets.length){toast('找不到法規');return;}
 
-  // 顯示現有三層結構
+  // 現有結構
   const curParts    =[...new Set(targets.map(l=>l.part   ||'').filter(Boolean))];
   const curChapters =[...new Set(targets.map(l=>l.chapter||'').filter(Boolean))];
   const curSections =[...new Set(targets.map(l=>l.section||'').filter(Boolean))];
   const structInfo  =
-    (curParts.length   ?'篇：'+curParts.join('、')+'\n':'')+
-    (curChapters.length?'章：'+curChapters.join('、')+'\n':'')+
-    (curSections.length?'節：'+curSections.join('、'):'');
+    (curParts.length   ?'📙 篇：'+curParts.join('、')+'\n':'')+
+    (curChapters.length?'📗 章：'+curChapters.join('、')+'\n':'')+
+    (curSections.length?'📘 節：'+curSections.join('、'):'');
 
+  // 步驟1：選擇層級
   const levelInput=prompt(
-    '【三層分類管理】\n'+
-    '目前結構：\n'+(structInfo||'（尚無分類）')+'\n\n'+
+    '【分層管理】目前結構：\n'+(structInfo||'（尚無分類）')+'\n\n'+
     '請選擇要設定的層級：\n'+
-    '1 = 篇（最上層，如「第一篇 總則」）\n'+
-    '2 = 章（中層，如「第一章 一般規定」）\n'+
-    '3 = 節（最下層，如「第一節 定義」）\n'+
+    '1 = 📙 篇（最上層）→ 選哪些章屬於此篇\n'+
+    '2 = 📗 章（中層）→ 選哪些節屬於此章\n'+
+    '3 = 📘 節（最下層）→ 設定條號範圍\n'+
     '輸入 1、2 或 3：'
   );
   if(!levelInput||!['1','2','3'].includes(levelInput.trim()))return;
-  const level=['part','chapter','section'][parseInt(levelInput.trim())-1];
-  const levelName=['篇','章','節'][parseInt(levelInput.trim())-1];
+  const lvIdx=parseInt(levelInput.trim())-1;
+  const level    =['part','chapter','section'][lvIdx];
+  const levelName=['篇','章','節'][lvIdx];
+  const childLevel    =['chapter','section',null][lvIdx];   // 篇的子級=章，章的子級=節
+  const childLevelName=['章','節',null][lvIdx];
 
+  // 步驟2：輸入名稱
   const nameInput=prompt('請輸入'+levelName+'別名稱（如「第一'+levelName+' 總則」），留空取消：');
   if(!nameInput||!nameInput.trim())return;
   const newVal=nameInput.trim();
 
-  const rangeInput=prompt('套用範圍（格式：1-5 代表第1到5條）\n留空則套用到所有未設'+levelName+'別的條文：');
-  let startArt=0,endArt=99999;
-  if(rangeInput&&rangeInput.trim()){
-    const rm=rangeInput.match(/(\d+)\s*[-~]\s*(\d+)/);
-    if(rm){startArt=parseInt(rm[1]);endArt=parseInt(rm[2]);}
-    else{const n=parseInt(rangeInput);if(!isNaN(n)){startArt=n;endArt=n;}}
-  }
   let count=0;
-  for(const l of targets){
-    const artN=l.articleNumber||0;
-    const apply=rangeInput&&rangeInput.trim()?(artN>=startArt&&artN<=endArt):(!l[level]);
-    if(apply){l[level]=newVal;await dp('laws',l);count++;}
+
+  if(lvIdx===2||!childLevel){
+    // 節：直接設定條號範圍
+    const rangeInput=prompt(
+      '套用範圍（格式：1-5 代表第1到5條）\n'+
+      '留空則套用到所有未設節別的條文：'
+    );
+    let startArt=0,endArt=99999;
+    if(rangeInput&&rangeInput.trim()){
+      const rm=rangeInput.match(/(\d+)\s*[-~]\s*(\d+)/);
+      if(rm){startArt=parseInt(rm[1]);endArt=parseInt(rm[2]);}
+      else{const n=parseInt(rangeInput);if(!isNaN(n)){startArt=n;endArt=n;}}
+    }
+    for(const l of targets){
+      const artN=l.articleNumber||0;
+      const apply=rangeInput&&rangeInput.trim()?(artN>=startArt&&artN<=endArt):(!l[level]);
+      if(apply){l[level]=newVal;await dp('laws',l);count++;}
+    }
+  } else {
+    // 篇/章：顯示現有子層級清單，讓使用者選哪些歸入
+    const childList=lvIdx===0?curChapters:curSections; // 篇選章，章選節
+    if(!childList.length){
+      // 子層級不存在，改用條號範圍
+      const rangeInput=prompt(
+        '目前尚無'+childLevelName+'別。\n'+
+        '改用條號範圍（格式：1-5 代表第1到5條）\n'+
+        '留空套用到所有未設'+levelName+'別的條文：'
+      );
+      let startArt=0,endArt=99999;
+      if(rangeInput&&rangeInput.trim()){
+        const rm=rangeInput.match(/(\d+)\s*[-~]\s*(\d+)/);
+        if(rm){startArt=parseInt(rm[1]);endArt=parseInt(rm[2]);}
+        else{const n=parseInt(rangeInput);if(!isNaN(n)){startArt=n;endArt=n;}}
+      }
+      for(const l of targets){
+        const artN=l.articleNumber||0;
+        const apply=rangeInput&&rangeInput.trim()?(artN>=startArt&&artN<=endArt):(!l[level]);
+        if(apply){l[level]=newVal;await dp('laws',l);count++;}
+      }
+    } else {
+      // 顯示子層級讓使用者選
+      const listStr=childList.map((c,i)=>(i+1)+'. '+c).join('\n');
+      const selInput=prompt(
+        '請選擇要歸入「'+newVal+'」的'+childLevelName+'別：\n'+listStr+'\n\n'+
+        '輸入序號（可多選，用逗號分隔，如「1,3」）\n'+
+        '或直接輸入條號範圍（如「1-20」）：'
+      );
+      if(!selInput||!selInput.trim())return;
+      const sel=selInput.trim();
+      if(/^\d+[-~]\d+$/.test(sel)){
+        // 條號範圍
+        const rm=sel.match(/(\d+)\s*[-~]\s*(\d+)/);
+        const startArt=parseInt(rm[1]),endArt=parseInt(rm[2]);
+        for(const l of targets){
+          const artN=l.articleNumber||0;
+          if(artN>=startArt&&artN<=endArt){l[level]=newVal;await dp('laws',l);count++;}
+        }
+      } else {
+        // 序號選擇
+        const idxList=sel.split(/[,，]/).map(s=>parseInt(s.trim())-1).filter(i=>!isNaN(i)&&i>=0&&i<childList.length);
+        const selected=idxList.map(i=>childList[i]);
+        if(!selected.length){toast('未選擇任何項目');return;}
+        for(const l of targets){
+          if(selected.includes(l[childLevel]||'')){l[level]=newVal;await dp('laws',l);count++;}
+        }
+      }
+    }
   }
+
   toast('已套用「'+newVal+'」('+levelName+'）到 '+count+' 條');
   openLawGroup(lawName);
   }catch(e){ logError('openChapterMgr',e); }}
@@ -2989,29 +3100,47 @@ function parseBulk(){
     // 套用答案列
     const ansStr=(document.getElementById('bi-ans')||{}).value||'';
     const ansMap=parseAnswerStr(ansStr);
+    // 讀取篇/章/節（批次套用到所有題目）
+    const biPart   =(document.getElementById('bi-part'   )||{}).value||'';
+    const biChapter=(document.getElementById('bi-chapter')||{}).value||'';
+    const biSection=(document.getElementById('bi-section')||{}).value||'';
     parsed.forEach((q,i)=>{
       const n=parseInt(q.num)||i+1;
-      if(ansMap[n])q.answer=ansMap[n];
+      if(ansMap[n]) q.answer=ansMap[n];
+      if(biPart)    q.part   =biPart.trim();
+      if(biChapter) q.chapter=biChapter.trim();
+      if(biSection) q.section=biSection.trim();
     });
     const mc=parsed.filter(q=>q.type==='mc').length;
     const es=parsed.filter(q=>q.type==='es').length;
     const noAns=parsed.filter(q=>q.type==='mc'&&!q.answer).length;
+    // 篇/章/節標籤
+    const hierTags=
+      (biPart   ?'<span class="tag" style="background:var(--org2);color:var(--org);font-weight:700">📙'+biPart   +'</span>':'')+
+      (biChapter?'<span class="tag" style="background:var(--pur2);color:var(--pur);font-weight:700">📗'+biChapter+'</span>':'')+
+      (biSection?'<span class="tag" style="background:rgba(31,111,235,0.15);color:var(--acc);font-weight:700">📘'+biSection+'</span>':'');
     // 顯示統計
     const statsEl=document.getElementById('bulk-stats');
     if(statsEl) statsEl.innerHTML=
       '<span class="tag" style="background:var(--acc2);color:#fff">'+parsed.length+' 題</span>'+
       '<span class="tag" style="background:#1f3a5f;color:var(--acc)">選擇 '+mc+'</span>'+
       '<span class="tag" style="background:var(--red2);color:var(--red)">申論 '+es+'</span>'+
-      (noAns?'<span class="tag" style="background:var(--org2);color:var(--org)">⚠ '+noAns+' 題未填答案</span>':'');
-    // 顯示預覽
+      (noAns?'<span class="tag" style="background:var(--org2);color:var(--org)">⚠ '+noAns+' 題未填答案</span>':'')+
+      (hierTags?'<div style="margin-top:4px">'+hierTags+'</div>':'');
+    // 顯示預覽（含篇/章/節標籤）
     const prevEl=document.getElementById('prev-list');
     if(prevEl) prevEl.innerHTML=parsed.map(function(q){
       const typeLabel=q.type==='mc'?'選擇題':'申論題';
       const ansLabel=q.answer?' · 答案:'+q.answer:'';
       const optLabel=q.type==='mc'?'<div class="pi-o">選項：'+Object.keys(q.options).join(' ')+'</div>':'';
       const cls=q.answer||q.type==='es'?'ok':'warn';
+      const hierLabel=
+        (q.part   ?'<span style="font-size:10px;color:var(--org)">📙'+esc(q.part)+'</span> ':'');+
+        (q.chapter?'<span style="font-size:10px;color:var(--pur)">📗'+esc(q.chapter)+'</span> ':'')+
+        (q.section?'<span style="font-size:10px;color:var(--acc)">📘'+esc(q.section)+'</span> ':'');
       return '<div class="pi '+cls+'">'+
         '<div class="pi-n">第'+q.num+'題 · '+typeLabel+ansLabel+'</div>'+
+        (hierLabel?'<div style="margin-top:2px">'+hierLabel+'</div>':'')+
         '<div class="pi-s">'+esc(q.stem||'')+'</div>'+
         optLabel+'</div>';
     }).join('');
@@ -3031,7 +3160,16 @@ async function importBulk(){
   const sub=(document.getElementById('bi-sub')||{}).value||'';
   const yr=(document.getElementById('bi-yr')||{}).value||'';
   const ex=(document.getElementById('bi-ex')||{}).value||'';
-  const items=S.bulkParsed.map(q=>({...q,subject:sub||q.subject||'',year:yr||q.year||'',exam:ex||q.exam||''}));
+  const items=S.bulkParsed.map(q=>({
+    ...q,
+    subject: sub||q.subject||'',
+    year:    yr||q.year||'',
+    exam:    ex||q.exam||'',
+    // 篇/章/節已在 parseBulk 時寫入 q，直接帶過
+    part:    q.part||'',
+    chapter: q.chapter||'',
+    section: q.section||'',
+  }));
   try{
     await bulkPut('questions',items);
     toast('已匯入 '+items.length+' 題 ✓');
@@ -3046,6 +3184,9 @@ async function importBulk(){
 function clearBulk(){
   document.getElementById('bi-text').value='';
   document.getElementById('bi-ans').value='';
+  const biPart=document.getElementById('bi-part'); if(biPart) biPart.value='';
+  const biCh=document.getElementById('bi-chapter'); if(biCh) biCh.value='';
+  const biSec=document.getElementById('bi-section'); if(biSec) biSec.value='';
   document.getElementById('bulk-result').classList.add('hide');
   S.bulkParsed=[];
 }
