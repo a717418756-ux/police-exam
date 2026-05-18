@@ -3447,10 +3447,15 @@ async function impJSON(e){
               : Array.isArray(data.questions) ? data.questions
               : null;
     if(!qs){ toast('匯入失敗：找不到 questions 欄位'); return; }
-    if(qs.length===0){ toast('匯入的題目數量為 0'); return; }
-
-    // 確認第一筆有 stem（最基本欄位）
-    if(typeof qs[0]!=='object'||!qs[0].stem){ toast('匯入失敗：題目格式不正確（缺少 stem）'); return; }
+    // questions 可能為 0（只匯入法條也合法）
+    if(qs.length===0){
+      const lawCount = Array.isArray(data.laws) ? data.laws.length : 0;
+      if(lawCount===0){ toast('匯入的題目與法條數量均為 0'); return; }
+      // 有法條就繼續
+    } else {
+      // 有題目時才驗證格式
+      if(typeof qs[0]!=='object'||!qs[0].stem){ toast('匯入失敗：題目格式不正確（缺少 stem）'); return; }
+    }
 
     // 版本提示（不阻止匯入）
     if(data.version&&data.version>3) toast('⚠ 此備份版本較新，部分欄位可能不相容');
