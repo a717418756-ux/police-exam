@@ -635,7 +635,7 @@ function getErrorLog(){ return [..._errLog]; }
 
 // ── 輕量快取（避免重複全量讀取）────────────────────────────
 const _cache={};
-const _CACHE_TTL=5000; // 5秒 TTL
+const _CACHE_TTL=30000; // 30秒 TTL（操作後自動失效）
 
 function _cacheGet(key){
   const c=_cache[key];
@@ -685,8 +685,7 @@ function getDangerLevel(q, recentAts){
 
 // ── 優先排序：危險題優先 ─────────────────────────────────────
 async function getPriorityPool(mode='all'){  try{
-  const qs=await da('questions');
-  const ats=await da('attempts');
+  const [qs,ats]=await Promise.all([da('questions'),da('attempts')]);
   if(!qs.length) return [];
   const now=Date.now();
 
@@ -708,7 +707,7 @@ async function getPriorityPool(mode='all'){  try{
   return pool;
   }catch(e){ logError('getPriorityPool',e); }}
 
-const APP_VER = 'v11505181';
+const APP_VER = 'v11505182';
 // ══ utils.js — 工具函式 ═════════════════════════════════════
 // 全域狀態
 const S = {
@@ -1121,8 +1120,6 @@ function parseQuestions(rawText){
   }));
 }
 
-// parseOneBlock 保留空殼（不再使用）
-function parseOneBlock(block){ return null; }
 
 
 // ── 5. parseAnswerStr ────────────────────────────────────────
@@ -1573,13 +1570,13 @@ function submitAnswer(){
 let _dupResolve=null;
 
 async function renderHome(){  try{
-  const [qs,ats]=await Promise.all([da('questions'),da('attempts')]);
+  const [qs,ats,ls]=await Promise.all([da('questions'),da('attempts'),da('laws')]);
   const now=Date.now();
   const todayStr=today();
 
   // 統計
   document.getElementById('hs-q').textContent=qs.length;
-  document.getElementById('hs-l').textContent=(await da('laws')).length;
+  document.getElementById('hs-l').textContent=ls.length;
   document.getElementById('hs-t').textContent=ats.filter(a=>a.date===todayStr).length;
 
   // 錯題數
@@ -1623,11 +1620,11 @@ async function renderHome(){  try{
 
   // 設定頁資訊
   const expEl=document.getElementById('exp-info');
-  if(expEl)expEl.textContent=`題目 ${qs.length} 筆・法條 ${(await da('laws')).length} 筆・作答 ${ats.length} 筆`;
+  if(expEl)expEl.textContent=`題目 ${qs.length} 筆・法條 ${ls.length} 筆・作答 ${ats.length} 筆`;
   }catch(e){ logError('renderHome',e); }}
 
 async function renderList(){  try{
-  const [qs,ats]=await Promise.all([da('questions'),da('attempts')]);
+  const [qs,ats,ls]=await Promise.all([da('questions'),da('attempts'),da('laws')]);
   const kw=(document.getElementById('si')?.value||'').toLowerCase().trim();
   const f=S.filter||'all';
   const sf=S.subF||'all';
@@ -2071,34 +2068,35 @@ async function openLawGroup(lawName){  try{
   const hasChapter = chapters.some(c=>c);
   const hasSection = sections.some(s=>s);
 
-  if(hasPart){
-    parts.forEach(part=>{
-      if(part) arts+=renderHeading('part',part);
-      const pLaws=laws.filter(l=>(l.part||'')===part);
-      const pChapters=[...new Set(pLaws.map(l=>l.chapter||''))];
-      pChapters.forEach(ch=>{
+  // 用 Map 分組，每條只遍歷一次（取代多層巢狀 filter）
+  const grouped=new Map(); // key: 'part|chapter|section'
+  laws.forEach(l=>{
+    const key=(l.part||'')+'|'+(l.chapter||'')+'|'+(l.section||'');
+    if(!grouped.has(key)) grouped.set(key,[]);
+    grouped.get(key).push(l);
+  });
+
+  const renderGroup=(filterFn)=>{
+    let lastPart='__none__', lastChapter='__none__', lastSection='__none__';
+    laws.forEach(l=>{
+      if(!filterFn(l)) return;
+      const p=l.part||'', ch=l.chapter||'', sec=l.section||'';
+      if(hasPart && p!==lastPart){
+        if(p) arts+=renderHeading('part',p);
+        lastPart=p; lastChapter='__none__'; lastSection='__none__';
+      }
+      if(hasChapter && ch!==lastChapter){
         if(ch) arts+=renderHeading('chapter',ch);
-        const cLaws=pLaws.filter(l=>(l.chapter||'')===ch);
-        const cSecs=[...new Set(cLaws.map(l=>l.section||''))];
-        cSecs.forEach(sec=>{
-          if(sec) arts+=renderHeading('section',sec);
-          cLaws.filter(l=>(l.section||'')===sec).forEach(l=>{arts+=renderArtCard(l);});
-        });
-      });
-    });
-  } else if(hasChapter){
-    chapters.forEach(ch=>{
-      if(ch) arts+=renderHeading('chapter',ch);
-      const cLaws=laws.filter(l=>(l.chapter||'')===ch);
-      const cSecs=[...new Set(cLaws.map(l=>l.section||''))];
-      cSecs.forEach(sec=>{
+        lastChapter=ch; lastSection='__none__';
+      }
+      if(hasSection && sec!==lastSection){
         if(sec) arts+=renderHeading('section',sec);
-        cLaws.filter(l=>(l.section||'')===sec).forEach(l=>{arts+=renderArtCard(l);});
-      });
+        lastSection=sec;
+      }
+      arts+=renderArtCard(l);
     });
-  } else {
-    laws.forEach(l=>{arts+=renderArtCard(l);});
-  }
+  };
+  renderGroup(()=>true);
   // 章節列表（快速跳轉用，含編/章/節）
   const chapterList=[...new Set([
     ...parts.filter(Boolean),
@@ -2204,7 +2202,9 @@ async function toggleLawFav(id){  try{ const l=await dg('laws',id);if(!l)return;
 function toggleLawStar(){}
 
 async function startLawCloze(){
+  try{
   startClozeLaw(window.currentLawContent, window.currentLawName);
+  }catch(e){logError('startLawCloze',e);toast('startLawCloze 發生錯誤');}
 }
 async function quizFromLaw(){  try{
   const lawName=(S.curLawName||window.currentLawName||'').trim();
@@ -2341,6 +2341,7 @@ function loadSOPImg(e){
 }
 
 async function saveLaw(){
+  try{
   const cat_=document.getElementById('l-cat').value;
   let content='';
   // sop / supplement / interpretation 都可選擇圖片或文字
@@ -2398,6 +2399,7 @@ async function saveLaw(){
     toast('儲存失敗，請重試');
   }
   renderDB();
+  }catch(e){logError('saveLaw',e);toast('saveLaw 發生錯誤');}
 }
 
 function showBulkLaw(){ document.getElementById('blaw-ov').classList.add('on'); }
@@ -2976,10 +2978,11 @@ function addConceptGroup(){
   showConceptGroupSheet(null);
 }
 
-async function editConceptGroup(id){
+async function editConceptGroup(id){  try{
   const groups=_loadGroups();
   const g=groups.find(g=>g.id===id);
   if(g) showConceptGroupSheet(g);
+  }catch(e){logError('editConceptGroup',e);}
 }
 
 async function delConceptGroupById(id){  try{
@@ -3122,7 +3125,6 @@ function delGroupItem(i){
 
 function parseBulk(){
   try{
-    console.log('[parseBulk] 開始執行');
     const biEl=document.getElementById('bi-text');
     if(!biEl){toast('找不到輸入框');return;}
     const text=biEl.value||'';
@@ -3732,11 +3734,12 @@ function goPage(pg,btn){
   ({home:renderHome,list:renderList,laws:renderDB,db:renderDB,stats:renderStats,set:renderSet,bulk:()=>{},groups:renderGroups})[pg]?.();
 }
 
-async function init(){
+async function init(){  try{
   await initDB();
   buildOpts({});
   goPage('home',document.querySelector('.nb'));
   if(typeof applyIconSettings==='function') applyIconSettings();
+  }catch(e){logError('init',e);document.body.innerHTML='<div style="padding:20px;color:red">⚠ 初始化失敗：'+e.message+'</div>';}
 }
 init().then(()=>{
   if(typeof applyCustomIcons==="function") applyCustomIcons();
