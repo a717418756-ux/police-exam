@@ -73,13 +73,15 @@ textarea{resize:vertical;line-height:1.7}
 .sec{font-size:11px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.8px;padding:13px 12px 5px}
 .empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:48px 20px;color:var(--t2);gap:10px;text-align:center}
 .empty .ic{font-size:44px}
-.banner{margin:10px 12px;padding:15px;border-radius:var(--r);background:linear-gradient(135deg,rgba(110,168,254,0.10),rgba(37,98,200,0.15));border:1px solid rgba(110,168,254,0.20)}
+.banner{margin:10px 12px;padding:16px;border-radius:var(--r);background:linear-gradient(135deg,rgba(110,168,254,0.12),rgba(37,98,200,0.18));border:1px solid rgba(110,168,254,0.22);transition:border-color var(--tr)}
 .sg4{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 12px 10px}
-.sc{background:var(--bg1);border:1px solid var(--bd);border-radius:var(--r);padding:11px;text-align:center}
+.sc{background:var(--bg1);border:1px solid var(--bd);border-radius:var(--r);padding:12px 8px;text-align:center;transition:border-color var(--tr)}
 .sc .n{font-size:24px;font-weight:700;color:var(--acc)}.sc .l{font-size:11px;color:var(--t2);margin-top:2px}
 .qg{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 12px 12px}
+.qb-main{grid-column:1/-1;background:linear-gradient(135deg,rgba(110,168,254,0.15),rgba(37,98,200,0.20));border-color:rgba(110,168,254,0.30);color:var(--acc)}
+.qb-main .ic{color:var(--acc)}
 .qb{background:var(--bg1);border:1px solid var(--bd);border-radius:var(--r);padding:13px;display:flex;flex-direction:column;align-items:center;gap:6px;color:var(--t1);font-size:12px;font-weight:600;transition:all var(--tr)}
-.qb:hover{border-color:var(--bd);background:var(--bg2)}.qb:active{border-color:var(--acc)}.qb .ic{font-size:24px}
+.qb:hover{border-color:rgba(110,168,254,0.3);background:var(--bg2);transform:translateY(-1px)}.qb:active{border-color:var(--acc);transform:translateY(0)}.qb .ic{font-size:22px;transition:transform .15s}
 .sb{margin:8px 12px;position:relative}.sb input{padding-left:33px}
 .sb .ic{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--t2);pointer-events:none}
 .chips{display:flex;gap:6px;padding:5px 12px;overflow-x:auto;-webkit-overflow-scrolling:touch}
@@ -102,7 +104,7 @@ textarea{resize:vertical;line-height:1.7}
 .bta{background:var(--bg1);border:1px solid var(--bd);border-radius:var(--r);padding:11px;min-height:200px;font-size:13px;color:var(--t1);line-height:1.7;resize:vertical;width:100%}
 .prev-list{display:flex;flex-direction:column;gap:5px;max-height:360px;overflow-y:auto}
 .pi{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rs);padding:9px;font-size:12px;line-height:1.55}
-.pi.ok{border-color:var(--grn)}.pi.warn{border-color:var(--org)}
+.pi.ok{border-color:var(--grn);background:rgba(76,175,80,0.06)}.pi.warn{border-color:var(--org);background:rgba(212,164,56,0.06)}
 .pi-n{font-weight:700;color:var(--acc);margin-bottom:3px}
 .pi-s{color:var(--t1);font-size:12px;word-break:break-all}
 .st3{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin:10px 12px}
@@ -167,7 +169,15 @@ textarea{resize:vertical;line-height:1.7}
 
 /* Modern viewport height for mobile */
 @supports (height:100dvh){ #qv,#lv{ height:100dvh; } }
-</style>
+
+/* 測驗專區按鈕 */
+.em-btn{background:var(--bg2);border:1px solid var(--bd);border-radius:12px;padding:14px 10px;text-align:center;cursor:pointer;transition:all .15s;width:100%}
+.em-btn:hover{border-color:rgba(110,168,254,0.35);background:var(--bg3);transform:translateY(-1px)}
+.em-btn:active{transform:translateY(0)}
+.em-icon{font-size:26px;margin-bottom:5px}
+.em-label{font-size:13px;font-weight:700;color:var(--t0);margin-bottom:2px}
+.em-desc{font-size:11px;color:var(--t2);line-height:1.3}
+.card:hover{border-color:rgba(255,255,255,0.12)}</style>
 </head>
 <body>
 <div id="app">
@@ -177,20 +187,15 @@ textarea{resize:vertical;line-height:1.7}
   <div class="banner"><div style="font-size:18px;font-weight:700">今日複習</div><div style="font-size:13px;color:var(--t2);margin-top:4px" id="h-plan">載入中...</div></div>
   <div class="sg4">
     <div class="sc"><div class="n" id="hs-q">0</div><div class="l">題目數</div></div>
-    <div class="sc"><div class="n" id="hs-l" style="color:var(--pur)">0</div><div class="l">法條數</div></div>
+    <div class="sc"><div class="n" id="hs-l" style="color:var(--acc)">0</div><div class="l">法條數</div></div>
     <div class="sc"><div class="n" id="hs-t" style="color:var(--grn)">0</div><div class="l">今日練習</div></div>
     <div class="sc"><div class="n" id="hs-w" style="color:var(--red)">0</div><div class="l">錯題待複習</div></div>
   </div>
   <div class="qg">
-    <button class="qb" onclick="startQ('review')"><span class="ic">📅</span>今日複習</button>
-    <button class="qb" onclick="startQ('wrong')"><span class="ic">🔴</span>危險題</button>
-    <button class="qb" onclick="startQuick()"><span class="ic">⚡</span>快刷5題</button>
-    <button class="qb" onclick="startExam()"><span class="ic">📝</span>模擬考</button>
-    <button class="qb" onclick="startQ('all')"><span class="ic">🎯</span>隨機刷題</button>
-    <button class="qb" onclick="startNumberMode()"><span class="ic">🔢</span>數字魔鬼</button>
-    <button class="qb" onclick="startQ('star')"><span class="ic">⭐</span>收藏題目</button>
+    <button class="qb qb-main" onclick="openExamMenu()"><span class="ic">🏆</span>測驗專區</button>
     <button class="qb" onclick="openBrowse()"><span class="ic">🔍</span>題目閱覽</button>
     <button class="qb" onclick="goPage('groups')"><span class="ic">🧩</span>概念群組</button>
+    <button class="qb" onclick="goPage('laws')"><span class="ic">⚖</span>法規資料庫</button>
   </div>
   <div class="sec">考試倒數</div>
   <div id="h-countdown"></div>
@@ -204,6 +209,7 @@ textarea{resize:vertical;line-height:1.7}
     <div class="hdt">題目管理</div>
     <div style="display:flex;gap:6px">
       <button class="btn bg" style="padding:6px 10px;font-size:12px" onclick="goPage('bulk')">📋 大量匯入</button>
+      <button class="btn bg" style="padding:6px 10px;font-size:12px;color:var(--red)" onclick="bulkDeleteQ()">🗑 批次刪除</button>
       <button class="btn bp" style="padding:6px 10px;font-size:12px" onclick="showAdd()">＋ 新增</button>
     </div>
   </div>
@@ -554,6 +560,47 @@ textarea{resize:vertical;line-height:1.7}
   </div>
 </div>
 <div class="toast" id="toast"></div>
+
+
+
+
+
+
+
+
+
+
+
+  <!-- 測驗專區小視窗 -->
+  <div id="exam-menu" style="display:none;position:fixed;inset:0;z-index:300;background:rgba(0,0,0,0.5)" onclick="closeExamMenu()">
+    <div onclick="event.stopPropagation()" style="position:absolute;bottom:0;left:0;right:0;background:var(--bg1);border-radius:20px 20px 0 0;padding:20px 16px 32px;max-height:80vh;overflow-y:auto">
+      <div style="width:36px;height:4px;background:var(--bd);border-radius:2px;margin:0 auto 18px"></div>
+      <div style="font-size:15px;font-weight:700;color:var(--t0);margin-bottom:14px">🏆 測驗專區</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <button class="em-btn" onclick="closeExamMenu();startQ('review')">
+          <div class="em-icon">📅</div><div class="em-label">今日複習</div><div class="em-desc">遺忘曲線到期題目</div>
+        </button>
+        <button class="em-btn" onclick="closeExamMenu();startQ('all')">
+          <div class="em-icon">🎯</div><div class="em-label">隨機刷題</div><div class="em-desc">全部題目按危險度</div>
+        </button>
+        <button class="em-btn" onclick="closeExamMenu();startQ('wrong')">
+          <div class="em-icon">🔴</div><div class="em-label">危險題</div><div class="em-desc">錯誤率高的題目</div>
+        </button>
+        <button class="em-btn" onclick="closeExamMenu();startQ('star')">
+          <div class="em-icon">⭐</div><div class="em-label">收藏題目</div><div class="em-desc">已加星號的題目</div>
+        </button>
+        <button class="em-btn" onclick="closeExamMenu();startQuick()">
+          <div class="em-icon">⚡</div><div class="em-label">快刷5題</div><div class="em-desc">優先危險題共5題</div>
+        </button>
+        <button class="em-btn" onclick="closeExamMenu();startExam()">
+          <div class="em-icon">📝</div><div class="em-label">模擬考</div><div class="em-desc">50題限時計時</div>
+        </button>
+        <button class="em-btn" onclick="closeExamMenu();startNumberMode()">
+          <div class="em-icon">🔢</div><div class="em-label">數字魔鬼</div><div class="em-desc">快速數字記憶訓練</div>
+        </button>
+      </div>
+    </div>
+  </div>
 <script>
 // ══ db.js — IndexedDB 核心 v3 ═══════════════════════════════
 const DB_NAME='PoliceExamPro', DB_VER=3;
@@ -722,7 +769,7 @@ async function getPriorityPool(mode='all'){  try{
   return pool;
   }catch(e){ logError('getPriorityPool',e); }}
 
-const APP_VER = 'v115052001';
+const APP_VER = 'v115052101';
 // ══ utils.js — 工具函式 ═════════════════════════════════════
 // 全域狀態
 const S = {
@@ -1154,6 +1201,15 @@ function parseBulkText(text){
 
 let _qStart=0; // 題目開始時間
 
+async 
+function openExamMenu(){
+  const el=document.getElementById('exam-menu');
+  if(el){ el.style.display='block'; document.body.style.overflow='hidden'; }
+}
+function closeExamMenu(){
+  const el=document.getElementById('exam-menu');
+  if(el){ el.style.display='none'; document.body.style.overflow=''; }
+}
 async function startQ(mode){  try{
   const pool=await getPriorityPool(mode);
   if(!pool.length){toast(mode==='wrong'?'目前沒有錯題':'目前沒有題目');return;}
@@ -1548,6 +1604,64 @@ function submitAnswer(){
 // 依賴：db.js, utils.js
 
 let _dupResolve=null;
+
+
+// ── 批次刪除：依年度/考試別刪除整批題目 ──────────────────────────────
+async function bulkDeleteQ(){  try{
+  const qs=await da('questions');
+  if(!qs.length){toast('目前無題目');return;}
+
+  // 收集所有「年度-考試別-科目」群組
+  const groups={};
+  qs.forEach(q=>{
+    const key=(q.year||'未知年度')+'｜'+(q.exam||'未知考試')+'｜'+(q.subject||'未知科目');
+    if(!groups[key]) groups[key]={key,year:q.year||'',exam:q.exam||'',subject:q.subject||'',ids:[]};
+    groups[key].ids.push(q.id);
+  });
+  const groupList=Object.values(groups).sort((a,b)=>b.year.localeCompare(a.year));
+
+  // 建立選擇 UI
+  const modal=document.createElement('div');
+  modal.style.cssText='position:fixed;inset:0;z-index:400;background:rgba(0,0,0,0.6);display:flex;align-items:flex-end';
+  modal.innerHTML=`
+    <div style="width:100%;max-height:80vh;overflow-y:auto;background:var(--bg1);border-radius:20px 20px 0 0;padding:20px 16px 32px">
+      <div style="width:36px;height:4px;background:var(--bd);border-radius:2px;margin:0 auto 16px"></div>
+      <div style="font-size:15px;font-weight:700;color:var(--t0);margin-bottom:4px">🗑 批次刪除題目</div>
+      <div style="font-size:12px;color:var(--t2);margin-bottom:14px">勾選要刪除的批次，確認後無法復原</div>
+      <div id="bdq-list">
+        ${groupList.map((g,i)=>`
+          <label style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--bd);cursor:pointer">
+            <input type="checkbox" id="bdq-${i}" value="${i}" style="width:18px;height:18px;accent-color:var(--red)">
+            <div style="flex:1">
+              <div style="font-size:13px;font-weight:600;color:var(--t0)">${esc(g.year||'?')} ${esc(g.exam||'?')}</div>
+              <div style="font-size:12px;color:var(--t2)">${esc(g.subject||'?')} · ${g.ids.length} 題</div>
+            </div>
+          </label>`).join('')}
+      </div>
+      <div style="display:flex;gap:8px;margin-top:16px">
+        <button class="btn bg" style="flex:1;padding:12px" onclick="this.closest('[style*=fixed]').remove()">取消</button>
+        <button class="btn" style="flex:1;padding:12px;background:var(--red);color:#fff" onclick="confirmBulkDeleteQ(${JSON.stringify(groupList)},this)">確認刪除</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  }catch(e){ logError('bulkDeleteQ',e); }
+}
+
+async function confirmBulkDeleteQ(groupList, btn){  try{
+  const checkboxes=document.querySelectorAll('[id^=bdq-]');
+  const selectedIdxs=[...checkboxes].filter(cb=>cb.checked).map(cb=>parseInt(cb.value));
+  if(!selectedIdxs.length){toast('請先勾選要刪除的批次');return;}
+  const allDelIds=selectedIdxs.flatMap(i=>groupList[i].ids);
+  const total=allDelIds.length;
+  if(!confirm(`確定刪除 ${total} 題？此操作無法復原！`)){return;}
+  // 逐筆刪除
+  for(const id of allDelIds) await dd('questions',id);
+  btn.closest('[style*=fixed]').remove();
+  toast('已刪除 '+total+' 題 ✓');
+  renderHome();
+  renderDB();
+  }catch(e){ logError('confirmBulkDeleteQ',e); }
+}
 
 async function renderHome(){  try{
   const [qs,ats,ls]=await Promise.all([da('questions'),da('attempts'),da('laws')]);
@@ -3130,18 +3244,25 @@ function parseBulk(){
       '<span class="tag" style="background:#1f3a5f;color:var(--acc)">選擇 '+mc+'</span>'+
       '<span class="tag" style="background:var(--red2);color:var(--red)">申論 '+es+'</span>'+
       (noAns?'<span class="tag" style="background:var(--org2);color:var(--org)">⚠ '+noAns+' 題未填答案</span>':'');
-    // 顯示預覽
+    // 顯示預覽（以群組卡片顯示，按進去才看題目詳情）
     const prevEl=document.getElementById('prev-list');
-    if(prevEl) prevEl.innerHTML=parsed.map(function(q){
-      const typeLabel=q.type==='mc'?'選擇題':'申論題';
-      const ansLabel=q.answer?' · 答案:'+q.answer:'';
-      const optLabel=q.type==='mc'?'<div class="pi-o">選項：'+Object.keys(q.options).join(' ')+'</div>':'';
-      const cls=q.answer||q.type==='es'?'ok':'warn';
-      return '<div class="pi '+cls+'">'+
-        '<div class="pi-n">第'+q.num+'題 · '+typeLabel+ansLabel+'</div>'+
-        '<div class="pi-s">'+esc(q.stem||'')+'</div>'+
-        optLabel+'</div>';
-    }).join('');
+    if(prevEl) prevEl.innerHTML='<div style="font-size:12px;color:var(--t2);margin-bottom:6px">點擊卡片查看題目詳情</div>'+
+      parsed.map(function(q,i){
+        const cls=q.answer||q.type==='es'?'ok':'warn';
+        const noAns=q.type==='mc'&&!q.answer;
+        return '<div class="pi '+cls+'" onclick="toggleBulkDetail('+i+')" style="cursor:pointer">'+
+          '<div class="pi-n" style="display:flex;justify-content:space-between;align-items:center">'+
+            '<span>第'+q.num+'題 · '+(q.type==='mc'?'選擇':'申論')+(q.answer?' · 答:'+q.answer:'')+'</span>'+
+            (noAns?'<span style="color:var(--org);font-size:11px">⚠ 未填答案</span>':'')+
+          '</div>'+
+          '<div class="pi-s" style="color:var(--t1)">'+esc((q.stem||'').slice(0,60))+(q.stem&&q.stem.length>60?'…':'')+'</div>'+
+          '<div id="bd-'+i+'" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--bd)">'+
+            Object.entries(q.options||{}).map(([k,v])=>
+              '<div style="font-size:13px;padding:2px 0"><span style="color:var(--acc);font-weight:700">('+k+')</span> '+esc(v)+'</div>'
+            ).join('')+
+          '</div>'+
+        '</div>';
+      }).join('');
     // 顯示結果區
     const resEl=document.getElementById('bulk-result');
     if(resEl) resEl.classList.remove('hide');
@@ -3163,20 +3284,41 @@ async function importBulk(){
     subject: sub||q.subject||'',
     year:    yr||q.year||'',
     exam:    ex||q.exam||'',
-    // 編/章/節已在 parseBulk 時寫入 q，直接帶過
-    part:    q.part||'',
-    chapter: q.chapter||'',
-    section: q.section||'',
   }));
   try{
+    // ── 重複檢查 ──────────────────────────────────────────────
+    const existing=await da('questions');
+    const existKeys=new Set(existing.map(q=>
+      (q.stem||'').slice(0,20)+'|'+(q.year||'')+'|'+(q.exam||'')));
+    const dupItems=items.filter(q=>
+      existKeys.has((q.stem||'').slice(0,20)+'|'+(q.year||'')+'|'+(q.exam||'')));
+    if(dupItems.length>0){
+      const choice=confirm(
+        `發現 ${dupItems.length} 題可能重複（相同題幹+年度+考試別）。\n\n`+
+        `確定 → 全部匯入（保留舊資料）\n取消 → 跳過重複，只匯入 ${items.length-dupItems.length} 題`
+      );
+      if(!choice){
+        const newItems=items.filter(q=>
+          !existKeys.has((q.stem||'').slice(0,20)+'|'+(q.year||'')+'|'+(q.exam||'')));
+        if(!newItems.length){toast('無新題目可匯入');return;}
+        await bulkPut('questions',newItems);
+        toast('已匯入 '+newItems.length+' 題（跳過 '+dupItems.length+' 筆重複）✓');
+        S.bulkParsed=[];
+        document.getElementById('bulk-result').classList.add('hide');
+        renderHome(); return;
+      }
+    }
     await bulkPut('questions',items);
     toast('已匯入 '+items.length+' 題 ✓');
     S.bulkParsed=[];
     document.getElementById('bulk-result').classList.add('hide');
     renderHome();
-  }catch(err){
-    toast('匯入失敗：'+err.message);
-  }
+  }catch(err){ toast('匯入失敗：'+err.message); }
+}
+
+function toggleBulkDetail(idx){
+  const el=document.getElementById('bd-'+idx);
+  if(el) el.style.display=el.style.display==='none'?'block':'none';
 }
 
 function clearBulk(){
