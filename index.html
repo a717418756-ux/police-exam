@@ -57,7 +57,7 @@ textarea{resize:vertical;line-height:1.7}
 .nb.on{color:var(--acc)}.nb .ic{font-size:20px;line-height:1}
 .nb::after{content:'';position:absolute;top:0;left:25%;right:25%;height:2px;background:var(--acc);border-radius:0 0 2px 2px;opacity:0;transition:opacity var(--tr)}
 .nb.on::after{opacity:1}
-.hd{display:flex;align-items:center;justify-content:space-between;padding:13px 12px 10px;background:var(--bg1);border-bottom:1px solid var(--bd);position:sticky;top:0;z-index:50;gap:8px}
+.hd{display:flex;align-items:center;justify-content:space-between;padding:13px 12px 10px;background:var(--bg1);border-bottom:1px solid var(--bd)}
 .hdt{font-size:17px;font-weight:700}.hds{font-size:11px;color:var(--t2)}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:9px 14px;border-radius:var(--rs);font-size:13px;font-weight:600;transition:all var(--tr);cursor:pointer;border:none}
 .bp{background:var(--acc2);color:#fff}.bp:hover{background:#2f6fd4}.bp:active{filter:brightness(.85)}
@@ -81,9 +81,9 @@ textarea{resize:vertical;line-height:1.7}
 .qb-main{grid-column:1/-1;background:linear-gradient(135deg,rgba(110,168,254,0.15),rgba(37,98,200,0.20));border-color:rgba(110,168,254,0.30);color:var(--acc)}
 .qb-main .ic{color:var(--acc)}
 .qb{background:var(--bg1);border:1px solid var(--bd);border-radius:var(--r);padding:13px;display:flex;flex-direction:column;align-items:center;gap:6px;color:var(--t1);font-size:12px;font-weight:600;transition:all var(--tr)}
-.qb:hover{border-color:rgba(110,168,254,0.3);background:var(--bg2);transform:translateY(-1px)}.qb:active{border-color:var(--acc);transform:translateY(0)}.qb .ic{font-size:22px;transition:transform .15s}
+.qb:hover{border-color:rgba(110,168,254,0.25);background:var(--bg2)}.qb:active{border-color:var(--acc)}.qb .ic{font-size:22px;transition:transform .15s}
 .sb{margin:8px 12px;position:relative}.sb input{padding-left:33px}
-.sb .ic{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--t2);pointer-events:none}
+.sb .ic{position:absolute;left:10px;top:50%;color:var(--t2);pointer-events:none}
 .chips{display:flex;gap:6px;padding:5px 12px;overflow-x:auto;-webkit-overflow-scrolling:touch}
 .chips::-webkit-scrollbar{display:none}
 .chip{padding:5px 12px;border-radius:20px;font-size:12px;font-weight:600;background:var(--bg2);color:var(--t2);border:1px solid var(--bd);white-space:nowrap;transition:all var(--tr)}
@@ -162,9 +162,9 @@ textarea{resize:vertical;line-height:1.7}
 .cbn{display:flex;gap:7px}
 .toast{position:fixed;bottom:82px;left:50%;transform:translateX(-50%) translateY(14px);background:var(--bg2);border:1px solid var(--bd);border-radius:8px;padding:8px 15px;font-size:13px;color:var(--t0);white-space:nowrap;z-index:600;opacity:0;transition:all .27s;pointer-events:none}
 .toast.on{opacity:1;transform:translateX(-50%)}
-@keyframes sup{from{transform:translateY(100%)}to{transform:none}}
+@keyframes sup{from{}to{transform:none}}
 .fdi{animation:fdi .2s ease}
-@keyframes fdi{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes fdi{from{opacity:0}to{opacity:1;transform:none}}
 
 
 /* Modern viewport height for mobile */
@@ -172,8 +172,8 @@ textarea{resize:vertical;line-height:1.7}
 
 /* 測驗專區按鈕 */
 .em-btn{background:var(--bg2);border:1px solid var(--bd);border-radius:12px;padding:14px 10px;text-align:center;cursor:pointer;transition:all .15s;width:100%}
-.em-btn:hover{border-color:rgba(110,168,254,0.35);background:var(--bg3);transform:translateY(-1px)}
-.em-btn:active{transform:translateY(0)}
+.em-btn:hover{border-color:rgba(110,168,254,0.35);background:var(--bg3)}
+.em-btn:active{background:var(--bg2)}
 .em-icon{font-size:26px;margin-bottom:5px}
 .em-label{font-size:13px;font-weight:700;color:var(--t0);margin-bottom:2px}
 .em-desc{font-size:11px;color:var(--t2);line-height:1.3}
@@ -195,7 +195,7 @@ textarea{resize:vertical;line-height:1.7}
     <button class="qb qb-main" onclick="openExamMenu()"><span class="ic">🏆</span>測驗專區</button>
     <button class="qb" onclick="openBrowse()"><span class="ic">🔍</span>題目閱覽</button>
     <button class="qb" onclick="goPage('groups')"><span class="ic">🧩</span>概念群組</button>
-    <button class="qb" onclick="goPage('laws')"><span class="ic">⚖</span>法規資料庫</button>
+    <button class="qb" onclick="goPage('db')"><span class="ic">⚖</span>法規資料庫</button>
   </div>
   <div class="sec">考試倒數</div>
   <div id="h-countdown"></div>
@@ -603,7 +603,7 @@ textarea{resize:vertical;line-height:1.7}
   </div>
 <script>
 // ══ db.js — IndexedDB 核心 v3 ═══════════════════════════════
-const DB_NAME='PoliceExamPro', DB_VER=3;
+const DB_NAME='PoliceExamPro', DB_VER=4;
 let db;
 
 // 遺忘曲線複習間隔（天）
