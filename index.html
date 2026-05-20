@@ -163,8 +163,11 @@ textarea{resize:vertical;line-height:1.65}
     <button class="qb" onclick="openBrowse()"><span class="ic">🔍</span>題目閱覽</button>
     <button class="qb" onclick="goPage('groups')"><span class="ic">🧩</span>概念群組</button>
   </div>
-  <div class="sec">最近新增</div>
-  <div id="h-recent"></div>
+  <div class="sec">考試倒數</div>
+  <div id="h-countdown"></div>
+  <div style="padding:4px 0 8px">
+    <button class="btn bg bw" style="font-size:13px;padding:8px 14px;width:100%" onclick="openCountdownMgr()">＋ 新增考試</button>
+  </div>
 </div>
 <!-- LIST -->
 <div id="pg-list" class="page hide">
@@ -707,7 +710,7 @@ async function getPriorityPool(mode='all'){  try{
   return pool;
   }catch(e){ logError('getPriorityPool',e); }}
 
-const APP_VER = 'v11505182';
+const APP_VER = 'v115052001';
 // ══ utils.js — 工具函式 ═════════════════════════════════════
 // 全域狀態
 const S = {
@@ -1597,19 +1600,8 @@ async function renderHome(){  try{
     `<span style="color:var(--acc)">🆕 新題 ${Math.min(newQ,10)} 題</span> &nbsp;`+
     (estMin?`<span style="color:var(--t2)">⏱ 預估 ${estMin} 分鐘</span>`:'');
 
-  // 最近新增
-  const recent=[...qs].sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).slice(0,4);
-  document.getElementById('h-recent').innerHTML=recent.map(q=>{
-    const danger=getDangerLevel(q,ats);
-    return `<div class="qc" onclick="showAdd(q)" style="cursor:pointer">
-      <div class="qch">
-        <span class="badge ${q.type==='mc'?'bmc':'bes'}">${q.type==='mc'?'選擇':'申論'}</span>
-        <span class="tag">${esc(q.subject||'未分類')}</span>
-        <span>${danger}</span>
-      </div>
-      <div class="qst">${esc((q.stem||'').slice(0,60))}…</div>
-    </div>`;
-  }).join('');
+  // 考試倒數
+  renderCountdown();
 
   // datalist 科目
   const subs=[...new Set(qs.map(q=>q.subject).filter(Boolean))];
@@ -1970,19 +1962,19 @@ function setLSort(el,sort){
 }
 
 const LEVEL_STYLE = {
-  // ── 由外而內：編(金橙) > 章(紫) > 節(藍) ──────────────
+  // ── 由外而內：深藍(編) > 藍(章) > 淺藍(節) ───────────────
   part: {
-    color:'var(--org)', border:'var(--org)', bg:'var(--org2)',
+    color:'#1f6feb', border:'#1f6feb', bg:'rgba(31,111,235,0.18)',
     size:'14px', fw:'800', pt:'10px', pb:'4px', mt:'16px', ml:'0',
     br:'0 8px 8px 0', bw:'4px', label:'編',
   },
   chapter: {
-    color:'var(--pur)', border:'var(--pur)', bg:'var(--pur2)',
+    color:'#58a6ff', border:'#58a6ff', bg:'rgba(88,166,255,0.13)',
     size:'13px', fw:'700', pt:'7px', pb:'3px', mt:'10px', ml:'0',
     br:'0 6px 6px 0', bw:'3px', label:'章',
   },
   section: {
-    color:'var(--acc)', border:'var(--acc)', bg:'rgba(88,166,255,0.10)',
+    color:'#a5d6ff', border:'#a5d6ff', bg:'rgba(165,214,255,0.08)',
     size:'12px', fw:'600', pt:'4px', pb:'2px', mt:'5px', ml:'18px',
     br:'0 4px 4px 0', bw:'2px', label:'節',
   },
@@ -3517,7 +3509,6 @@ function buildHTML(qs,title){
   return out+'</body></html>';
 }
 
-
 async function clearAts(){  try{
   await dc('attempts');
   toast('作答記錄已清除');
@@ -3531,7 +3522,6 @@ async function delAll(){  try{
   toast('已全部刪除');
   renderSet();
   }catch(e){ logError('delAll',e); }}
-
 
 // ── 圖示設定 ─────────────────────────────────────────────────
 const DEFAULT_ICONS = {
@@ -3548,18 +3538,6 @@ function loadIconSettings(){
   } catch(e){ return {...DEFAULT_ICONS}; }
 }
 
-function saveIconSettings(){
-  const icons={};
-  const inputs=document.querySelectorAll('#icon-editor input[data-icon-key]');
-  inputs.forEach(inp=>{
-    const key=inp.getAttribute('data-icon-key');
-    const val=inp.value.trim();
-    if(val) icons[key]=val;
-  });
-  localStorage.setItem('examIcons',JSON.stringify(icons));
-  toast('圖示設定已儲存 ✓');
-  applyIconSettings();
-}
 
 function resetIconSettings(){
   localStorage.removeItem('examIcons');
@@ -3575,24 +3553,6 @@ function applyIconSettings(){
     const key=el.getAttribute('data-icon');
     if(icons[key]) el.textContent=icons[key];
   });
-}
-
-function renderIconEditor(){
-  const el=document.getElementById('icon-editor');
-  if(!el)return;
-  const icons=loadIconSettings();
-  const labels={
-    home:'首頁',list:'題目列表',db:'資料庫',stats:'統計',bulk:'大量匯入',
-    star:'收藏',wrong:'錯題',review:'複習',exam:'模擬考',quick:'快刷',
-    number:'數字魔鬼',groups:'概念群組',addQ:'新增題目',addLaw:'新增法條',
-    quiz:'出題',correct:'答對',incorrect:'答錯',
-  };
-  el.innerHTML=Object.entries(DEFAULT_ICONS).map(([key,def])=>`
-    <div style="display:flex;align-items:center;gap:6px;background:var(--bg2);padding:7px 10px;border-radius:8px">
-      <span style="font-size:12px;color:var(--t2);flex:1">${esc(labels[key]||key)}</span>
-      <input data-icon-key="${key}" value="${esc(icons[key]||def)}"
-        style="width:42px;text-align:center;font-size:18px;background:var(--bg3);border:1px solid var(--bd);border-radius:6px;padding:3px">
-    </div>`).join('');
 }
 
 
@@ -3680,7 +3640,6 @@ function resetAllIcons(){
   toast('已重置，重新整理頁面生效');
 }
 
-
 // (3) 套用自訂圖示到 DOM（在 init 後呼叫）
 function applyCustomIcons(){
   const icons=_loadIcons();
@@ -3719,6 +3678,87 @@ function applyCustomIcons(){
   if(icons['badge-es']){
     document.querySelectorAll('.badge.bes').forEach(el=>{el.textContent=icons['badge-es'];});
   }
+}
+
+// ── countdown.js：考試倒數功能 ──────────────────────────────────────
+// 依賴：utils.js（esc, today）
+// 儲存：localStorage 'examCountdowns' = [{id, name, date}]
+
+const COUNTDOWN_KEY = 'examCountdowns';
+
+function _loadCountdowns(){
+  try{ return JSON.parse(localStorage.getItem(COUNTDOWN_KEY)||'[]'); }
+  catch(e){ return []; }
+}
+function _saveCountdowns(list){
+  try{ localStorage.setItem(COUNTDOWN_KEY, JSON.stringify(list)); }
+  catch(e){}
+}
+
+// 計算距離考試的天數
+function _daysUntil(dateStr){
+  const now  = new Date(); now.setHours(0,0,0,0);
+  const exam = new Date(dateStr); exam.setHours(0,0,0,0);
+  return Math.round((exam - now) / 86400000);
+}
+
+// 渲染倒數區塊（首頁呼叫）
+function renderCountdown(){
+  const el = document.getElementById('h-countdown');
+  if(!el) return;
+  const list = _loadCountdowns().sort((a,b)=>new Date(a.date)-new Date(b.date));
+
+  if(!list.length){
+    el.innerHTML = '<div style="color:var(--t2);font-size:13px;padding:6px 0 2px">尚未新增考試，點下方按鈕新增</div>';
+    return;
+  }
+
+  el.innerHTML = list.map(item=>{
+    const days = _daysUntil(item.date);
+    const isPast = days < 0;
+    const isToday = days === 0;
+
+    // 顏色：過期灰、今天紅、7天內橙、其他藍
+    const col  = isPast ? 'var(--t2)'  : isToday ? 'var(--red)' : days<=7 ? 'var(--org)' : 'var(--acc)';
+    const bg   = isPast ? 'var(--bg2)' : isToday ? 'rgba(248,81,73,0.10)' : days<=7 ? 'rgba(227,179,65,0.10)' : 'rgba(88,166,255,0.08)';
+    const label= isPast ? `已過 ${Math.abs(days)} 天` : isToday ? '就是今天！' : `還有 ${days} 天`;
+    const icon = isPast ? '📋' : isToday ? '🎯' : days<=7 ? '🔥' : '📅';
+
+    return `<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;margin-bottom:8px;background:${bg};border-radius:10px;border-left:3px solid ${col}">
+      <span style="font-size:20px">${icon}</span>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:14px;font-weight:700;color:var(--t0);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(item.name)}</div>
+        <div style="font-size:12px;color:var(--t2);margin-top:2px">${item.date}</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0">
+        <div style="font-size:20px;font-weight:800;color:${col};line-height:1">${isPast?'－':days===0?'0':days}</div>
+        <div style="font-size:10px;color:var(--t2)">${isPast?'天前':'天'}</div>
+      </div>
+      <button onclick="delCountdown('${item.id}')" style="background:none;border:none;color:var(--t2);font-size:16px;cursor:pointer;padding:0 2px;flex-shrink:0">×</button>
+    </div>`;
+  }).join('');
+}
+
+// 新增考試對話框
+function openCountdownMgr(){
+  const name = prompt('考試名稱（例：警佐二類升官等考試）：');
+  if(!name||!name.trim()) return;
+  const dateStr = prompt('考試日期（格式：2026-08-15）：');
+  if(!dateStr||!/^\d{4}-\d{2}-\d{2}$/.test(dateStr.trim())){
+    toast('日期格式不正確，請輸入 YYYY-MM-DD'); return;
+  }
+  const list = _loadCountdowns();
+  list.push({ id: Date.now().toString(), name: name.trim(), date: dateStr.trim() });
+  _saveCountdowns(list);
+  renderCountdown();
+  toast('已新增「'+name.trim()+'」');
+}
+
+// 刪除考試
+function delCountdown(id){
+  const list = _loadCountdowns().filter(i=>i.id!==id);
+  _saveCountdowns(list);
+  renderCountdown();
 }
 
 // ══ nav.js — 導覽與初始化 ══════════════════════════════
