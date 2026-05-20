@@ -253,11 +253,7 @@ textarea{resize:vertical;line-height:1.7}
       <div><label class="fl">考試別</label><select id="bi-ex"><option value="">選擇考試</option><option>警佐班</option><option>升官等</option><option>警大二技</option><option>三等考試</option><option>其他</option></select></div>
       <div><label class="fl">答案列（可空）</label><input id="bi-ans" placeholder="DACB 或 1.D 2.A"></div>
     </div>
-    <div class="fr" style="align-items:flex-start">
-      <div style="flex:1"><label class="fl" style="color:var(--org);font-weight:700">📙 編（選填）</label><input id="bi-part" placeholder="第一編 總則"></div>
-      <div style="flex:1"><label class="fl" style="color:var(--pur);font-weight:700">📗 章（選填）</label><input id="bi-chapter" placeholder="第一章 一般規定"></div>
-      <div style="flex:1"><label class="fl" style="color:var(--acc);font-weight:700">📘 節（選填）</label><input id="bi-section" placeholder="第一節 定義"></div>
-    </div>
+
     <div><label class="fl">貼入考題文字</label>
       <textarea id="bi-text" class="bta" placeholder="1. 下列何者為警察之任務？&#10;▪維持公共秩序&#10;▪保護社會安全&#10;▪防止一切危害&#10;▪以上皆是&#10;&#10;2. 警察法第幾條規定警察任務？"></textarea>
     </div>
@@ -877,7 +873,7 @@ function preprocessQuestionText(text){
         (cp>=0x30&&cp<=0x39)||                          // 0-9
         (cp>=0x4E00&&cp<=0x9FFF)||                      // 中文
         (cp>=0xFF01&&cp<=0xFF60)||                      // 全形字母數字
-        '（(）)【】「」『』。，、；：！？…—'.includes(ch)||
+        '（）)【】「」『』。，、；：！？…—'.includes(ch)||  // 注意：半形 ( 單獨出現時可能是選項符號
         ch==='§';  // 已轉換的標記
       if(!isWordOrPunct){
         lineStartMap[ch]=(lineStartMap[ch]||0)+1;
@@ -895,6 +891,8 @@ function preprocessQuestionText(text){
         t=t.split('\n').map(line=>{
           const trimmed=line.trim();
           if(!trimmed) return line;
+          // 半形 ( 後面若是 (A)(B) 格式，不替換（已由選項識別處理）
+          if(sep==='(' && /^[(（][A-Ea-e1-9][)）]/.test(trimmed)) return line;
           if(trimmed.startsWith(sep)){
             // 行首有符號：整行替換（含行中的同一符號）
             const replaced=trimmed.slice(sep.length).trim()
@@ -1080,10 +1078,12 @@ function parseQuestions(rawText){
     // ── 【規則1】行首數字 → 新題目 ───────────────────────────────
     const mNum=line.match(/^(\d{1,3})(?:[.、．）)）]\s*|\s+)([\s\S]+)/);
     // 確認是題號行：數字後面有標點分隔 OR 後面是中文長句（非量詞開頭）
+    const _rest2=mNum?mNum[2].trim():'';
     const mNumIsQ = mNum && parseInt(mNum[1])<=500 && (
-      /^(\d{1,3})[.、．）)）]/.test(line) || // 標點型：1. 1、1） 絕對是題號
-      (mNum[2].trim().length > 3 &&           // 空格型：後面要夠長
-       !/^[年月日時分秒週天個件名條款項元萬千百公里]/.test(mNum[2].trim())) // 非量詞開頭
+      /^(\d{1,3})[.、．）)）]/.test(line) ||   // 標點型：1. 1、1） 絕對是題號
+      /[？?：:]/.test(_rest2) ||               // 含問號/冒號 → 題幹結尾訊號
+      (_rest2.length > 2 &&                    // 空格型：後面夠長
+       !/^[年月日時分秒週天個件名條款項元萬千百公里]/.test(_rest2)) // 非量詞開頭
     );
     if(mNumIsQ){
       const num=mNum[1];
@@ -1105,6 +1105,16 @@ function parseQuestions(rawText){
       const endIdx=_findQEnd(rest);
       newQ(ZH[mZh[1]], endIdx>=0 ? rest.slice(0,endIdx+1) : rest);
       continue;
+    }
+
+    // ── 行首 ( 但非 (A)(B) 格式 → 視為選項分隔（如「(維持公共秩序」）
+    if(line.startsWith('(') && !/^[（(][A-Ea-e１-９1-9][）)]/.test(line) && curQ){
+      // ( 後面是中文內容 → 選項
+      const content=line.slice(1).trim();
+      if(content && /^[一-鿿　-〿]/.test(content)){
+        addOpt(content);
+        continue;
+      }
     }
 
     // ── 其他行：追加到選項或題幹 ────────────────────────────────
@@ -3106,47 +3116,29 @@ function parseBulk(){
     // 套用答案列
     const ansStr=(document.getElementById('bi-ans')||{}).value||'';
     const ansMap=parseAnswerStr(ansStr);
-    // 讀取編/章/節（批次套用到所有題目）
-    const biPart   =(document.getElementById('bi-part'   )||{}).value||'';
-    const biChapter=(document.getElementById('bi-chapter')||{}).value||'';
-    const biSection=(document.getElementById('bi-section')||{}).value||'';
     parsed.forEach((q,i)=>{
       const n=parseInt(q.num)||i+1;
       if(ansMap[n]) q.answer=ansMap[n];
-      if(biPart)    q.part   =biPart.trim();
-      if(biChapter) q.chapter=biChapter.trim();
-      if(biSection) q.section=biSection.trim();
     });
     const mc=parsed.filter(q=>q.type==='mc').length;
     const es=parsed.filter(q=>q.type==='es').length;
     const noAns=parsed.filter(q=>q.type==='mc'&&!q.answer).length;
-    // 編/章/節標籤
-    const hierTags=
-      (biPart   ?'<span class="tag" style="background:var(--org2);color:var(--org);font-weight:700">📙'+biPart   +'</span>':'')+
-      (biChapter?'<span class="tag" style="background:var(--pur2);color:var(--pur);font-weight:700">📗'+biChapter+'</span>':'')+
-      (biSection?'<span class="tag" style="background:rgba(31,111,235,0.15);color:var(--acc);font-weight:700">📘'+biSection+'</span>':'');
     // 顯示統計
     const statsEl=document.getElementById('bulk-stats');
     if(statsEl) statsEl.innerHTML=
       '<span class="tag" style="background:var(--acc2);color:#fff">'+parsed.length+' 題</span>'+
       '<span class="tag" style="background:#1f3a5f;color:var(--acc)">選擇 '+mc+'</span>'+
       '<span class="tag" style="background:var(--red2);color:var(--red)">申論 '+es+'</span>'+
-      (noAns?'<span class="tag" style="background:var(--org2);color:var(--org)">⚠ '+noAns+' 題未填答案</span>':'')+
-      (hierTags?'<div style="margin-top:4px">'+hierTags+'</div>':'');
-    // 顯示預覽（含編/章/節標籤）
+      (noAns?'<span class="tag" style="background:var(--org2);color:var(--org)">⚠ '+noAns+' 題未填答案</span>':'');
+    // 顯示預覽
     const prevEl=document.getElementById('prev-list');
     if(prevEl) prevEl.innerHTML=parsed.map(function(q){
       const typeLabel=q.type==='mc'?'選擇題':'申論題';
       const ansLabel=q.answer?' · 答案:'+q.answer:'';
       const optLabel=q.type==='mc'?'<div class="pi-o">選項：'+Object.keys(q.options).join(' ')+'</div>':'';
       const cls=q.answer||q.type==='es'?'ok':'warn';
-      const hierLabel=
-        (q.part   ?'<span style="font-size:10px;font-weight:700;padding:1px 5px;border-radius:4px;background:var(--org2);color:var(--org)">📙'+esc(q.part)+'</span> ':'')+
-        (q.chapter?'<span style="font-size:10px;font-weight:700;padding:1px 5px;border-radius:4px;background:var(--pur2);color:var(--pur)">📗'+esc(q.chapter)+'</span> ':'')+
-        (q.section?'<span style="font-size:10px;font-weight:700;padding:1px 5px;border-radius:4px;background:rgba(31,111,235,0.15);color:var(--acc)">📘'+esc(q.section)+'</span> ':'');
       return '<div class="pi '+cls+'">'+
         '<div class="pi-n">第'+q.num+'題 · '+typeLabel+ansLabel+'</div>'+
-        (hierLabel?'<div style="margin-top:2px">'+hierLabel+'</div>':'')+
         '<div class="pi-s">'+esc(q.stem||'')+'</div>'+
         optLabel+'</div>';
     }).join('');
@@ -3190,9 +3182,6 @@ async function importBulk(){
 function clearBulk(){
   document.getElementById('bi-text').value='';
   document.getElementById('bi-ans').value='';
-  const biPart=document.getElementById('bi-part'); if(biPart) biPart.value='';
-  const biCh=document.getElementById('bi-chapter'); if(biCh) biCh.value='';
-  const biSec=document.getElementById('bi-section'); if(biSec) biSec.value='';
   document.getElementById('bulk-result').classList.add('hide');
   S.bulkParsed=[];
 }
