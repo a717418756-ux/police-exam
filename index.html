@@ -663,8 +663,6 @@ function logError(context, err){
   if(_errLog.length>50)_errLog.shift(); // 最多保留50筆
   console.error('[PoliceExam]',context,err);
 }
-function getErrorLog(){ return [..._errLog]; }
-
 // ── 輕量快取（避免重複全量讀取）────────────────────────────
 const _cache={};
 const _CACHE_TTL=30000; // 30秒 TTL（操作後自動失效）
@@ -690,18 +688,7 @@ function calcNextReview(level, correct){
 }
 
 // ── 取今日待複習題目 ────────────────────────────────────────
-async function getTodayReview(){  try{
-  const qs=await da('questions');
-  const now=Date.now();
-  return qs.filter(q=>(q.nextReview||0)<=now && q.reviewLevel!==undefined);
-  }catch(e){ logError('getTodayReview',e); }}
-
 // ── 取今日新題（從未複習）────────────────────────────────────
-async function getNewQuestions(limit=10){  try{
-  const qs=await da('questions');
-  return qs.filter(q=>q.reviewLevel===undefined||q.reviewLevel===null).slice(0,limit);
-  }catch(e){ logError('getNewQuestions',e); }}
-
 // ── 危險等級計算 ─────────────────────────────────────────────
 function getDangerLevel(q, recentAts){
   const qa=recentAts.filter(a=>a.qid===q.id).sort((a,b)=>b.date-a.date);
@@ -755,7 +742,6 @@ function br(s){ return esc(s||'').split('\n').join('<br>').split('\r').join('');
 function toast(m,d=2200){ const e=document.getElementById('toast');if(!e)return;e.textContent=m;e.classList.add('on');clearTimeout(e._t);e._t=setTimeout(()=>e.classList.remove('on'),d); }
 function today(){ return new Date().toISOString().slice(0,10); }
 function dl(c,fn,t='text/plain'){ const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([c],{type:t}));a.download=fn;a.click(); }
-function norm(s){ if(!s)return'';s=s.replace(/[Ａ-Ｚａ-ｚ０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0));s=s.replace(/\r\n/g,'\n').replace(/\r/g,'\n');s=s.replace(/\u3000/g,' ');s=s.replace(/[ \t]{2,}/g,' ');s=s.replace(/[ \t]+$/gm,'');return s.trim(); }
 function kwArr(s){ return (s||'').split(/[,，、\s]+/).map(k=>k.trim()).filter(Boolean); }
 
 // ── 空格清理（PDF/OCR 常見問題）──────────────────────────────
@@ -976,25 +962,10 @@ function preprocessQuestionText(text){
   // 行尾空白
   t=t.replace(/[ \t]+$/gm,'');
 
-
-
   return t.trim();
 }
 
 // ── 2. normalizeOptions ─────────────────────────────────────
-function normalizeOptions(text){
-  let t=text;
-  // §OPT§ 依序轉為 §A§ §B§ ...（每題重置，在 parseQuestions 裡處理）
-  let idx=0;
-  const KEYS=['A','B','C','D','E'];
-  t=t.replace(/§OPT§/g,()=>'§'+(KEYS[idx++]||'?')+'§ ');
-  // 行首 (A 沒有右括號
-  t=t.replace(/^[（(]\s*([A-Ea-e])\s+/gm,(_,k)=>'§'+k.toUpperCase()+'§ ');
-  // 行首 A. A、
-  t=t.replace(/^([A-Ea-e])[.、．]\s*/gm,(_,k)=>'§'+k.toUpperCase()+'§ ');
-  return t;
-}
-
 // ── 3. parseQuestions 主解析函式 ───────────────────────────
 // ═══════════════════════════════════════════════════════════════════
 // 新解析邏輯：按用戶指定的規則
@@ -1004,8 +975,6 @@ function normalizeOptions(text){
 // 規則4：(A)(B)/①② 等已知符號照常辨識
 // 規則5：題目/選項內空格跳行整理整齊
 // ═══════════════════════════════════════════════════════════════════
-
-
 
 // ─────── 輔助：找題幹結尾（？ 或 ：）的位置 ──────────────────────
 function _findQEnd(str){
@@ -1152,8 +1121,6 @@ function parseQuestions(rawText){
   }));
 }
 
-
-
 // ── 5. parseAnswerStr ────────────────────────────────────────
 function parseAnswerStr(str){
   if(!str||!str.trim()) return {};
@@ -1208,7 +1175,6 @@ if(_doneArea){_doneArea.style.display='none';_doneArea.innerHTML='';}
 const _qfoot=document.getElementById('qfoot');
 if(_qfoot) _qfoot.style.display='';
 
-
   // 進度
   document.getElementById('qpb').style.width=((idx/q.length)*100)+'%';
   document.getElementById('qct').textContent=(idx+1)+'/'+q.length;
@@ -1234,7 +1200,6 @@ if(_qfoot) _qfoot.style.display='';
 
   // 下一題按鈕
   document.getElementById('qnxt').classList.add('hide');
-
 
   if(qu.type==='mc'){
     document.getElementById('qes').style.display='none';
@@ -1283,28 +1248,6 @@ function showQLawLinks(qu){
 }
 
 // ── 多選題 ──────────────────────────────────────────────────
-function toggleMultiOpt(k){
-  if(S.quiz.ans)return;
-  if(!window._multiSelected)window._multiSelected=new Set();
-  if(window._multiSelected.has(k)){
-    window._multiSelected.delete(k);
-    const el=document.getElementById('qopt-'+k);
-    if(el)el.classList.remove('selected-opt');
-  } else {
-    window._multiSelected.add(k);
-    const el=document.getElementById('qopt-'+k);
-    if(el)el.classList.add('selected-opt');
-  }
-}
-
-async function confirmMultiAns(){  try{
-  if(S.quiz.ans)return;
-  const qu=S.quiz.q[S.quiz.idx];
-  const sel=[...window._multiSelected].sort().join('');
-  const ans=(qu.answer||'').toUpperCase().split('').sort().join('');
-  await ansQ(sel, true); // true = 多選模式
-  }catch(e){ logError('confirmMultiAns',e); }}
-
 async function ansQ(sel, isMultiMode=false){  try{
   const qu=S.quiz.q[S.quiz.idx];
   if(S.quiz.ans)return;
@@ -1371,7 +1314,6 @@ async function ansQ(sel, isMultiMode=false){  try{
     noteEl.style.display='block';noteEl.textContent='📝 '+qu.note;
   }
   document.getElementById('qnxt').classList.remove('hide');
-
 
   S.quiz.res.push({qid:qu.id,correct,responseTime,hesitant});
   }catch(e){ logError('ansQ',e); }}
@@ -1470,10 +1412,6 @@ function replayQuiz(){
   }
   startQWithPool(shuffled, mode);
 }
-
-async function recAttempt(qid,correct){  try{
-  await dp('attempts',{qid,correct,date:today(),responseTime:0,hesitationFlag:false});
-  }catch(e){ logError('recAttempt',e); }}
 
 // ── 模擬考模式 ──────────────────────────────────────────────
 async function startExam(totalQ=50, timeLimitMin=50){  try{
@@ -1883,15 +1821,6 @@ async function startSingleQ(el){  try{
   startQWithPool([q],'single');
   }catch(e){ logError('startSingleQ',e); }}
 
-function formatYearInput(el){
-  let v=(el.value||'').trim();
-  if(!v)return;
-  // 純數字1-3位 → 民國XXX年
-  if(/^\d{1,3}$/.test(v)){
-    el.value='民國'+v+'年';
-  }
-  // 已是民國格式，不動
-}
 
 // ══ laws.js — 資料庫（法條）管理 ══════════════════════════════
 // 依賴：db.js, utils.js, parser.js
@@ -2074,12 +2003,15 @@ async function openLawGroup(lawName){  try{
     // 關鍵字反白（搜尋時高亮）
     const _hlKw=(document.getElementById('lsi')?.value||'').trim();
     const _hlRe=_hlKw&&!_hlKw.includes('§')?new RegExp('('+_hlKw.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','gi'):null;
+    // _hl：esc → 插 mark → 換行（三合一，避免二次轉義）
     const _hl=(text)=>{
-      if(!_hlRe||!text) return esc(text||'');
-      return text.replace(/</g,'&lt;').replace(/>/g,'&gt;')
-        .replace(_hlRe,'<mark style="background:#e3b341;color:#0d1117;border-radius:2px;padding:0 2px">$1</mark>');
+      const escaped=esc(text||'');
+      if(!_hlRe) return escaped.replace(/\n/g,'<br>');
+      return escaped
+        .replace(_hlRe,(m)=>'<mark style="background:#d4a438;color:#121212;border-radius:2px;padding:0 2px">'+m+'</mark>')
+        .replace(/\n/g,'<br>');
     };
-    const contentHtml=isImg?'<img src="'+l.content+'" style="max-width:100%;border-radius:8px">':br(_hl(l.content||''));
+    const contentHtml=isImg?'<img src="'+l.content+'" style="max-width:100%;border-radius:8px">':_hl(l.content||'');
     const kwHtml=(l.keywords||[]).length?'<div style="margin-top:8px">'+l.keywords.map(k=>'<span class="tag">'+esc(k)+'</span>').join('')+'</div>':'';
     const relHtml=(l.relatedLaws||[]).length
       ?'<div style="margin-top:9px;font-size:11px;color:var(--t2)">🔗 關聯法條：</div>'
@@ -2899,7 +2831,6 @@ function renderBrowseList(){
   }).join('');
 }
 
-
 // ── 概念群組預設資料 ────────────────────────────────────────
 const DEFAULT_CONCEPT_GROUPS=[
   {name:'臨檢群組',icon:'🔍',keywords:['臨檢','身分查證','查證身分','公共場所','合法進入','管制站'],laws:['警職法§6','警職法§7','警職法§8'],desc:'警察職權行使法臨檢相關規定'},
@@ -2924,15 +2855,6 @@ function _saveGroups(groups){
   try{ localStorage.setItem('conceptGroups',JSON.stringify(groups)); }catch(e){}
 }
 
-
-async function loadConceptGroups(){  try{
-  const saved=await da('conceptGroups');
-  if(saved.length) return saved;
-  // 首次使用，寫入預設群組
-  for(const g of DEFAULT_CONCEPT_GROUPS) await dp('conceptGroups',g);
-  return await da('conceptGroups');
-  }catch(e){ logError('loadConceptGroups',e); }}
-
 async function saveConceptGroup(g){  try{
   await dp('conceptGroups',g);
   }catch(e){ logError('saveConceptGroup',e); }}
@@ -2940,7 +2862,6 @@ async function saveConceptGroup(g){  try{
 async function deleteConceptGroup(id){  try{
   await dd('conceptGroups',id);
   }catch(e){ logError('deleteConceptGroup',e); }}
-
 
 async function openConceptGroup(groupId){  try{
   const groups=_loadGroups();
@@ -3005,8 +2926,6 @@ async function startNumberMode(){  try{
   }catch(e){ logError('startNumberMode',e); }}
 
 // ── Cloze 挖空模式 ─────────────────────────────────────────
-function renderCloze(){ toast('請先開啟一個法規，再點「挖空練習」'); }
-
 function startClozeLaw(content, lawName){
   var cloze=generateCloze(content||'', 0.35);
   var el=document.getElementById('lbody');
@@ -3029,7 +2948,6 @@ function startClozeLaw(content, lawName){
   btn.onclick=function(){ openLawGroup(lawName||''); };
   el.appendChild(btn);
 }
-
 
 function addConceptGroup(){
   showConceptGroupSheet(null);
@@ -3077,7 +2995,6 @@ async function saveCGSheet(){  try{
   toast(S._editGroupId?'群組已更新 ✓':'群組已新增 ✓');
   renderGroups();
   }catch(e){ logError('saveCGSheet',e); }}
-
 
 // ── 概念群組管理 ─────────────────────────────────────────────
 function editGroupList(){
@@ -3164,8 +3081,6 @@ function saveGroupItem(){
   closeGroupAdd();
   renderGroups();
 }
-
-function editGroupItem(i){ addGroupItem(i); }
 
 function delGroupItem(i){
   const groups=_loadGroups();
@@ -3603,14 +3518,6 @@ function loadIconSettings(){
   } catch(e){ return {...DEFAULT_ICONS}; }
 }
 
-
-function resetIconSettings(){
-  localStorage.removeItem('examIcons');
-  renderIconEditor();
-  applyIconSettings();
-  toast('已恢復預設圖示');
-}
-
 function applyIconSettings(){
   const icons=loadIconSettings();
   // 更新導覽列圖示（依 data-icon 屬性）
@@ -3619,7 +3526,6 @@ function applyIconSettings(){
     if(icons[key]) el.textContent=icons[key];
   });
 }
-
 
 // ── 圖示自訂系統 ──────────────────────────────────────────────
 // 用 localStorage 儲存自訂圖示
@@ -3640,11 +3546,6 @@ function _loadIcons(){
 function _saveIcons(icons){
   try{ localStorage.setItem('customIcons',JSON.stringify(icons)); }catch(e){}
 }
-function getIcon(key, def){
-  const icons=_loadIcons();
-  return icons[key]||def;
-}
-
 function openIconEditor(){
   const ov=document.getElementById('icon-ov');
   if(ov){ov.classList.add('on');renderIconList();}
@@ -3665,21 +3566,6 @@ function renderIconList(){
       +(cur?'<button data-ikey="'+esc(key)+'" onclick="resetIconByEl(this)" style="background:none;border:none;color:var(--t2);font-size:11px;cursor:pointer;padding:2px 4px">重置</button>':'')
     +'</div>';
   }).join('');
-}
-function renderIconSettings(){
-  const el=document.getElementById('icon-settings');
-  if(!el)return;
-  const icons=_loadIcons();
-  el.innerHTML='<div style="font-size:13px;color:var(--t2);margin-bottom:8px">點擊圖示可修改（輸入 emoji）</div>'
-    +Object.entries(ICON_KEYS).map(([key,label])=>{
-      const cur=icons[key]||'';
-      return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:6px 8px;background:var(--bg2);border-radius:8px">'
-        +'<span style="width:60px;font-size:11px;color:var(--t2)">'+esc(label)+'</span>'
-        +'<button data-ikey="'+esc(key)+'" onclick="editIconByEl(this)" style="font-size:20px;background:none;border:1px solid var(--bd);border-radius:6px;padding:2px 8px;cursor:pointer">'+(cur||'✏')+'</button>'
-        +(cur?'<button data-ikey="'+esc(key)+'" onclick="resetIconByEl(this)" style="background:none;border:none;color:var(--t2);font-size:11px;cursor:pointer">重置</button>':'')
-      +'</div>';
-    }).join('')
-    +'<button class="btn bg bw" style="padding:8px;font-size:12px;margin-top:4px" onclick="resetAllIcons()">全部重置</button>';
 }
 function editIconByEl(btn){editIcon(btn.dataset.ikey);}
 function resetIconByEl(btn){resetIcon(btn.dataset.ikey);}
