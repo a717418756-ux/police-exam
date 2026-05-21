@@ -205,6 +205,7 @@ textarea{resize:vertical;line-height:1.7}
     <div class="hdt">題目管理</div>
     <div style="display:flex;gap:6px">
       <button class="btn bg" style="padding:6px 10px;font-size:12px" onclick="goPage('bulk')">📋 大量匯入</button>
+      <button class="btn bg" style="padding:6px 10px;font-size:12px;color:var(--red)" onclick="openBulkDelQ()">🗑 大量刪除</button>
       <button class="btn bp" style="padding:6px 10px;font-size:12px" onclick="showAdd()">＋ 新增</button>
     </div>
   </div>
@@ -227,6 +228,7 @@ textarea{resize:vertical;line-height:1.7}
     <div style="display:flex;gap:6px">
       <button class="btn bg" style="padding:6px 10px;font-size:12px" onclick="toggleLawSort()">⇅ 排序</button>
       <button class="btn bg" style="padding:6px 10px;font-size:12px" onclick="showBulkLaw()">批次匯入</button>
+      <button class="btn bg" style="padding:6px 10px;font-size:12px;color:var(--red)" onclick="openBulkDelLaw()">🗑 大量刪除</button>
       <button class="btn bpur" style="padding:6px 10px;font-size:12px" onclick="showAddLaw()">＋</button>
     </div>
   </div>
@@ -254,11 +256,7 @@ textarea{resize:vertical;line-height:1.7}
       <div><label class="fl">考試別</label><select id="bi-ex"><option value="">選擇考試</option><option>警佐班</option><option>升官等</option><option>警大二技</option><option>三等考試</option><option>其他</option></select></div>
       <div><label class="fl">答案列（可空）</label><input id="bi-ans" placeholder="DACB 或 1.D 2.A"></div>
     </div>
-    <div class="fr" style="align-items:flex-start">
-      <div style="flex:1"><label class="fl" style="color:var(--org);font-weight:700">📙 編（選填）</label><input id="bi-part" placeholder="第一編 總則"></div>
-      <div style="flex:1"><label class="fl" style="color:var(--pur);font-weight:700">📗 章（選填）</label><input id="bi-chapter" placeholder="第一章 一般規定"></div>
-      <div style="flex:1"><label class="fl" style="color:var(--acc);font-weight:700">📘 節（選填）</label><input id="bi-section" placeholder="第一節 定義"></div>
-    </div>
+
     <div><label class="fl">貼入考題文字</label>
       <textarea id="bi-text" class="bta" placeholder="1. 下列何者為警察之任務？&#10;▪維持公共秩序&#10;▪保護社會安全&#10;▪防止一切危害&#10;▪以上皆是&#10;&#10;2. 警察法第幾條規定警察任務？"></textarea>
     </div>
@@ -1795,6 +1793,89 @@ async function toggleStar(id){  try{
   q.starred=!q.starred;await dp('questions',q);
   toast(q.starred?'已收藏 ⭐':'取消收藏');renderList();
   }catch(e){ logError('toggleStar',e); }}
+
+async function openBulkDelQ(){  try{
+  const qs=await da('questions');
+  if(!qs.length){toast('目前無題目');return;}
+  const years=[...new Set(qs.map(q=>q.year||'').filter(Boolean))].sort().reverse();
+  const exams=[...new Set(qs.map(q=>q.exam||'').filter(Boolean))].sort();
+  const subs=[...new Set(qs.map(q=>q.subject||'').filter(Boolean))].sort();
+  const modal=document.createElement('div');
+  modal.id='bulk-del-q-modal';
+  modal.style.cssText='position:fixed;inset:0;z-index:400;background:rgba(0,0,0,0.6);display:flex;align-items:flex-end';
+  modal.innerHTML=`<div style="width:100%;max-width:520px;margin:0 auto;background:var(--bg1);border-radius:20px 20px 0 0;padding:20px 16px 32px;max-height:85vh;overflow-y:auto"><div style="width:36px;height:4px;background:var(--bd);border-radius:2px;margin:0 auto 16px"></div><div style="font-size:15px;font-weight:700;color:var(--t0);margin-bottom:14px">🗑 題目大量刪除</div><div style="font-size:12px;color:var(--t2);margin-bottom:12px">依條件篩選刪除，或指定題號。<b style="color:var(--red)">刪除後無法復原。</b></div><div style="display:flex;flex-direction:column;gap:10px"><div><label class="fl">年度</label><input id="bdq-year" list="bdq-yl" placeholder="例：113（留空不限）"><datalist id="bdq-yl">${years.map(y=>`<option value="${y}">`).join('')}</datalist></div><div><label class="fl">考試別</label><input id="bdq-exam" list="bdq-el" placeholder="例：升官等（留空不限）"><datalist id="bdq-el">${exams.map(e=>`<option value="${e}">`).join('')}</datalist></div><div><label class="fl">科目</label><input id="bdq-sub" list="bdq-sl" placeholder="例：警察法規（留空不限）"><datalist id="bdq-sl">${subs.map(s=>`<option value="${s}">`).join('')}</datalist></div><div><label class="fl">指定題號（逗號分隔，留空刪除所有符合條件）</label><input id="bdq-nums" placeholder="例：1,2,5,10"></div></div><div id="bdq-preview" style="margin-top:12px;font-size:12px;color:var(--t2)"></div><div style="display:flex;gap:8px;margin-top:16px"><button class="btn bg" style="flex:1;padding:12px" onclick="document.getElementById('bulk-del-q-modal').remove()">取消</button><button class="btn bg" style="flex:1;padding:12px;color:var(--t2)" onclick="previewBulkDelQ()">預覽</button><button class="btn" style="flex:1;padding:12px;background:var(--red);color:#fff" onclick="confirmBulkDelQ()">確認刪除</button></div></div>`;
+  document.body.appendChild(modal);
+  }catch(e){ logError('openBulkDelQ',e); }}
+
+async function previewBulkDelQ(){  try{
+  const targets=_filterBulkDelQ(await da('questions'));
+  const el=document.getElementById('bdq-preview');
+  if(el) el.innerHTML='<span style="color:var(--org)">符合條件：<b>'+targets.length+'</b> 題將被刪除</span>';
+  }catch(e){ logError('previewBulkDelQ',e); }}
+
+async function confirmBulkDelQ(){  try{
+  const targets=_filterBulkDelQ(await da('questions'));
+  if(!targets.length){toast('無符合條件的題目');return;}
+  if(!confirm('確定刪除 '+targets.length+' 題？\n此操作無法復原！'))return;
+  for(const q of targets) await dd('questions',q.id);
+  const m=document.getElementById('bulk-del-q-modal');if(m)m.remove();
+  toast('已刪除 '+targets.length+' 題 ✓');
+  renderHome();renderList();
+  }catch(e){ logError('confirmBulkDelQ',e); }}
+
+function _filterBulkDelQ(qs){
+  const yr =(document.getElementById('bdq-year')||{}).value?.trim()||'';
+  const ex =(document.getElementById('bdq-exam')||{}).value?.trim()||'';
+  const sub=(document.getElementById('bdq-sub') ||{}).value?.trim()||'';
+  const nums=(document.getElementById('bdq-nums')||{}).value?.trim()||'';
+  const numSet=nums?new Set(nums.split(/[,，、\s]+/).map(n=>n.trim()).filter(Boolean)):null;
+  return qs.filter(q=>{
+    if(yr  &&(q.year   ||'')!==yr ) return false;
+    if(ex  &&(q.exam   ||'')!==ex ) return false;
+    if(sub &&(q.subject||'')!==sub) return false;
+    if(numSet&&!numSet.has(String(q.num||''))) return false;
+    return true;
+  });
+}
+
+async function openBulkDelLaw(){  try{
+  const laws=await da('laws');
+  if(!laws.length){toast('目前無法條');return;}
+  const names=[...new Set(laws.map(l=>l.lawName||'').filter(Boolean))].sort();
+  const modal=document.createElement('div');
+  modal.id='bulk-del-law-modal';
+  modal.style.cssText='position:fixed;inset:0;z-index:400;background:rgba(0,0,0,0.6);display:flex;align-items:flex-end';
+  modal.innerHTML=`<div style="width:100%;max-width:520px;margin:0 auto;background:var(--bg1);border-radius:20px 20px 0 0;padding:20px 16px 32px;max-height:85vh;overflow-y:auto"><div style="width:36px;height:4px;background:var(--bd);border-radius:2px;margin:0 auto 16px"></div><div style="font-size:15px;font-weight:700;color:var(--t0);margin-bottom:14px">🗑 法條大量刪除</div><div style="font-size:12px;color:var(--t2);margin-bottom:12px">依法律名稱刪除，或指定條號。<b style="color:var(--red)">刪除後無法復原。</b></div><div style="display:flex;flex-direction:column;gap:10px"><div><label class="fl">法律名稱</label><input id="bdl-name" list="bdl-nl" placeholder="例：警察職權行使法（留空不限）"><datalist id="bdl-nl">${names.map(n=>`<option value="${n}">`).join('')}</datalist></div><div><label class="fl">指定條號（逗號分隔，留空刪除該法全部條文）</label><input id="bdl-arts" placeholder="例：1,2,10"></div></div><div id="bdl-preview" style="margin-top:12px;font-size:12px;color:var(--t2)"></div><div style="display:flex;gap:8px;margin-top:16px"><button class="btn bg" style="flex:1;padding:12px" onclick="document.getElementById('bulk-del-law-modal').remove()">取消</button><button class="btn bg" style="flex:1;padding:12px;color:var(--t2)" onclick="previewBulkDelLaw()">預覽</button><button class="btn" style="flex:1;padding:12px;background:var(--red);color:#fff" onclick="confirmBulkDelLaw()">確認刪除</button></div></div>`;
+  document.body.appendChild(modal);
+  }catch(e){ logError('openBulkDelLaw',e); }}
+
+async function previewBulkDelLaw(){  try{
+  const targets=_filterBulkDelLaw(await da('laws'));
+  const el=document.getElementById('bdl-preview');
+  if(el) el.innerHTML='<span style="color:var(--org)">符合條件：<b>'+targets.length+'</b> 條將被刪除</span>';
+  }catch(e){ logError('previewBulkDelLaw',e); }}
+
+async function confirmBulkDelLaw(){  try{
+  const targets=_filterBulkDelLaw(await da('laws'));
+  if(!targets.length){toast('無符合條件的法條');return;}
+  if(!confirm('確定刪除 '+targets.length+' 條法條？\n此操作無法復原！'))return;
+  for(const l of targets) await dd('laws',l.id);
+  const m=document.getElementById('bulk-del-law-modal');if(m)m.remove();
+  toast('已刪除 '+targets.length+' 條 ✓');
+  renderDB();
+  }catch(e){ logError('confirmBulkDelLaw',e); }}
+
+function _filterBulkDelLaw(laws){
+  const name=(document.getElementById('bdl-name')||{}).value?.trim()||'';
+  const arts=(document.getElementById('bdl-arts')||{}).value?.trim()||'';
+  const artSet=arts?new Set(arts.split(/[,，、\s]+/).map(n=>n.trim()).filter(Boolean)):null;
+  return laws.filter(l=>{
+    if(name&&(l.lawName||'')!==name) return false;
+    if(artSet&&!artSet.has(String(l.articleNumber||''))) return false;
+    return true;
+  });
+}
+
 async function delQ(id){  try{
   if(!confirm('確定刪除此題目？'))return;
   await dd('questions',id);toast('已刪除');renderList();
@@ -3191,9 +3272,7 @@ async function importBulk(){
     subject: sub||q.subject||'',
     year:    yr||q.year||'',
     exam:    ex||q.exam||'',
-    part:    q.part||'',
-    chapter: q.chapter||'',
-    section: q.section||'',
+
   }));
   try{
     // ── 防重複：以年度+考試別+科目+題號 判斷 ──────────────────
