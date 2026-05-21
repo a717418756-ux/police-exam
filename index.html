@@ -725,9 +725,9 @@ async function getPriorityPool(mode='all'){  try{
     return (levelOrder[da_]||3)-(levelOrder[db_]||3);
   });
   return pool;
-  }catch(e){ logError('getPriorityPool',e); }}
+  }catch(e){ logError('getPriorityPool',e); return []; }}
 
-const APP_VER = 'v115052101';
+const APP_VER = 'v115052102';
 // ══ utils.js — 工具函式 ═════════════════════════════════════
 // 全域狀態
 const S = {
@@ -2936,6 +2936,14 @@ async function renderGroups(){  try{
   el.innerHTML=toolHtml+cardsHtml;
   }catch(e){ logError('renderGroups',e); }}
 
+
+function extractNumberQuestions(qs){
+  // 篩選：選擇題 且 題幹含數字（阿拉伯數字或中文數字）
+  return (qs||[]).filter(q=>
+    q.type==='mc' &&
+    /[0-9０-９一二三四五六七八九十百千萬億]/.test(q.stem||'')
+  );
+}
 async function startNumberMode(){  try{
   const qs=await da('questions');
   const pool=extractNumberQuestions(qs);
