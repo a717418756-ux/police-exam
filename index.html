@@ -183,7 +183,12 @@ textarea{resize:vertical;line-height:1.7}
 .hd-btn.bg{background:rgba(255,255,255,0.07);color:var(--t0);border:1px solid rgba(255,255,255,0.13)}
 .hd-btn.red{background:rgba(207,71,71,0.12);color:#e05c5c;border:1px solid rgba(207,71,71,0.22)}
 .hd-btn.blue{background:var(--acc2);color:#fff;border:1px solid rgba(110,168,254,0.35)}
-.hd-btn.plus{width:34px;padding:0;font-size:20px;font-weight:300}</style>
+.hd-btn.plus{width:34px;padding:0;font-size:20px;font-weight:300}
+/* ── 資料庫法條卡片 ── */
+.lw-card{position:relative;cursor:pointer;transition:border-color .15s}
+.lw-card:hover{border-color:rgba(110,168,254,0.3)}
+.lw-del{position:absolute;top:8px;right:8px;background:rgba(207,71,71,0.15);color:var(--red);border:none;border-radius:6px;padding:3px 8px;font-size:11px;cursor:pointer;opacity:0;transition:opacity .15s}
+.lw-card:hover .lw-del{opacity:1}</style>
 </head>
 <body>
 <div id="app">
@@ -250,6 +255,7 @@ textarea{resize:vertical;line-height:1.7}
     <button class="chip" onclick="setLC(this,'interpretation')">函釋</button>
   </div>
   <div style="display:flex;gap:6px;padding:0 12px 6px;align-items:center"><span style="font-size:11px;color:var(--t2)">排序：</span><button class="chip on" id="l-sort-name" onclick="setLSort(this,'name')">名稱</button><button class="chip" id="l-sort-amend" onclick="setLSort(this,'amend')">修正日期</button><button class="chip" id="l-sort-count" onclick="setLSort(this,'count')">條數</button></div>
+  <div style="font-size:11px;color:var(--t2);padding:4px 12px" id="db-lc"></div>
   <div id="llist"></div>
 </div>
 <!-- BULK -->
@@ -1626,34 +1632,62 @@ async function renderList(){  try{
     `<button class="chip ${sf==='all'?'on':''}" onclick="setSF(this,'all')">全部科目</button>`+
     subs.map(s=>`<button class="chip ${sf===s?'on':''}" onclick="setSF(this,'${esc(s)}')">${esc(s)}</button>`).join('');
 
-  // 效能：超過200題加提示，避免一次渲染過多 DOM
-  const PAGE=200;
-  const showAll=fl.length<=PAGE;
-  const display=showAll?fl:fl.slice(0,PAGE);
-  if(!showAll){
-    const info=document.getElementById('lc');
-    if(info)info.textContent+=`（顯示前${PAGE}筆，共${fl.length}筆）`;
+  // ── 虛擬列表 ──────────────────────────────────────────────
+  const ITEM_H = 90;   // 每題卡片固定高度 px
+  const BUFFER = 10;   // 上下各多渲染 10 題
+  const container = document.getElementById('qlist');
+  if(!container) return;
+
+  // 建立虛擬列表容器（只建一次）
+  container.style.cssText='position:relative;overflow-y:auto;height:calc(100vh - 200px)';
+  let inner = container.querySelector('.vl-inner');
+  if(!inner){
+    inner = document.createElement('div');
+    inner.className='vl-inner';
+    inner.style.cssText='position:relative;width:100%';
+    container.appendChild(inner);
   }
-  document.getElementById('qlist').innerHTML=display.map(q=>{
-    const danger=getDangerLevel(q,ats);
-    const lvLabel=['🆕','1️⃣','3️⃣','1️⃣','2️⃣','1️⃣','2️⃣'][q.reviewLevel]||'';
-    return `<div class="qc ${ws.has(q.id)?'wrong':''} ${q.starred?'star':''}">
-      <div class="qch">
-        <span class="badge ${q.type==='mc'?'bmc':'bes'}">${q.type==='mc'?'選擇':'申論'}</span>
-        <span class="tag">${esc(q.subject||'未分類')}</span>
-        ${q.year?`<span class="tag">${esc(q.year)}</span>`:''}
-        <span style="font-size:13px">${danger}</span>
-        ${q.reviewLevel!==undefined?`<span class="tag" style="color:var(--acc)">Lv${q.reviewLevel}</span>`:''}
-      </div>
-      <div class="qst">${esc((q.stem||'').slice(0,80))}</div>
-      <div class="qa">
-        <button class="qabn" onclick="editQ(${q.id})">✏ 編輯</button>
-        <button class="qabn" onclick="toggleStar(${q.id})">${q.starred?'★':'☆'}</button>
-        <button class="qabn" data-qid="${q.id}" onclick="startSingleQ(this)">▶ 練習</button>
-        <button class="qabn" style="color:var(--red)" onclick="delQ(${q.id})">🗑</button>
-      </div>
-    </div>`;
-  }).join('');
+  inner.style.height = (fl.length * ITEM_H) + 'px';
+
+  // 渲染可視範圍的題目
+  const renderVisible = () => {
+    const scrollTop = container.scrollTop;
+    const viewH = container.clientHeight;
+    const startIdx = Math.max(0, Math.floor(scrollTop / ITEM_H) - BUFFER);
+    const endIdx   = Math.min(fl.length - 1, Math.ceil((scrollTop + viewH) / ITEM_H) + BUFFER);
+
+    inner.innerHTML = fl.slice(startIdx, endIdx + 1).map((q, i) => {
+      const idx = startIdx + i;
+      const danger = getDangerLevel(q, ats);
+      return `<div class="qc ${ws.has(q.id)?'wrong':''} ${q.starred?'star':''}"
+        style="position:absolute;top:${idx*ITEM_H}px;left:0;right:0;height:${ITEM_H}px;box-sizing:border-box;overflow:hidden">
+        <div class="qch">
+          <span class="badge ${q.type==='mc'?'bmc':'bes'}">${q.type==='mc'?'選擇':'申論'}</span>
+          <span class="tag">${esc(q.subject||'未分類')}</span>
+          ${q.year?`<span class="tag">${esc(q.year)}</span>`:''}
+          <span style="font-size:13px">${danger}</span>
+          ${q.reviewLevel!==undefined?`<span class="tag" style="color:var(--acc)">Lv${q.reviewLevel}</span>`:''}
+        </div>
+        <div class="qst">${esc((q.stem||'').slice(0,80))}</div>
+        <div class="qa">
+          <button class="qabn" onclick="editQ(${q.id})">✏ 編輯</button>
+          <button class="qabn" onclick="toggleStar(${q.id})">${q.starred?'★':'☆'}</button>
+          <button class="qabn" data-qid="${q.id}" onclick="startSingleQ(this)">▶ 練習</button>
+          <button class="qabn" style="color:var(--red)" onclick="delQ(${q.id})">🗑</button>
+        </div>
+      </div>`;
+    }).join('');
+  };
+
+  renderVisible();
+
+  // 移除舊 scroll 監聽，加新的
+  const oldScroll = container._vlScroll;
+  if(oldScroll) container.removeEventListener('scroll', oldScroll);
+  const onScroll = () => renderVisible();
+  container._vlScroll = onScroll;
+  container.addEventListener('scroll', onScroll, {passive:true});
+
   }catch(e){ logError('renderList',e); }}
 
 function setF(el,f){
@@ -1937,7 +1971,6 @@ function toggleLawSort(){
 async function renderDB(){  try{
   const ls=await da('laws');
   const kw=(document.getElementById('lsi')?.value||'').toLowerCase().trim();
-  // 解析搜尋關鍵字：支援「某法§10」「§10」格式
   let kwLaw='', kwArt='', kwText=kw;
   const secM = kw.match(/^(.*)§\s*(\d+)\s*$/);
   if(secM){
@@ -1949,43 +1982,44 @@ async function renderDB(){  try{
   let fl=ls.filter(l=>{
     if(S.lawCat!=='all'&&l.category!==S.lawCat)return false;
     if(!kw) return true;
-    // §N 精確搜尋
     if(kwArt){
       const nameMatch = !kwLaw || (l.lawName||'').toLowerCase().includes(kwLaw);
       const artMatch  = String(l.articleNumber||'') === kwArt ||
                         (l.article||'').replace(/\s/g,'').includes('第'+kwArt+'條');
       return nameMatch && artMatch;
     }
-    // 一般文字搜尋（含標題 title）
     const h = ((l.lawName||'')+(l.article||'')+(l.title||'')+(l.content||'')+(l.keywords||[]).join(' ')).toLowerCase();
     return h.includes(kwText);
   });
+
   const byName={};
   fl.forEach(l=>{const n=l.lawName||'未分類';if(!byName[n])byName[n]=[];byName[n].push(l);});
   const el=document.getElementById('llist');
   if(!fl.length){el.innerHTML='<div class="empty"><span class="ic">🗄</span><span>尚無資料</span></div>';return;}
-  // 排序
+
   const sortedEntries=Object.entries(byName).sort((a,b)=>{
     const sortBy=S.lawSort||'name';
     if(sortBy==='amend'){
-      // 發布修正日期排序：最新在前
-      // 支援「民國113年1月1日」和「2024-01-01」兩種格式
       const toDate=s=>{
         if(!s)return '';
-        // 民國年轉西元
         const rocM=s.match(/民國(\d+)年(\d+)月(\d+)日/);
         if(rocM)return String(parseInt(rocM[1])+1911)+'-'+rocM[2].padStart(2,'0')+'-'+rocM[3].padStart(2,'0');
-        return s; // 已是西元或其他格式
+        return s;
       };
       const da=toDate(a[1][0]?.amendDate)||'0000';
       const db=toDate(b[1][0]?.amendDate)||'0000';
-      return db.localeCompare(da); // 最新在前
+      return db.localeCompare(da);
     }
-    if(sortBy==='count') return b[1].length-a[1].length; // 條數多在前
-    return a[0].localeCompare(b[0],'zh-TW'); // 名稱 A-Z
+    if(sortBy==='count') return b[1].length-a[1].length;
+    return a[0].localeCompare(b[0],'zh-TW');
   });
-  // 用 data-name 避免法規名稱含特殊字元導致 onclick 失效
-  el.innerHTML=sortedEntries.map(([name,laws])=>{
+
+  // ── Infinite Scroll 分頁（每批 50 個法律群組）──────────────
+  const PAGE = 50;
+  let page = 0;
+  el.innerHTML = '';
+
+  const _mkCard = ([name, laws]) => {
     const cat=laws[0].category||'statute';
     const catLabel={'statute':'法規條文','sop':'SOP','supplement':'補充資料','interpretation':'函釋'}[cat]||cat;
     const favCount=laws.filter(l=>l.favorite).length;
@@ -1997,8 +2031,12 @@ async function renderDB(){  try{
         +(laws[0]?.amendDate?'📅 '+esc(laws[0].amendDate):'')
         +'</div>')
       :'';
-    return '<div class="lw-card card" data-lawname="'+esc(name)+'" style="margin-bottom:6px;cursor:pointer">'
-      +'<div style="display:flex;align-items:center;gap:8px">'
+    const div = document.createElement('div');
+    div.className='lw-card card';
+    div.dataset.lawname=name;
+    div.style.marginBottom='6px';
+    div.innerHTML=
+      '<div style="display:flex;align-items:center;gap:8px">'
         +'<span style="font-size:20px">'+icon+'</span>'
         +'<div style="flex:1">'
           +'<div style="font-size:15px;font-weight:700;color:var(--t0)">'+esc(name)+'</div>'
@@ -2007,22 +2045,47 @@ async function renderDB(){  try{
         +'</div>'
         +'<span style="color:var(--t2);font-size:18px">›</span>'
         +'<button class="lw-del" data-lawname="'+esc(name)+'" style="background:var(--red2);color:var(--red);border:1px solid var(--red);border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer;flex-shrink:0">🗑</button>'
-      +'</div>'
-    +'</div>';
-  }).join('');
-  // 綁定 click 事件（避免 onclick 字串引號問題）
-  el.querySelectorAll('.lw-card').forEach(card=>{
-    card.addEventListener('click',function(e){
+      +'</div>';
+    div.addEventListener('click',function(e){
       if(e.target.classList.contains('lw-del'))return;
       openLawGroup(this.dataset.lawname);
     });
-  });
-  el.querySelectorAll('.lw-del').forEach(btn=>{
-    btn.addEventListener('click',function(e){
+    div.querySelector('.lw-del').addEventListener('click',function(e){
       e.stopPropagation();
       delLawGroup(this.dataset.lawname);
     });
-  });
+    return div;
+  };
+
+  const loadMore = () => {
+    const batch = sortedEntries.slice(page*PAGE, (page+1)*PAGE);
+    if(!batch.length) return;
+    batch.forEach(entry => el.appendChild(_mkCard(entry)));
+    page++;
+    // 顯示計數
+    const total = sortedEntries.length;
+    const shown = Math.min(page*PAGE, total);
+    const lc = document.getElementById('db-lc');
+    if(lc) lc.textContent = shown < total ? `顯示 ${shown} / ${total} 筆，繼續滑動載入` : `共 ${total} 筆`;
+  };
+
+  loadMore();
+
+  // 移除舊 scroll 監聽
+  const pg = document.getElementById('pg-db');
+  const scroller = pg?.querySelector('.page') || pg;
+  if(scroller){
+    const old = scroller._dbScroll;
+    if(old) scroller.removeEventListener('scroll', old);
+    const onScroll = () => {
+      if(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 150){
+        loadMore();
+      }
+    };
+    scroller._dbScroll = onScroll;
+    scroller.addEventListener('scroll', onScroll, {passive:true});
+  }
+
   }catch(e){ logError('renderDB',e); }}
 function renderLaws(){ return renderDB(); }
 
@@ -3399,7 +3462,7 @@ async function importBulk(){
     subject: sub||q.subject||'',
     year:    yr||q.year||'',
     exam:    ex||q.exam||'',
-
+    searchBlob: ((q.stem||'')+' '+(sub||q.subject||'')+' '+(q.keywords||[]).join(' ')).toLowerCase(),
   }));
   try{
     // ── 防重複：以年度+考試別+科目+題號 判斷 ──────────────────
