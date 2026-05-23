@@ -86,12 +86,12 @@ textarea{resize:vertical;line-height:1.7}
 .chips::-webkit-scrollbar{display:none}
 .chip{padding:5px 12px;border-radius:20px;font-size:12px;font-weight:600;background:var(--bg2);color:var(--t2);border:1px solid var(--bd);white-space:nowrap;transition:all var(--tr)}
 .chip.on{background:rgba(110,168,254,0.12);color:var(--acc);border-color:var(--acc)}
-.qc{margin:5px 12px;background:var(--bg1);border:1px solid var(--bd);border-radius:var(--r);padding:11px}
+.qc{margin:8px 12px;background:var(--bg1);border:1px solid var(--bd);border-radius:var(--r);padding:12px 14px}
 .qc.wrong{border-left:3px solid var(--red)}.qc.star{border-left:3px solid var(--org)}
 .qch{display:flex;align-items:center;gap:5px;margin-bottom:6px;flex-wrap:wrap}
-.qst{font-size:13px;line-height:1.6;color:var(--t1);word-break:break-all}
-.qa{display:flex;gap:5px;margin-top:7px;flex-wrap:wrap}
-.qabn{padding:4px 9px;border-radius:5px;font-size:11px;background:var(--bg2);color:var(--t2);border:1px solid var(--bd);transition:all var(--tr)}
+.qst{font-size:15px;line-height:1.8;color:var(--t0);word-break:break-word;margin:8px 0 10px;padding-bottom:10px;border-bottom:1px solid var(--bd)}
+.qa{display:flex;gap:6px;margin-top:2px;flex-wrap:wrap}
+.qabn{padding:5px 11px;border-radius:6px;font-size:12px;font-weight:500;background:var(--bg2);color:var(--t1);border:1px solid var(--bd);transition:all var(--tr)}
 .fg{margin:0 12px 10px}.fl{font-size:12px;font-weight:600;color:var(--t2);margin-bottom:5px;display:block}
 .fr{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .oi{display:flex;align-items:center;gap:7px;margin-bottom:5px}
@@ -246,7 +246,7 @@ textarea{resize:vertical;line-height:1.7}
       <button class="hd-btn blue plus" onclick="showAddLaw()">＋</button>
     </div>
   </div>
-  <div class="sb"><span class="ic">🔍</span><input id="lsi" type="search" placeholder="搜尋法規名稱、條號、關鍵字..." oninput="renderDB()"></div>
+  <div class="sb"><span class="ic">🔍</span><input id="lsi" type="search" placeholder="搜尋法規名稱、條號、關鍵字..." oninput="_debouncedRenderDB()"></div>
   <div class="chips" id="lchips">
     <button class="chip on" onclick="setLC(this,'all')">全部</button>
     <button class="chip" onclick="setLC(this,'statute')">法規條文</button>
@@ -572,8 +572,7 @@ textarea{resize:vertical;line-height:1.7}
     <div class="cbn"><button class="btn br bw" id="cfm-cn">取消</button><button class="btn br bw" id="cfm-ok">確認</button></div>
   </div>
 </div>
-<div class="toast" id="toast"></div>
-<script>
+<div class="toast" id="toast"></div><script>
 // ══ db.js — IndexedDB 核心 v3 ═══════════════════════════════
 const DB_NAME='PoliceExamPro', DB_VER=3;
 let db;
@@ -741,7 +740,7 @@ async function getPriorityPool(mode='all'){  try{
   return pool;
   }catch(e){ logError('getPriorityPool',e); return []; }}
 
-const APP_VER = 'v115052301';
+const APP_VER = 'v115052303';
 // ══ utils.js — 工具函式 ═════════════════════════════════════
 // 全域狀態
 const S = {
@@ -1633,8 +1632,8 @@ async function renderList(){  try{
     subs.map(s=>`<button class="chip ${sf===s?'on':''}" onclick="setSF(this,'${esc(s)}')">${esc(s)}</button>`).join('');
 
   // ── 虛擬列表 ──────────────────────────────────────────────
-  const ITEM_H = 90;   // 每題卡片固定高度 px
-  const BUFFER = 10;   // 上下各多渲染 10 題
+  const ITEM_H = 140;  // 每題卡片固定高度 px（含上下 margin 8px×2）
+  const BUFFER = 8;    // 上下各多渲染 8 題
   const container = document.getElementById('qlist');
   if(!container) return;
 
@@ -1663,17 +1662,18 @@ async function renderList(){  try{
         style="position:absolute;top:${idx*ITEM_H}px;left:0;right:0;height:${ITEM_H}px;box-sizing:border-box;overflow:hidden">
         <div class="qch">
           <span class="badge ${q.type==='mc'?'bmc':'bes'}">${q.type==='mc'?'選擇':'申論'}</span>
-          <span class="tag">${esc(q.subject||'未分類')}</span>
           ${q.year?`<span class="tag">${esc(q.year)}</span>`:''}
-          <span style="font-size:13px">${danger}</span>
-          ${q.reviewLevel!==undefined?`<span class="tag" style="color:var(--acc)">Lv${q.reviewLevel}</span>`:''}
+          ${q.exam?`<span class="tag">${esc(q.exam)}</span>`:''}
+          <span class="tag">${esc(q.subject||'未分類')}</span>
+          <span style="font-size:13px;margin-left:auto">${danger}</span>
+          <span style="font-size:16px">${q.starred?'★':'☆'}</span>
         </div>
-        <div class="qst">${esc((q.stem||'').slice(0,80))}</div>
+        <div class="qst">${esc((q.stem||'').slice(0,85))}</div>
         <div class="qa">
           <button class="qabn" onclick="editQ(${q.id})">✏ 編輯</button>
-          <button class="qabn" onclick="toggleStar(${q.id})">${q.starred?'★':'☆'}</button>
           <button class="qabn" data-qid="${q.id}" onclick="startSingleQ(this)">▶ 練習</button>
-          <button class="qabn" style="color:var(--red)" onclick="delQ(${q.id})">🗑</button>
+          <button class="qabn" onclick="toggleStar(${q.id})">${q.starred?'☆':'★'}</button>
+          <button class="qabn" style="color:var(--red);margin-left:auto" onclick="delQ(${q.id})">🗑</button>
         </div>
       </div>`;
     }).join('');
@@ -1763,6 +1763,7 @@ function setCorr(k){
 }
 
 const _debouncedRenderList=debounce(renderList,200);
+const _debouncedRenderDB=debounce(renderDB,220);
 
 async function saveQ(){
   try{
