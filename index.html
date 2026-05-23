@@ -57,8 +57,8 @@ textarea{resize:vertical;line-height:1.7}
 .nb.on{color:var(--acc)}.nb .ic{font-size:20px;line-height:1}
 .nb::after{content:'';position:absolute;top:0;left:25%;right:25%;height:2px;background:var(--acc);border-radius:0 0 2px 2px;opacity:0;transition:opacity var(--tr)}
 .nb.on::after{opacity:1}
-.hd{display:flex;align-items:center;justify-content:space-between;padding:13px 12px 10px;background:rgba(27,27,27,0.92);border-bottom:1px solid var(--bd);position:sticky;top:0;z-index:50;gap:8px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
-.hdt{font-size:17px;font-weight:700}.hds{font-size:11px;color:var(--t2)}
+.hd{display:flex;align-items:center;justify-content:space-between;height:52px;min-height:52px;padding:0 14px;background:rgba(27,27,27,0.92);border-bottom:1px solid var(--bd);position:sticky;top:0;z-index:50;gap:8px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-sizing:border-box;flex-shrink:0}
+.hdt{font-size:15px;font-weight:700;line-height:1.2;white-space:nowrap;letter-spacing:.2px}.hds{font-size:10px;color:var(--t2);margin-top:1px;line-height:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:9px 14px;border-radius:var(--rs);font-size:13px;font-weight:600;transition:all var(--tr);cursor:pointer;border:none}
 .bp{background:var(--acc2);color:#fff}.bp:hover{background:#2f6fd4}.bp:active{filter:brightness(.85)}
 .bg{background:var(--bg2);color:var(--t1);border:1px solid var(--bd)}.bg:active{border-color:var(--acc)}
@@ -174,7 +174,10 @@ textarea{resize:vertical;line-height:1.7}
 .em-icon{font-size:26px;margin-bottom:5px}
 .em-label{font-size:13px;font-weight:700;color:var(--t0);margin-bottom:2px}
 .em-desc{font-size:11px;color:var(--t2);line-height:1.3}
-.qb-exam{grid-column:1/-1;background:linear-gradient(135deg,rgba(110,168,254,0.15),rgba(37,98,200,0.20));border-color:rgba(110,168,254,0.30);color:var(--acc);font-weight:700}</style>
+.qb-exam{grid-column:1/-1;background:linear-gradient(135deg,rgba(110,168,254,0.15),rgba(37,98,200,0.20));border-color:rgba(110,168,254,0.30);color:var(--acc);font-weight:700}
+.btn-add{background:var(--acc2);color:#fff;border:1px solid rgba(110,168,254,0.4);padding:6px 14px;font-size:13px;font-weight:700;border-radius:8px;cursor:pointer;transition:background .15s}
+.btn-add:hover{background:#2f72d8}
+.btn-add:active{background:var(--acc2)}</style>
 </head>
 <body>
 <div id="app">
@@ -206,7 +209,7 @@ textarea{resize:vertical;line-height:1.7}
     <div style="display:flex;gap:6px">
       <button class="btn bg" style="padding:6px 10px;font-size:12px" onclick="goPage('bulk')">📋 大量匯入</button>
       <button class="btn bg" style="padding:6px 10px;font-size:12px;color:var(--red)" onclick="openBulkDelQ()">🗑 大量刪除</button>
-      <button class="btn bp" style="padding:6px 10px;font-size:12px" onclick="showAdd()">＋ 新增</button>
+      <button class="btn-add" onclick="showAdd()">＋</button>
     </div>
   </div>
   <div class="sb"><span class="ic">🔍</span><input id="si" type="search" placeholder="搜尋題目、科目、關鍵字..." oninput="_debouncedRenderList()"></div>
@@ -229,7 +232,7 @@ textarea{resize:vertical;line-height:1.7}
       <button class="btn bg" style="padding:6px 10px;font-size:12px" onclick="toggleLawSort()">⇅ 排序</button>
       <button class="btn bg" style="padding:6px 10px;font-size:12px" onclick="showBulkLaw()">批次匯入</button>
       <button class="btn bg" style="padding:6px 10px;font-size:12px;color:var(--red)" onclick="openBulkDelLaw()">🗑 大量刪除</button>
-      <button class="btn bpur" style="padding:6px 10px;font-size:12px" onclick="showAddLaw()">＋</button>
+      <button class="btn-add" onclick="showAddLaw()">＋</button>
     </div>
   </div>
   <div class="sb"><span class="ic">🔍</span><input id="lsi" type="search" placeholder="搜尋法規名稱、條號、關鍵字..." oninput="renderDB()"></div>
@@ -273,7 +276,7 @@ textarea{resize:vertical;line-height:1.7}
 </div>
 <!-- STATS -->
 <div id="pg-stats" class="page hide">
-  <div class="hd"><div class="hdt">分析 & AI匯出</div><button class="btn bpur" style="padding:7px 11px;font-size:13px" onclick="buildAI()">🤖 AI匯出</button></div>
+  <div class="hd"><div class="hdt">分析 & AI匯出</div><button class="btn-add" style="padding:7px 11px;font-size:13px" onclick="buildAI()">🤖 AI匯出</button></div>
   <div class="st3">
     <div class="stb"><div class="n" id="st-q">0</div><div class="l">總題數</div></div>
     <div class="stb"><div class="n" id="st-a" style="color:var(--grn)">0</div><div class="l">總作答</div></div>
@@ -289,6 +292,7 @@ textarea{resize:vertical;line-height:1.7}
       <div style="display:flex;gap:7px;margin-top:9px"><button class="btn bp" onclick="copyAI('md')">📋 複製</button><button class="btn bg" onclick="dlAI('md')">⬇ 下載</button></div></div>
     <div class="aic"><div class="ait">📊 JSON 結構化資料</div><div class="aipv" id="ai-json"></div>
       <div style="display:flex;gap:7px;margin-top:9px"><button class="btn bp" onclick="copyAI('json')">📋 複製</button><button class="btn bg" onclick="dlAI('json')">⬇ 下載</button></div></div>
+    <div style="padding:4px 0 8px"><button class="btn bg" style="width:100%;padding:10px;font-size:13px;color:var(--red)" onclick="clearWrongAts()">🗑 刪除全部作答錯誤記錄</button></div>
     <div class="card" style="font-size:12px;color:var(--t2);line-height:1.7">💡 複製 Markdown 貼到 ChatGPT，輸入：「根據以上資料，分析我的弱點並給備考建議」</div>
   </div>
 </div>
@@ -553,7 +557,7 @@ textarea{resize:vertical;line-height:1.7}
 <div class="cov" id="cfm-ov">
   <div class="cbox">
     <div class="cbt" id="cfm-t"></div><div class="cbs" id="cfm-s"></div>
-    <div class="cbn"><button class="btn bg bw" onclick="closeCfm()">取消</button><button class="btn br bw" id="cfm-ok">確認</button></div>
+    <div class="cbn"><button class="btn br bw" id="cfm-cn">取消</button><button class="btn br bw" id="cfm-ok">確認</button></div>
   </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -725,7 +729,7 @@ async function getPriorityPool(mode='all'){  try{
   return pool;
   }catch(e){ logError('getPriorityPool',e); return []; }}
 
-const APP_VER = 'v115052104';
+const APP_VER = 'v115052201';
 // ══ utils.js — 工具函式 ═════════════════════════════════════
 // 全域狀態
 const S = {
@@ -2102,7 +2106,7 @@ async function openLawGroup(lawName){  try{
         .replace(_hlRe,(m)=>'<mark style="background:#d4a438;color:#121212;border-radius:2px;padding:0 2px">'+m+'</mark>')
         .replace(/\n/g,'<br>');
     };
-    const contentHtml=isImg?'<img src="'+l.content+'" style="max-width:100%;border-radius:8px">':_hl(l.content||'');
+    const contentHtml=isImg?'<img src="'+l.content+'" style="max-width:100%;border-radius:8px;cursor:zoom-in" onclick="openImgViewer(this.src)" title="點擊放大">':_hl(l.content||'');
     const kwHtml=(l.keywords||[]).length?'<div style="margin-top:8px">'+l.keywords.map(k=>'<span class="tag">'+esc(k)+'</span>').join('')+'</div>':'';
     const relHtml=(l.relatedLaws||[]).length
       ?'<div style="margin-top:9px;font-size:11px;color:var(--t2)">🔗 關聯法條：</div>'
@@ -2364,6 +2368,65 @@ async function showAddLaw(l){
 }
 
 function closeLawSh(){ document.getElementById('law-ov').classList.remove('on');S.editLawId=null; }
+
+
+function openImgViewer(src){
+  // 移除舊的（若有）
+  const old=document.getElementById('img-viewer');
+  if(old) old.remove();
+
+  const overlay=document.createElement('div');
+  overlay.id='img-viewer';
+  overlay.style.cssText='position:fixed;inset:0;z-index:500;background:rgba(0,0,0,0.9);display:flex;align-items:center;justify-content:center;touch-action:pinch-zoom';
+
+  // 點擊背景關閉
+  overlay.onclick=()=>overlay.remove();
+
+  const wrapper=document.createElement('div');
+  wrapper.style.cssText='position:relative;max-width:96vw;max-height:92vh;overflow:hidden;border-radius:8px';
+  wrapper.onclick=e=>e.stopPropagation();
+
+  const img=document.createElement('img');
+  img.src=src;
+  img.style.cssText='max-width:90vw;max-height:88vh;border-radius:8px;object-fit:contain;display:block;touch-action:pinch-zoom';
+
+  // 縮放控制
+  let scale=1;
+  const clamp=(v,mn,mx)=>Math.min(Math.max(v,mn),mx);
+
+  // 桌面：滾輪縮放
+  img.addEventListener('wheel',e=>{
+    e.preventDefault();
+    scale=clamp(scale*(e.deltaY<0?1.15:0.87),0.5,5);
+    img.style.transform='scale('+scale+')';
+  },{passive:false});
+
+  // 關閉按鈕
+  const closeBtn=document.createElement('button');
+  closeBtn.textContent='✕';
+  closeBtn.style.cssText='position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.6);color:#fff;border:none;border-radius:50%;width:32px;height:32px;font-size:16px;cursor:pointer;z-index:1;display:flex;align-items:center;justify-content:center';
+  closeBtn.onclick=()=>overlay.remove();
+
+  // 縮放按鈕
+  const zoomBar=document.createElement('div');
+  zoomBar.style.cssText='position:absolute;bottom:10px;left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:1';
+  [['−',0.75],['⟳',1],['＋',1.33]].forEach(([lbl,factor])=>{
+    const btn=document.createElement('button');
+    btn.textContent=lbl;
+    btn.style.cssText='background:rgba(0,0,0,0.6);color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:16px;cursor:pointer';
+    btn.onclick=()=>{
+      if(lbl==='⟳'){scale=1;}else{scale=clamp(scale*factor,0.3,6);}
+      img.style.transform='scale('+scale+')';
+    };
+    zoomBar.appendChild(btn);
+  });
+
+  wrapper.appendChild(img);
+  wrapper.appendChild(closeBtn);
+  wrapper.appendChild(zoomBar);
+  overlay.appendChild(wrapper);
+  document.body.appendChild(overlay);
+}
 
 function switchLawMode(mode){
   const cw=document.getElementById('l-content-wrap');
@@ -3398,6 +3461,15 @@ async function renderStats(){  try{
     .map(([kw,cnt])=>`<span class="tag" style="font-size:${Math.min(14,10+cnt)}px">${esc(kw)}(${cnt})</span>`).join('');
   }catch(e){ logError('renderStats',e); }}
 
+async function clearWrongAts(){  try{
+  const ats=await da('attempts');
+  const wrong=ats.filter(a=>a.correct===false);
+  if(!wrong.length){toast('目前無錯誤記錄');return;}
+  if(!confirm('確定刪除 '+wrong.length+' 筆錯誤作答記錄？\n正確作答記錄保留，此操作無法復原。'))return;
+  for(const a of wrong) await dd('attempts',a.id);
+  toast('已刪除 '+wrong.length+' 筆錯誤記錄 ✓');
+  }catch(e){ logError('clearWrongAts',e); }}
+
 async function buildAI(){  try{
   const [qs,ats]=await Promise.all([da('questions'),da('attempts')]);
   const today_=today();
@@ -3855,7 +3927,6 @@ init().then(()=>{
 
 
 if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('./sw.js').catch(()=>{});});}
-
 </script>
 
   <!-- ── 測驗專區彈出選單 ── -->
