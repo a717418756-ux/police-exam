@@ -177,7 +177,13 @@ textarea{resize:vertical;line-height:1.7}
 .qb-exam{grid-column:1/-1;background:linear-gradient(135deg,rgba(110,168,254,0.15),rgba(37,98,200,0.20));border-color:rgba(110,168,254,0.30);color:var(--acc);font-weight:700}
 .btn-add{background:var(--acc2);color:#fff;border:1px solid rgba(110,168,254,0.4);padding:6px 14px;font-size:13px;font-weight:700;border-radius:8px;cursor:pointer;transition:background .15s}
 .btn-add:hover{background:#2f72d8}
-.btn-add:active{background:var(--acc2)}</style>
+.btn-add:active{background:var(--acc2)}
+.hd-btn{display:inline-flex;align-items:center;justify-content:center;height:34px;min-width:34px;padding:0 12px;font-size:12.5px;font-weight:600;border-radius:8px;white-space:nowrap;cursor:pointer;border:none;transition:opacity .12s,background .12s;letter-spacing:.1px}
+.hd-btn:active{opacity:.6}
+.hd-btn.bg{background:rgba(255,255,255,0.07);color:var(--t0);border:1px solid rgba(255,255,255,0.13)}
+.hd-btn.red{background:rgba(207,71,71,0.12);color:#e05c5c;border:1px solid rgba(207,71,71,0.22)}
+.hd-btn.blue{background:var(--acc2);color:#fff;border:1px solid rgba(110,168,254,0.35)}
+.hd-btn.plus{width:34px;padding:0;font-size:20px;font-weight:300}</style>
 </head>
 <body>
 <div id="app">
@@ -207,9 +213,9 @@ textarea{resize:vertical;line-height:1.7}
   <div class="hd">
     <div class="hdt">題目管理</div>
     <div style="display:flex;gap:6px">
-      <button class="btn bg" style="padding:6px 10px;font-size:12px" onclick="goPage('bulk')">📋 大量匯入</button>
-      <button class="btn bg" style="padding:6px 10px;font-size:12px;color:var(--red)" onclick="openBulkDelQ()">🗑 大量刪除</button>
-      <button class="btn-add" onclick="showAdd()">＋</button>
+      <button class="hd-btn bg" onclick="goPage('bulk')">📋 大量匯入</button>
+      <button class="hd-btn red" onclick="openBulkDelQ()">🗑 大量刪除</button>
+      <button class="hd-btn blue plus" onclick="showAdd()">＋</button>
     </div>
   </div>
   <div class="sb"><span class="ic">🔍</span><input id="si" type="search" placeholder="搜尋題目、科目、關鍵字..." oninput="_debouncedRenderList()"></div>
@@ -229,10 +235,10 @@ textarea{resize:vertical;line-height:1.7}
   <div class="hd">
     <div class="hdt">🗄 資料庫</div>
     <div style="display:flex;gap:6px">
-      <button class="btn bg" style="padding:6px 10px;font-size:12px" onclick="toggleLawSort()">⇅ 排序</button>
-      <button class="btn bg" style="padding:6px 10px;font-size:12px" onclick="showBulkLaw()">批次匯入</button>
-      <button class="btn bg" style="padding:6px 10px;font-size:12px;color:var(--red)" onclick="openBulkDelLaw()">🗑 大量刪除</button>
-      <button class="btn-add" onclick="showAddLaw()">＋</button>
+      <button class="hd-btn bg" onclick="toggleLawSort()">⇅ 排序</button>
+      <button class="hd-btn bg" onclick="showBulkLaw()">批次匯入</button>
+      <button class="hd-btn red" onclick="openBulkDelLaw()">🗑 大量刪除</button>
+      <button class="hd-btn blue plus" onclick="showAddLaw()">＋</button>
     </div>
   </div>
   <div class="sb"><span class="ic">🔍</span><input id="lsi" type="search" placeholder="搜尋法規名稱、條號、關鍵字..." oninput="renderDB()"></div>
@@ -276,7 +282,7 @@ textarea{resize:vertical;line-height:1.7}
 </div>
 <!-- STATS -->
 <div id="pg-stats" class="page hide">
-  <div class="hd"><div class="hdt">分析 & AI匯出</div><button class="btn-add" style="padding:7px 11px;font-size:13px" onclick="buildAI()">🤖 AI匯出</button></div>
+  <div class="hd"><div class="hdt">分析 & AI匯出</div><button class="hd-btn blue" onclick="buildAI()">🤖 AI匯出</button></div>
   <div class="st3">
     <div class="stb"><div class="n" id="st-q">0</div><div class="l">總題數</div></div>
     <div class="stb"><div class="n" id="st-a" style="color:var(--grn)">0</div><div class="l">總作答</div></div>
@@ -729,7 +735,7 @@ async function getPriorityPool(mode='all'){  try{
   return pool;
   }catch(e){ logError('getPriorityPool',e); return []; }}
 
-const APP_VER = 'v115052201';
+const APP_VER = 'v115052301';
 // ══ utils.js — 工具函式 ═════════════════════════════════════
 // 全域狀態
 const S = {
