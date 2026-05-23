@@ -86,7 +86,7 @@ textarea{resize:vertical;line-height:1.7}
 .chips::-webkit-scrollbar{display:none}
 .chip{padding:5px 12px;border-radius:20px;font-size:12px;font-weight:600;background:var(--bg2);color:var(--t2);border:1px solid var(--bd);white-space:nowrap;transition:all var(--tr)}
 .chip.on{background:rgba(110,168,254,0.12);color:var(--acc);border-color:var(--acc)}
-.qc{margin:8px 12px;background:var(--bg1);border:1px solid var(--bd);border-radius:var(--r);padding:12px 14px}
+.qc{background:var(--bg1);border:1px solid var(--bd);border-radius:var(--r);padding:12px 14px}
 .qc.wrong{border-left:3px solid var(--red)}.qc.star{border-left:3px solid var(--org)}
 .qch{display:flex;align-items:center;gap:5px;margin-bottom:6px;flex-wrap:wrap}
 .qst{font-size:15px;line-height:1.8;color:var(--t0);word-break:break-word;margin:8px 0 10px;padding-bottom:10px;border-bottom:1px solid var(--bd)}
@@ -740,7 +740,7 @@ async function getPriorityPool(mode='all'){  try{
   return pool;
   }catch(e){ logError('getPriorityPool',e); return []; }}
 
-const APP_VER = 'v115052303';
+const APP_VER = 'v115052401';
 // ══ utils.js — 工具函式 ═════════════════════════════════════
 // 全域狀態
 const S = {
@@ -1606,12 +1606,11 @@ async function renderHome(){  try{
   }catch(e){ logError('renderHome',e); }}
 
 async function renderList(){  try{
-  const [qs,ats,ls]=await Promise.all([da('questions'),da('attempts'),da('laws')]);
+  const [qs,ats]=await Promise.all([da('questions'),da('attempts')]);
   const kw=(document.getElementById('si')?.value||'').toLowerCase().trim();
   const f=S.filter||'all';
   const sf=S.subF||'all';
   const ws=getWrong(qs,ats);
-
   let fl=qs.filter(q=>{
     if(f==='mc'&&q.type!=='mc')return false;
     if(f==='es'&&q.type!=='es')return false;
@@ -1621,73 +1620,62 @@ async function renderList(){  try{
     if(kw){const h=(q.searchBlob||(q.stem||'')+(q.subject||'')+(q.keywords||[]).join(' ')).toLowerCase();if(!h.includes(kw))return false;}
     return true;
   }).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
-
-  document.getElementById('lc').textContent=`共 ${fl.length} 題`;
-
-  // 科目 chips
+  const lcEl=document.getElementById('lc');
+  if(lcEl) lcEl.textContent='共 '+fl.length+' 題';
   const subs=[...new Set(qs.map(q=>q.subject).filter(Boolean))].sort();
   const schips=document.getElementById('schips');
-  if(schips)schips.innerHTML=
-    `<button class="chip ${sf==='all'?'on':''}" onclick="setSF(this,'all')">全部科目</button>`+
-    subs.map(s=>`<button class="chip ${sf===s?'on':''}" onclick="setSF(this,'${esc(s)}')">${esc(s)}</button>`).join('');
-
-  // ── 虛擬列表 ──────────────────────────────────────────────
-  const ITEM_H = 140;  // 每題卡片固定高度 px（含上下 margin 8px×2）
-  const BUFFER = 8;    // 上下各多渲染 8 題
-  const container = document.getElementById('qlist');
-  if(!container) return;
-
-  // 建立虛擬列表容器（只建一次）
-  container.style.cssText='position:relative;overflow-y:auto;height:calc(100vh - 200px)';
-  let inner = container.querySelector('.vl-inner');
-  if(!inner){
-    inner = document.createElement('div');
-    inner.className='vl-inner';
-    inner.style.cssText='position:relative;width:100%';
-    container.appendChild(inner);
+  if(schips){
+    schips.innerHTML='';
+    ['all',...subs].forEach(s=>{
+      const b=document.createElement('button');
+      b.className='chip'+(((s==='all'&&sf==='all')||(s!=='all'&&sf===s))?' on':'');
+      b.textContent=s==='all'?'全部科目':s;
+      b.onclick=()=>{ S.subF=s; renderList(); };
+      schips.appendChild(b);
+    });
   }
-  inner.style.height = (fl.length * ITEM_H) + 'px';
-
-  // 渲染可視範圍的題目
-  const renderVisible = () => {
-    const scrollTop = container.scrollTop;
-    const viewH = container.clientHeight;
-    const startIdx = Math.max(0, Math.floor(scrollTop / ITEM_H) - BUFFER);
-    const endIdx   = Math.min(fl.length - 1, Math.ceil((scrollTop + viewH) / ITEM_H) + BUFFER);
-
-    inner.innerHTML = fl.slice(startIdx, endIdx + 1).map((q, i) => {
-      const idx = startIdx + i;
-      const danger = getDangerLevel(q, ats);
-      return `<div class="qc ${ws.has(q.id)?'wrong':''} ${q.starred?'star':''}"
-        style="position:absolute;top:${idx*ITEM_H}px;left:0;right:0;height:${ITEM_H}px;box-sizing:border-box;overflow:hidden">
-        <div class="qch">
-          <span class="badge ${q.type==='mc'?'bmc':'bes'}">${q.type==='mc'?'選擇':'申論'}</span>
-          ${q.year?`<span class="tag">${esc(q.year)}</span>`:''}
-          ${q.exam?`<span class="tag">${esc(q.exam)}</span>`:''}
-          <span class="tag">${esc(q.subject||'未分類')}</span>
-          <span style="font-size:13px;margin-left:auto">${danger}</span>
-          <span style="font-size:16px">${q.starred?'★':'☆'}</span>
-        </div>
-        <div class="qst">${esc((q.stem||'').slice(0,85))}</div>
-        <div class="qa">
-          <button class="qabn" onclick="editQ(${q.id})">✏ 編輯</button>
-          <button class="qabn" data-qid="${q.id}" onclick="startSingleQ(this)">▶ 練習</button>
-          <button class="qabn" onclick="toggleStar(${q.id})">${q.starred?'☆':'★'}</button>
-          <button class="qabn" style="color:var(--red);margin-left:auto" onclick="delQ(${q.id})">🗑</button>
-        </div>
-      </div>`;
-    }).join('');
+  const PAGE=50; let page=0;
+  const el=document.getElementById('qlist');
+  if(!el) return;
+  el.style.cssText=''; el.innerHTML='';
+  if(window._vlScroll){ window.removeEventListener('scroll',window._vlScroll); window._vlScroll=null; }
+  const _mkQCard=(q)=>{
+    const danger=getDangerLevel(q,ats);
+    const div=document.createElement('div');
+    div.className='qc'+(ws.has(q.id)?' wrong':'')+(q.starred?' star':'');
+    div.innerHTML=
+      '<div class="qch">'+
+        '<span class="badge '+(q.type==='mc'?'bmc':'bes')+'">'+(q.type==='mc'?'選擇':'申論')+'</span>'+
+        (q.year?'<span class="tag">'+esc(q.year)+'</span>':'')+
+        (q.exam?'<span class="tag">'+esc(q.exam)+'</span>':'')+
+        '<span class="tag">'+esc(q.subject||'未分類')+'</span>'+
+        '<span style="font-size:13px;margin-left:auto">'+danger+'</span>'+
+        '<span style="font-size:15px;margin-left:4px">'+(q.starred?'★':'☆')+'</span>'+
+      '</div>'+
+      '<div class="qst">'+esc((q.stem||'').slice(0,100))+'</div>'+
+      '<div class="qa">'+
+        '<button class="qabn" onclick="editQ('+q.id+')">✏ 編輯</button>'+
+        '<button class="qabn" data-qid="'+q.id+'" onclick="startSingleQ(this)">▶ 練習</button>'+
+        '<button class="qabn" onclick="toggleStar('+q.id+')">'+(q.starred?'★':'☆')+'</button>'+
+        '<button class="qabn" style="color:var(--red);margin-left:auto" onclick="delQ('+q.id+')">🗑</button>'+
+      '</div>';
+    return div;
   };
-
-  renderVisible();
-
-  // 移除舊 scroll 監聽，加新的
-  const oldScroll = container._vlScroll;
-  if(oldScroll) container.removeEventListener('scroll', oldScroll);
-  const onScroll = () => renderVisible();
-  container._vlScroll = onScroll;
-  container.addEventListener('scroll', onScroll, {passive:true});
-
+  const loadMore=()=>{
+    const batch=fl.slice(page*PAGE,(page+1)*PAGE);
+    if(!batch.length) return;
+    batch.forEach(q=>el.appendChild(_mkQCard(q)));
+    page++;
+    if(lcEl){
+      const shown=Math.min(page*PAGE,fl.length);
+      lcEl.textContent=shown<fl.length?'共 '+fl.length+' 題（已顯示 '+shown+'，繼續滑動）':'共 '+fl.length+' 題';
+    }
+  };
+  loadMore();
+  const pgEl=document.getElementById('pg-list');
+  const onScroll=()=>{ if(pgEl&&pgEl.scrollHeight-pgEl.scrollTop-pgEl.clientHeight<200) loadMore(); };
+  window._vlScroll=onScroll;
+  if(pgEl) pgEl.addEventListener('scroll',onScroll,{passive:true});
   }catch(e){ logError('renderList',e); }}
 
 function setF(el,f){
