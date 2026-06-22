@@ -1,25 +1,17 @@
 {
-  "name": "警察考題庫 Pro",
-  "short_name": "考題庫",
-  "description": "警察特考智慧備考系統",
-  "start_url": "./",
-  "scope": "./",
+  "name": "短線雷達 StockRadar",
+  "short_name": "短線雷達",
+  "description": "短線技術指標綜合判讀工具",
+  "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#0d1117",
-  "theme_color": "#0d1117",
+  "background_color": "#0A0E1A",
+  "theme_color": "#0A0E1A",
   "orientation": "portrait-primary",
   "icons": [
     {
-      "src": "icon-192.png",
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' rx='32' fill='%230A0E1A'/><text y='130' x='30' font-size='130'>📡</text></svg>",
       "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
+      "type": "image/svg+xml"
     }
   ]
 }
