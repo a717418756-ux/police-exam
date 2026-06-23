@@ -3,7 +3,7 @@
 // ══════════════════════════════════════════════════════════════════════
 
 // ⚠️ 部署 Code.gs 後，把「網頁應用程式 URL」貼在這裡
-const GAS_URL='請貼上你的_GAS_網頁應用程式_URL';
+const GAS_URL='https://script.google.com/macros/s/AKfycbwdxRK2Ugv8-2fu8YtWAv0PJC0CzGx007FGz6RWCW_A7SzSnJo8q-Q90SNF6gSf29eB/exec';
 
 // ── DOM helpers ───────────────────────────────────────────────────────
 const $=id=>document.getElementById(id);
