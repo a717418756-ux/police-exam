@@ -105,6 +105,26 @@
     <div style="font-size:10px;color:var(--muted);margin-top:10px;line-height:1.6">⚠️ 以上為期交所/Yahoo 盤後公開資料，反映「市場情緒傾向」，非即時、非精準預測。法人未平倉與美股隔夜僅供環境判斷，買賣決策仍以下方個股分層為主。</div>
   </div>
 
+  <!-- 市場環境總分（含VIX）-->
+  <div id="mktscore-card" style="display:none">
+    <div class="card" style="text-align:center">
+      <div style="font-size:11px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">🌡️ 市場環境總分（外資+PCR+SOX+VIX 合成）</div>
+      <div id="ms-score" style="font-family:var(--mono);font-size:40px;font-weight:800;line-height:1">—</div>
+      <div id="ms-label" style="font-size:16px;font-weight:700;margin-top:4px">—</div>
+      <div id="ms-vix" style="font-size:12px;color:var(--warn);margin-top:8px"></div>
+      <div id="ms-factors" style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.5"></div>
+    </div>
+  </div>
+
+  <!-- 籌碼面 -->
+  <div id="chip-card" style="display:none">
+    <div class="layer-title"><span class="layer-num" style="background:#0EA5E9;color:#fff">籌</span>籌碼面<span class="layer-sub">外資/投信買賣超 — 技術面漂亮但主力倒貨時的照妖鏡</span></div>
+    <div class="card">
+      <div class="risk-grid" id="chip-grid"></div>
+      <div style="font-size:10px;color:var(--muted);margin-top:10px;line-height:1.6">⚠️ 資料為 TWSE 三大法人公開資訊。「主力（券商分點）」需付費資料源，免費 API 無法提供，故不顯示。投信連買常是飆股訊號，但仍須配合其他層級判斷。</div>
+    </div>
+  </div>
+
   <div class="layer-title"><span class="layer-num ln1">1</span>趨勢過濾<span class="layer-sub">200MA / 50MA — 決定能不能進場</span></div>
   <div id="trend-banner">
     <div class="tb-top"><span class="tb-icon" id="tb-icon">—</span><span class="tb-verdict" id="tb-verdict">—</span></div>
@@ -113,6 +133,40 @@
   </div>
   <div class="layer-title"><span class="layer-num ln2">2</span>風險管理<span class="layer-sub">ATR停損 / 部位 / 凱利 / 風報比 — 最重要</span></div>
   <div class="card" id="risk-card"><div class="risk-grid" id="risk-grid"></div></div>
+
+  <!-- 進出場劇本 -->
+  <div id="playbook-card" style="display:none">
+    <div class="layer-title"><span class="layer-num" style="background:#10B981;color:#fff">劇</span>進出場劇本<span class="layer-sub">具體操作價位 — 比看KD/RSI更實用</span></div>
+    <div class="card"><div class="risk-grid" id="pb-rows"></div></div>
+  </div>
+
+  <!-- 風險強化 -->
+  <div id="riskmetric-card" style="display:none">
+    <div class="layer-title"><span class="layer-num" style="background:#EF4444;color:#fff">險</span>風險強化<span class="layer-sub">最大回撤 + 波動率 — 報酬背後的代價</span></div>
+    <div class="card"><div class="risk-grid" id="rm-grid"></div></div>
+  </div>
+
+  <!-- 多週期回測 -->
+  <div id="multiperiod-card" style="display:none">
+    <div class="layer-title"><span class="layer-num" style="background:#8B5CF6;color:#fff">期</span>多週期勝率<span class="layer-sub">3/5/10/20天回測 — 適合哪種玩法</span></div>
+    <div class="card">
+      <div id="mp-rows"></div>
+      <div id="mp-advice" style="font-size:12px;color:var(--buy);margin-top:10px;font-weight:600"></div>
+    </div>
+  </div>
+
+  <!-- 個股健康度 -->
+  <div id="health-card" style="display:none">
+    <div class="layer-title"><span class="layer-num" style="background:linear-gradient(135deg,#10B981,#3B82F6);color:#fff">檢</span>個股健康度<span class="layer-sub">體檢報告 — 一眼看懂</span></div>
+    <div class="card">
+      <div style="text-align:center;margin-bottom:14px">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">總評</div>
+        <div id="health-total" style="font-family:var(--mono);font-size:46px;font-weight:800;line-height:1">—</div>
+      </div>
+      <div id="health-items"></div>
+    </div>
+  </div>
+
   <div class="layer-title"><span class="layer-num ln3">3</span>心理偏誤檢查<span class="layer-sub">反人性 — 系統的靈魂</span></div>
   <div class="card" id="psych-card"><div id="psych-list"></div></div>
   <div class="layer-title"><span class="layer-num ln4">4</span>進場訊號<span class="layer-sub">技術指標群 — 只在趨勢對的時候參考</span></div>
@@ -216,6 +270,7 @@
 <script src="./market.js"></script>
 <script src="./quant.js"></script>
 <script src="./formula.js"></script>
+<script src="./enhance.js"></script>
 <script src="./journal.js"></script>
 <script src="./app.js"></script>
 <script>document.getElementById('ver-tag').textContent='v'+APP_VERSION;</script>

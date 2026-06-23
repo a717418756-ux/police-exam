@@ -416,7 +416,7 @@ async function go(){
   if(!raw)return;
   const btn=$('go-btn');btn.disabled=true;btn.innerHTML='<span class="spin"></span>';
   hideErr();
-  ['stock-bar','trend-banner','risk-card','psych-card','ai-card','market-card','quant-card','formula-card'].forEach(id=>$(id).style.display='none');
+  ['stock-bar','trend-banner','risk-card','psych-card','ai-card','market-card','quant-card','formula-card','mktscore-card','chip-card','playbook-card','riskmetric-card','multiperiod-card','health-card'].forEach(id=>$(id).style.display='none');
   $('ind-grid').style.display='none';$('ind-grid').innerHTML='';
   $('cat-row').style.display='none';$('cat-tabs').innerHTML='';
   activeCat='全部';
@@ -450,11 +450,34 @@ async function go(){
     renderTabs(allSigs);
     renderGrid(allSigs);
 
-    // 大盤環境（第⓪層）+ 專屬量化分數
+    // 大盤環境（第⓪層）+ 市場總分 + 專屬量化分數
     const market=await fetchMarket();
     renderMarket(market);
 
+    // 市場環境總分（含 VIX）
+    let marketScore=null;
+    try{ marketScore=computeMarketScore(market); renderMarketScore(marketScore); }
+    catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('市場總分',err); }
+
+    // 籌碼面（外資/投信，台股才有）
+    try{ renderChip(D.chip); }
+    catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('籌碼面',err); }
+
+    // 進出場劇本
+    try{ renderPlaybook(D,atr); }
+    catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('進出場劇本',err); }
+
+    // 風險強化（回撤+波動率）
+    let riskMetrics=null;
+    try{ riskMetrics=computeRiskMetrics(D); renderRiskMetrics(riskMetrics); }
+    catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('風險強化',err); }
+
+    // 多週期回測
+    try{ renderMultiPeriod(multiPeriodBacktest(D)); }
+    catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('多週期回測',err); }
+
     // 回測動態權重 → 專屬分數 → 韭菜反指標
+    let formulas=null;
     try{
       const weights=backtestWeights(D);
       const score=computeProprietaryScore(D,weights);
@@ -464,9 +487,14 @@ async function go(){
 
     // 自創公式（STI / MFD / ECO / 崩跌預警 / 融合總分）
     try{
-      const formulas=computeFormulas(D);
+      formulas=computeFormulas(D);
       renderFormulas(formulas);
     }catch(err){ console.warn('自創公式計算失敗',err); if(typeof ErrorLog!=='undefined')ErrorLog.push('自創公式',err); }
+
+    // 個股健康度體檢（彙整各層級）
+    try{
+      renderHealthReport({trend,formulas,riskMetrics:riskMetrics||{maxDD:0,annualVol:30},chip:D.chip,marketScore,signals:allSigs});
+    }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('健康度',err); }
 
     await aiAnalysis(D,trend,risk,allSigs);
   }catch(e){ showErr(e.message); }
