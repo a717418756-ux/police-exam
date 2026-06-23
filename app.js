@@ -416,7 +416,7 @@ async function go(){
   if(!raw)return;
   const btn=$('go-btn');btn.disabled=true;btn.innerHTML='<span class="spin"></span>';
   hideErr();
-  ['stock-bar','trend-banner','risk-card','psych-card','ai-card','market-card','quant-card'].forEach(id=>$(id).style.display='none');
+  ['stock-bar','trend-banner','risk-card','psych-card','ai-card','market-card','quant-card','formula-card'].forEach(id=>$(id).style.display='none');
   $('ind-grid').style.display='none';$('ind-grid').innerHTML='';
   $('cat-row').style.display='none';$('cat-tabs').innerHTML='';
   activeCat='全部';
@@ -460,7 +460,13 @@ async function go(){
       const score=computeProprietaryScore(D,weights);
       const contra=contrarianSignal(D,market);
       renderQuant(score,contra);
-    }catch(err){ console.warn('量化分數計算失敗',err); }
+    }catch(err){ console.warn('量化分數計算失敗',err); if(typeof ErrorLog!=='undefined')ErrorLog.push('量化分數',err); }
+
+    // 自創公式（STI / MFD / ECO / 崩跌預警 / 融合總分）
+    try{
+      const formulas=computeFormulas(D);
+      renderFormulas(formulas);
+    }catch(err){ console.warn('自創公式計算失敗',err); if(typeof ErrorLog!=='undefined')ErrorLog.push('自創公式',err); }
 
     await aiAnalysis(D,trend,risk,allSigs);
   }catch(e){ showErr(e.message); }
@@ -497,7 +503,7 @@ function renderQuant(score,contra){
 
   // 權重明細
   if(score.contrib.length===0){
-    $('q-contrib').innerHTML='<div style="font-size:12px;color:var(--muted)">目前無足夠樣本的指標訊號（需累積更多歷史資料）</div>';
+    $('q-contrib').innerHTML=`<div style="font-size:12px;color:var(--muted);line-height:1.7">目前 14 項指標中，當下沒有發出買進/賣出訊號的（多為中性 hold）。<br>資料筆數：${score.dataLen} 根　訊號分布：買 ${score.buyCount}／賣 ${score.sellCount}／中性 ${score.holdCount}<br>${score.dataLen<70?'⚠️ 資料偏少，回測樣本不足，請重新部署 Code.gs（已改抓1年資料）':'此為正常現象——多數時間指標處於中性，等待明確訊號出現時這裡才會列出。'}</div>`;
   }else{
     $('q-contrib').innerHTML=score.contrib.map(c=>{
       const col=c.dir==='漲'?'var(--buy)':'var(--sell)';
@@ -519,6 +525,57 @@ function renderQuant(score,contra){
   }else{
     $('q-contrarian').innerHTML='';
   }
+}
+
+
+// ══════════════════════════════════════════════════════════════════════
+// 自創公式渲染
+// ══════════════════════════════════════════════════════════════════════
+function renderFormulas(f){
+  if(!f){ document.getElementById('formula-card').style.display='none'; return; }
+  document.getElementById('formula-card').style.display='block';
+
+  // 融合總分
+  const fv=f.fusion.value;
+  document.getElementById('fusion-val').textContent=(fv>0?'+':'')+fv;
+  const fbox=document.getElementById('fusion-box');
+  const flabel=document.getElementById('fusion-label');
+  flabel.textContent=f.fusion.label;
+  if(f.fusion.signal==='buy'){fbox.style.borderColor='var(--buy)';fbox.style.background='var(--buy-d)';document.getElementById('fusion-val').style.color='var(--buy)';flabel.style.color='var(--buy)';}
+  else if(f.fusion.signal==='sell'){fbox.style.borderColor='var(--sell)';fbox.style.background='var(--sell-d)';document.getElementById('fusion-val').style.color='var(--sell)';flabel.style.color='var(--sell)';}
+  else{fbox.style.borderColor='var(--warn)';fbox.style.background='var(--warn-d)';document.getElementById('fusion-val').style.color='var(--warn)';flabel.style.color='var(--warn)';}
+
+  // 崩跌預警
+  const cb=document.getElementById('crash-box');
+  if(f.crash.level==='low'){
+    cb.style.display='none';
+  }else{
+    cb.style.display='block';
+    const isHigh=f.crash.level==='high';
+    cb.style.border='2px solid '+(isHigh?'var(--sell)':'var(--warn)');
+    cb.style.background=isHigh?'var(--sell-d)':'var(--warn-d)';
+    cb.innerHTML=`<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+        <span style="font-size:26px">${isHigh?'🚨':'⚠️'}</span>
+        <div><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">崩跌預警分數</div>
+        <div style="font-family:var(--mono);font-size:24px;font-weight:800;color:${isHigh?'var(--sell)':'var(--warn)'}">${f.crash.score} / 100　${isHigh?'高風險':'中度風險'}</div></div></div>
+      <div style="font-size:11px;color:var(--muted);line-height:1.6">觸發因子：${f.crash.reasons.join('、')}</div>`;
+  }
+
+  // 三公式卡
+  const sig2cls=s=>s==='buy'?'buy':s==='sell'?'sell':'hold';
+  const sig2txt=s=>s==='buy'?'▲ 偏漲':s==='sell'?'▼ 偏跌':'◆ 中性';
+  const fmtCard=(tag,name,val,unit,obj)=>{
+    const cls=sig2cls(obj.signal);
+    const col=cls==='buy'?'var(--buy)':cls==='sell'?'var(--sell)':'var(--warn)';
+    return `<div class="ic ${cls}"><div class="ic-top"><span class="ic-name">${tag} ${name}</span><span class="ic-badge ${cls==='buy'?'bb':cls==='sell'?'bs':'bh'}">${sig2txt(obj.signal)}</span></div>
+      <div class="ic-val" style="color:${col}">${val}${unit}</div>
+      <div class="ic-desc">${obj.detail}</div>
+      <div style="font-family:var(--mono);font-size:9px;color:var(--muted2);margin-top:6px;word-break:break-all">${obj.formula}</div></div>`;
+  };
+  document.getElementById('formula-list').innerHTML=
+    fmtCard('STI','訊號張力',f.sti.value.toFixed(1),'',f.sti)+
+    fmtCard('MFD','動量流變導數',f.mfd.value.toFixed(2),'',f.mfd)+
+    fmtCard('ECO','熵能轉折',f.eco.value.toFixed(0),'%',f.eco);
 }
 
 // ══════════════════════════════════════════════════════════════════════

@@ -82,6 +82,24 @@
     </div>
   </div>
 
+  <!-- 自創公式 -->
+  <div id="formula-card" style="display:none">
+    <div class="layer-title"><span class="layer-num" style="background:linear-gradient(135deg,#F0B429,#FF4D6D);color:#fff">∑</span>自創量化公式<span class="layer-sub">統計學 × 微積分 × 資訊熵 — 市面無，原創組合</span></div>
+    <div class="card">
+      <!-- 融合總分 -->
+      <div id="fusion-box" style="text-align:center;padding:16px;border-radius:12px;margin-bottom:14px;border:2px solid var(--bd)">
+        <div style="font-size:11px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">FUSION 融合總分</div>
+        <div id="fusion-val" style="font-family:var(--mono);font-size:40px;font-weight:800;line-height:1">—</div>
+        <div id="fusion-label" style="font-size:14px;font-weight:700;margin-top:6px">—</div>
+      </div>
+      <!-- 崩跌預警 -->
+      <div id="crash-box" style="display:none;border-radius:12px;padding:14px;margin-bottom:14px"></div>
+      <!-- 三公式 -->
+      <div style="display:grid;grid-template-columns:1fr;gap:10px" id="formula-list"></div>
+      <div style="font-size:10px;color:var(--muted);margin-top:12px;line-height:1.6;padding-top:12px;border-top:1px solid var(--bd)">⚠️ 自創公式為原創數學組合，目標是短線方向判斷與大跌前警示，非保證準確。數學原理見 README。崩跌預警採多因子共振以降低假警報，但仍可能誤判，請配合停損紀律。</div>
+    </div>
+  </div>
+
   <div class="layer-title"><span class="layer-num" style="background:#64748b;color:#fff">0</span>大盤環境<span class="layer-sub">期貨/法人/PCR/美股隔夜 — 純數據參考，判斷你自己來</span></div>
   <div class="card" id="market-card" style="display:none"><div class="risk-grid" id="market-grid"></div>
     <div style="font-size:10px;color:var(--muted);margin-top:10px;line-height:1.6">⚠️ 以上為期交所/Yahoo 盤後公開資料，反映「市場情緒傾向」，非即時、非精準預測。法人未平倉與美股隔夜僅供環境判斷，買賣決策仍以下方個股分層為主。</div>
@@ -193,6 +211,7 @@
 <script src="./db.js"></script>
 <script src="./market.js"></script>
 <script src="./quant.js"></script>
+<script src="./formula.js"></script>
 <script src="./journal.js"></script>
 <script src="./app.js"></script>
 <script>document.getElementById('ver-tag').textContent='v'+APP_VERSION;</script>

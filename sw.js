@@ -8,7 +8,7 @@ importScripts('./config.js');
 const CACHE = 'stock-radar-v' + APP_VERSION;   // 隨 APP_VERSION 自動變動
 const ASSETS = [
   './index.html', './styles.css',
-  './config.js', './db.js', './quant.js', './market.js', './journal.js', './app.js',
+  './config.js', './db.js', './quant.js', './formula.js', './market.js', './journal.js', './app.js',
   './manifest.json'
 ];
 

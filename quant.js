@@ -8,7 +8,8 @@
 // ── 回測設定 ──────────────────────────────────────────────────────────
 const BT_HORIZON=5;      // 訊號後看幾天
 const BT_BIG_MOVE=0.03;  // 「大漲/大跌」門檻：5天內漲跌超過 3%
-const BT_MIN_SAMPLES=5;  // 低於此樣本數標記信心不足
+const BT_MIN_SAMPLES=3;  // 低於此樣本數標記信心不足（資料少時放寬到3）
+const BT_DEFAULT_RATE=0.5; // 樣本不足時的預設命中率（中性，不假裝很準）
 
 // 在歷史每一天重算指標訊號，需要可回溯的輕量指標函式
 // 為效率，回測只用「最具預測力」的核心指標子集
@@ -91,13 +92,15 @@ function backtestWeights(D){
   const weights={};
   for(const name in stat){
     const o=stat[name];
-    const buyRate=o.buyTotal>=BT_MIN_SAMPLES?o.buyHit/o.buyTotal:null;
-    const sellRate=o.sellTotal>=BT_MIN_SAMPLES?o.sellHit/o.sellTotal:null;
+    const buyConfident=o.buyTotal>=BT_MIN_SAMPLES;
+    const sellConfident=o.sellTotal>=BT_MIN_SAMPLES;
+    // 樣本足夠用實際命中率；不足則用預設中性值（仍會顯示，標信心低）
+    const buyRate=buyConfident?o.buyHit/o.buyTotal:(o.buyTotal>0?BT_DEFAULT_RATE:null);
+    const sellRate=sellConfident?o.sellHit/o.sellTotal:(o.sellTotal>0?BT_DEFAULT_RATE:null);
     weights[name]={
       buyRate,sellRate,
       buyTotal:o.buyTotal,sellTotal:o.sellTotal,
-      buyConfident:o.buyTotal>=BT_MIN_SAMPLES,
-      sellConfident:o.sellTotal>=BT_MIN_SAMPLES
+      buyConfident,sellConfident
     };
   }
   return weights;
@@ -134,7 +137,13 @@ function computeProprietaryScore(D,weights){
   const downPct=downMax>0?Math.round(downScore/downMax*100):0;
 
   contrib.sort((a,b)=>b.rate-a.rate);
-  return{upPct,downPct,upMax,downMax,contrib};
+  // 診斷：當前各指標訊號分布（讓使用者知道為何空白）
+  const curSignals=Object.values(cur);
+  const buyCount=curSignals.filter(s=>s==='buy').length;
+  const sellCount=curSignals.filter(s=>s==='sell').length;
+  const holdCount=curSignals.filter(s=>s==='hold').length;
+  return{upPct,downPct,upMax,downMax,contrib,
+    dataLen:c.length,buyCount,sellCount,holdCount};
 }
 
 // ── 韭菜反指標 ────────────────────────────────────────────────────────
