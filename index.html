@@ -175,6 +175,30 @@ footer{text-align:center;padding:14px;font-size:11px;color:var(--muted);border-t
       <div class="mi"><span class="mi-l">成交量</span><span class="mi-v" id="m-vol">—</span></div>
     </div>
   </div>
+  <!-- 專屬量化分數 -->
+  <div id="quant-card" style="display:none">
+    <div class="layer-title"><span class="layer-num" style="background:linear-gradient(135deg,#A855F7,#3B82F6);color:#fff">★</span>專屬量化分數<span class="layer-sub">回測這檔歷史 × 動態權重 × 韭菜反指標</span></div>
+    <div class="card">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+        <div style="background:var(--bg);border:1px solid var(--buy);border-radius:12px;padding:16px;text-align:center">
+          <div style="font-size:11px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">📈 大漲機率分數</div>
+          <div id="q-up" style="font-family:var(--mono);font-size:38px;font-weight:800;color:var(--buy);line-height:1">—</div>
+          <div id="q-up-conf" style="font-size:10px;color:var(--muted);margin-top:4px">—</div>
+        </div>
+        <div style="background:var(--bg);border:1px solid var(--sell);border-radius:12px;padding:16px;text-align:center">
+          <div style="font-size:11px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">📉 大跌機率分數</div>
+          <div id="q-down" style="font-family:var(--mono);font-size:38px;font-weight:800;color:var(--sell);line-height:1">—</div>
+          <div id="q-down-conf" style="font-size:10px;color:var(--muted);margin-top:4px">—</div>
+        </div>
+      </div>
+      <div id="q-verdict" style="text-align:center;font-size:15px;font-weight:700;padding:12px;border-radius:10px;margin-bottom:14px">—</div>
+      <div style="font-size:11px;color:var(--muted);letter-spacing:.5px;text-transform:uppercase;margin-bottom:8px">權重明細（命中率高者佔比重）</div>
+      <div id="q-contrib"></div>
+      <div id="q-contrarian" style="margin-top:12px"></div>
+      <div style="font-size:10px;color:var(--muted);margin-top:12px;line-height:1.6;padding-top:12px;border-top:1px solid var(--bd)">⚠️ 分數來自「這檔股票過去資料」回測，過去準不代表未來準（過擬合風險）。樣本不足者標「信心低」。本系統會隨新資料滾動更新，不是固定神奇公式。漲跌同等重視。</div>
+    </div>
+  </div>
+
   <div class="layer-title"><span class="layer-num" style="background:#64748b;color:#fff">0</span>大盤環境<span class="layer-sub">期貨/法人/PCR/美股隔夜 — 純數據參考，判斷你自己來</span></div>
   <div class="card" id="market-card" style="display:none"><div class="risk-grid" id="market-grid"></div>
     <div style="font-size:10px;color:var(--muted);margin-top:10px;line-height:1.6">⚠️ 以上為期交所/Yahoo 盤後公開資料，反映「市場情緒傾向」，非即時、非精準預測。法人未平倉與美股隔夜僅供環境判斷，買賣決策仍以下方個股分層為主。</div>
@@ -201,6 +225,50 @@ footer{text-align:center;padding:14px;font-size:11px;color:var(--muted);border-t
 </main>
 <footer>短線雷達 Pro &nbsp;·&nbsp; 風險優先分層決策系統 &nbsp;·&nbsp; 僅供參考</footer>
 </div>
+<!-- 交易日誌浮動按鈕 -->
+<button id="journal-fab" onclick="openJournal()" style="position:fixed;right:18px;bottom:18px;z-index:200;width:56px;height:56px;border-radius:16px;border:none;background:linear-gradient(135deg,#A855F7,#3B82F6);color:#fff;font-size:22px;cursor:pointer;box-shadow:0 4px 20px #A855F750">📒</button>
+
+<!-- 交易日誌面板 -->
+<div id="journal-overlay" style="display:none;position:fixed;inset:0;z-index:300;background:rgba(5,8,15,.7);backdrop-filter:blur(4px)" onclick="if(event.target===this)closeJournal()">
+  <div style="max-width:560px;margin:40px auto;background:var(--surf);border:1px solid var(--bd);border-radius:18px;max-height:88vh;overflow-y:auto;padding:20px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <div style="font-size:16px;font-weight:700">📒 交易日誌 — 自動算勝率</div>
+      <button onclick="closeJournal()" style="background:var(--bg);border:1px solid var(--bd);color:var(--txt);border-radius:8px;width:32px;height:32px;cursor:pointer;font-size:16px">✕</button>
+    </div>
+
+    <!-- 統計總覽 -->
+    <div id="journal-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px"></div>
+
+    <!-- 新增交易 -->
+    <div style="background:var(--bg);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:16px">
+      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">新增一筆交易</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <div><div style="font-size:9px;color:var(--muted);margin-bottom:3px">日期</div><input id="tr-date" type="date" style="width:100%;background:var(--surf);border:1px solid var(--bd2);border-radius:8px;color:var(--txt);padding:8px;font-family:var(--mono);outline:none"></div>
+        <div><div style="font-size:9px;color:var(--muted);margin-bottom:3px">股票代碼</div><input id="tr-code" placeholder="2330" style="width:100%;background:var(--surf);border:1px solid var(--bd2);border-radius:8px;color:var(--txt);padding:8px;font-family:var(--mono);outline:none"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+        <div><div style="font-size:9px;color:var(--muted);margin-bottom:3px">方向</div>
+          <select id="tr-dir" style="width:100%;background:var(--surf);border:1px solid var(--bd2);border-radius:8px;color:var(--txt);padding:8px;outline:none"><option value="long">做多</option><option value="short">做空</option></select></div>
+        <div><div style="font-size:9px;color:var(--muted);margin-bottom:3px">盈虧金額（賺正、賠負）</div><input id="tr-pnl" type="number" placeholder="例 +5000 或 -3000" style="width:100%;background:var(--surf);border:1px solid var(--bd2);border-radius:8px;color:var(--txt);padding:8px;font-family:var(--mono);outline:none"></div>
+      </div>
+      <button onclick="addTradeFromForm()" style="width:100%;background:linear-gradient(135deg,#A855F7,#3B82F6);border:none;border-radius:8px;color:#fff;font-weight:700;padding:10px;cursor:pointer">＋ 新增交易</button>
+    </div>
+
+    <!-- 雲端同步 -->
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <button onclick="doCloudSave()" style="flex:1;background:var(--bg);border:1px solid var(--acc);color:var(--acc);border-radius:8px;padding:9px;cursor:pointer;font-size:13px;font-weight:600">☁️ 存到雲端</button>
+      <button onclick="doCloudLoad()" style="flex:1;background:var(--bg);border:1px solid var(--buy);color:var(--buy);border-radius:8px;padding:9px;cursor:pointer;font-size:13px;font-weight:600">⬇️ 從雲端載入</button>
+    </div>
+    <div id="sync-msg" style="font-size:11px;text-align:center;margin-bottom:12px;min-height:14px"></div>
+
+    <!-- 交易列表 -->
+    <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">交易紀錄</div>
+    <div id="journal-list"></div>
+  </div>
+</div>
+
+<script src="./db.js"></script>
+<script src="./quant.js"></script>
 <script src="./app.js"></script>
 </body>
 </html>

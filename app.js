@@ -3,7 +3,7 @@
 // ══════════════════════════════════════════════════════════════════════
 
 // ⚠️ 部署 Code.gs 後，把「網頁應用程式 URL」貼在這裡
-const GAS_URL='https://script.google.com/macros/s/AKfycbwdxRK2Ugv8-2fu8YtWAv0PJC0CzGx007FGz6RWCW_A7SzSnJo8q-Q90SNF6gSf29eB/exec';
+const GAS_URL='請貼上你的_GAS_網頁應用程式_URL';
 
 // ── DOM helpers ───────────────────────────────────────────────────────
 const $=id=>document.getElementById(id);
@@ -470,7 +470,7 @@ async function go(){
   if(!raw)return;
   const btn=$('go-btn');btn.disabled=true;btn.innerHTML='<span class="spin"></span>';
   hideErr();
-  ['stock-bar','trend-banner','risk-card','psych-card','ai-card','market-card'].forEach(id=>$(id).style.display='none');
+  ['stock-bar','trend-banner','risk-card','psych-card','ai-card','market-card','quant-card'].forEach(id=>$(id).style.display='none');
   $('ind-grid').style.display='none';$('ind-grid').innerHTML='';
   $('cat-row').style.display='none';$('cat-tabs').innerHTML='';
   activeCat='全部';
@@ -504,8 +504,17 @@ async function go(){
     renderTabs(allSigs);
     renderGrid(allSigs);
 
-    // 大盤環境（第⓪層）— 平行抓取，失敗不影響個股分析
-    fetchMarket().then(renderMarket);
+    // 大盤環境（第⓪層）+ 專屬量化分數
+    const market=await fetchMarket();
+    renderMarket(market);
+
+    // 回測動態權重 → 專屬分數 → 韭菜反指標
+    try{
+      const weights=backtestWeights(D);
+      const score=computeProprietaryScore(D,weights);
+      const contra=contrarianSignal(D,market);
+      renderQuant(score,contra);
+    }catch(err){ console.warn('量化分數計算失敗',err); }
 
     await aiAnalysis(D,trend,risk,allSigs);
   }catch(e){ showErr(e.message); }
@@ -514,3 +523,162 @@ async function go(){
 
 document.getElementById('ticker-input').addEventListener('keydown',e=>{if(e.key==='Enter')go();});
 if('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(()=>{});
+
+// ══════════════════════════════════════════════════════════════════════
+// 專屬量化分數渲染
+// ══════════════════════════════════════════════════════════════════════
+function renderQuant(score,contra){
+  if(!score){ $('quant-card').style.display='none'; return; }
+  $('quant-card').style.display='block';
+
+  // 套用反指標調整
+  const upFinal=Math.min(100,score.upPct+(contra?contra.upAdj:0));
+  const downFinal=Math.min(100,score.downPct+(contra?contra.downAdj:0));
+
+  $('q-up').textContent=upFinal;
+  $('q-down').textContent=downFinal;
+  $('q-up-conf').textContent=`${score.upMax} 個看漲訊號參與`+(contra&&contra.upAdj?`（含反指標+${contra.upAdj}）`:'');
+  $('q-down-conf').textContent=`${score.downMax} 個看跌訊號參與`+(contra&&contra.downAdj?`（含反指標+${contra.downAdj}）`:'');
+
+  // 綜合判斷
+  const v=$('q-verdict');
+  const diff=upFinal-downFinal;
+  if(upFinal>=65&&diff>=20){v.textContent='🟢 強烈偏漲訊號（多項高命中指標共振）';v.style.background='var(--buy-d)';v.style.color='var(--buy)';}
+  else if(downFinal>=65&&diff<=-20){v.textContent='🔴 強烈偏跌訊號（多項高命中指標共振）';v.style.background='var(--sell-d)';v.style.color='var(--sell)';}
+  else if(Math.abs(diff)<15){v.textContent='⚪ 多空分數接近，方向不明確，觀望';v.style.background='var(--warn-d)';v.style.color='var(--warn)';}
+  else if(diff>0){v.textContent='🟡 偏漲，但訊號強度中等';v.style.background='var(--warn-d)';v.style.color='var(--warn)';}
+  else{v.textContent='🟡 偏跌，但訊號強度中等';v.style.background='var(--warn-d)';v.style.color='var(--warn)';}
+
+  // 權重明細
+  if(score.contrib.length===0){
+    $('q-contrib').innerHTML='<div style="font-size:12px;color:var(--muted)">目前無足夠樣本的指標訊號（需累積更多歷史資料）</div>';
+  }else{
+    $('q-contrib').innerHTML=score.contrib.map(c=>{
+      const col=c.dir==='漲'?'var(--buy)':'var(--sell)';
+      const pct=Math.round(c.rate*100);
+      return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span style="font-size:11px;width:60px;color:var(--muted)">${c.name}</span>
+        <span style="font-size:10px;color:${col};width:30px">${c.dir}</span>
+        <div style="flex:1;height:6px;background:var(--bd);border-radius:99px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${col}"></div></div>
+        <span style="font-family:var(--mono);font-size:11px;color:${col};width:40px;text-align:right">${pct}%</span>
+        <span style="font-size:9px;color:var(--muted);width:54px;text-align:right">${c.confident?c.samples+'樣本':'⚠️信心低'}</span>
+      </div>`;
+    }).join('');
+  }
+
+  // 韭菜反指標
+  if(contra&&contra.alerts.length){
+    $('q-contrarian').innerHTML='<div style="font-size:11px;color:var(--purple);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">🐑 韭菜反指標</div>'+
+      contra.alerts.map(a=>`<div style="background:#A855F70a;border:1px solid #A855F730;border-radius:8px;padding:10px 12px;margin-bottom:6px;display:flex;gap:8px"><span style="font-size:16px">${a.icon}</span><div><div style="font-size:12px;font-weight:700;color:var(--purple);margin-bottom:2px">${a.title}</div><div style="font-size:11px;color:var(--muted);line-height:1.5">${a.desc}</div></div></div>`).join('');
+  }else{
+    $('q-contrarian').innerHTML='';
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// 設定載入 / 儲存（IndexedDB）
+// ══════════════════════════════════════════════════════════════════════
+async function loadSettings(){
+  try{
+    const cap=await dbGetSetting('capital');
+    const risk=await dbGetSetting('risk');
+    const wr=await dbGetSetting('winrate');
+    if(cap!=null)$('in-capital').value=cap;
+    if(risk!=null)$('in-risk').value=risk;
+    if(wr!=null)$('in-winrate').value=wr;
+  }catch(e){ console.warn('載入設定失敗',e); }
+}
+async function saveSettings(){
+  try{
+    await dbSetSetting('capital',$('in-capital').value);
+    await dbSetSetting('risk',$('in-risk').value);
+    await dbSetSetting('winrate',$('in-winrate').value);
+  }catch(e){}
+}
+// 輸入時自動存
+['in-capital','in-risk','in-winrate'].forEach(id=>{
+  const el=$(id);
+  if(el) el.addEventListener('change',saveSettings);
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// 交易日誌
+// ══════════════════════════════════════════════════════════════════════
+function openJournal(){ $('journal-overlay').style.display='block'; refreshJournal(); 
+  if(!$('tr-date').value) $('tr-date').value=new Date().toISOString().slice(0,10);
+}
+function closeJournal(){ $('journal-overlay').style.display='none'; }
+
+async function addTradeFromForm(){
+  const date=$('tr-date').value;
+  const code=$('tr-code').value.trim().toUpperCase();
+  const dir=$('tr-dir').value;
+  const pnl=parseFloat($('tr-pnl').value);
+  if(!date||isNaN(pnl)){ alert('請填日期與盈虧金額'); return; }
+  const result=pnl>=0?'win':'loss';
+  await dbAddTrade({date,code,direction:dir,result,pnl});
+  $('tr-pnl').value='';$('tr-code').value='';
+  await refreshJournal();
+  await syncWinRateToMain();
+}
+
+async function refreshJournal(){
+  const trades=await dbGetAllTrades();
+  const s=computeStats(trades);
+  // 統計卡
+  const box=(label,val,col)=>`<div style="background:var(--bg);border:1px solid var(--bd);border-radius:10px;padding:10px;text-align:center"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;margin-bottom:4px">${label}</div><div style="font-family:var(--mono);font-size:18px;font-weight:700;color:${col||'var(--txt)'}">${val}</div></div>`;
+  $('journal-stats').innerHTML=
+    box('交易筆數',s.count)+
+    box('勝率',(s.winRate*100).toFixed(0)+'%','var(--buy)')+
+    box('盈虧比',s.payoff.toFixed(2),'var(--acc)')+
+    box('總盈虧',(s.totalPnl>=0?'+':'')+fmtV(Math.round(s.totalPnl)),s.totalPnl>=0?'var(--buy)':'var(--sell)')+
+    box('平均獲利',fmtV(Math.round(s.avgWin)),'var(--buy)')+
+    box('期望值/筆',(s.expectancy>=0?'+':'')+fmtV(Math.round(s.expectancy)),s.expectancy>=0?'var(--buy)':'var(--sell)');
+
+  // 列表
+  if(trades.length===0){ $('journal-list').innerHTML='<div style="font-size:12px;color:var(--muted);text-align:center;padding:16px">尚無交易紀錄，新增後自動計算真實勝率</div>'; return; }
+  $('journal-list').innerHTML=trades.map(t=>{
+    const win=t.result==='win';
+    return `<div style="display:flex;align-items:center;gap:8px;background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:8px 12px;margin-bottom:6px">
+      <span style="font-family:var(--mono);font-size:11px;color:var(--muted);width:78px">${t.date}</span>
+      <span style="font-family:var(--mono);font-size:12px;width:48px">${t.code||'—'}</span>
+      <span style="font-size:10px;color:var(--muted);width:32px">${t.direction==='long'?'多':'空'}</span>
+      <span style="font-family:var(--mono);font-size:13px;font-weight:600;color:${win?'var(--buy)':'var(--sell)'};flex:1;text-align:right">${t.pnl>=0?'+':''}${fmtV(t.pnl)}</span>
+      <button onclick="delTrade('${t.id}')" style="background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:14px">🗑️</button>
+    </div>`;
+  }).join('');
+}
+
+async function delTrade(id){
+  await dbDeleteTrade(id);
+  await refreshJournal();
+  await syncWinRateToMain();
+}
+
+// 把算出的真實勝率自動帶回主頁勝率欄
+async function syncWinRateToMain(){
+  const trades=await dbGetAllTrades();
+  const s=computeStats(trades);
+  if(s.count>=5){ // 至少5筆才有參考價值
+    const wr=Math.round(s.winRate*100);
+    $('in-winrate').value=wr;
+    await dbSetSetting('winrate',wr);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// 雲端同步按鈕
+// ══════════════════════════════════════════════════════════════════════
+async function doCloudSave(){
+  const msg=$('sync-msg');msg.textContent='儲存中...';msg.style.color='var(--muted)';
+  try{ await saveSettings(); await cloudSave(); msg.textContent='✅ 已存到雲端';msg.style.color='var(--buy)'; }
+  catch(e){ msg.textContent='❌ '+e.message;msg.style.color='var(--sell)'; }
+}
+async function doCloudLoad(){
+  const msg=$('sync-msg');msg.textContent='載入中...';msg.style.color='var(--muted)';
+  try{ await cloudLoad(); await loadSettings(); await refreshJournal(); await syncWinRateToMain(); msg.textContent='✅ 已從雲端載入';msg.style.color='var(--buy)'; }
+  catch(e){ msg.textContent='❌ '+e.message;msg.style.color='var(--sell)'; }
+}
+
+// 啟動時載入本地設定
+loadSettings();
