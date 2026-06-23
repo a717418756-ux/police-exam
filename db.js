@@ -98,9 +98,48 @@ function computeStats(trades) {
   return { count: trades.length, wins: wins.length, losses: losses.length, winRate, avgWin, avgLoss, payoff, expectancy, totalPnl: trades.reduce((a, t) => a + (t.pnl || 0), 0) };
 }
 
-/* ══════════════════════════════════════════════════════════════════════
-   本地匯出 / 匯入（避免刪網頁後紀錄無法復原）
-   ══════════════════════════════════════════════════════════════════════ */
+/* ── 進階統計（給 Markdown 匯出用）──────────────────────────────────── */
+function computeAdvancedStats(trades) {
+  const base = computeStats(trades);
+  if (!trades.length) return Object.assign(base, { maxWinStreak:0, maxLossStreak:0, avgHoldDays:0, maxDrawdown:0, byDirection:{}, byCode:{} });
+
+  // 依出場日排序（舊→新）算連勝連敗
+  const sorted = [...trades].sort((a,b) => (a.exitDate||a.date) < (b.exitDate||b.date) ? -1 : 1);
+  let maxWin=0, maxLoss=0, curWin=0, curLoss=0;
+  let cumPnl=0, peak=0, maxDD=0;
+  let holdSum=0, holdCount=0;
+  for (const t of sorted) {
+    if (t.result==='win') { curWin++; curLoss=0; } else { curLoss++; curWin=0; }
+    maxWin=Math.max(maxWin,curWin); maxLoss=Math.max(maxLoss,curLoss);
+    cumPnl += (t.pnl||0);
+    peak = Math.max(peak, cumPnl);
+    maxDD = Math.min(maxDD, cumPnl-peak); // 最大回撤（負值）
+    if (t.holdDays!=null) { holdSum+=t.holdDays; holdCount++; }
+  }
+
+  // 依方向統計
+  const byDir = {};
+  for (const dir of ['long','short']) {
+    const arr = trades.filter(t=>t.direction===dir);
+    if (arr.length) byDir[dir] = computeStats(arr);
+  }
+  // 依代碼統計
+  const byCode = {};
+  for (const t of trades) {
+    const k = t.code || '未填';
+    if (!byCode[k]) byCode[k] = [];
+    byCode[k].push(t);
+  }
+  const byCodeStats = {};
+  for (const k in byCode) byCodeStats[k] = computeStats(byCode[k]);
+
+  return Object.assign(base, {
+    maxWinStreak: maxWin, maxLossStreak: maxLoss,
+    avgHoldDays: holdCount ? holdSum/holdCount : 0,
+    maxDrawdown: maxDD,
+    byDirection: byDir, byCode: byCodeStats
+  });
+}
 async function exportBackup() {
   const trades = await dbGetAllTrades();
   const settings = {

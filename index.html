@@ -149,12 +149,15 @@
       <div style="background:var(--bg);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:16px">
         <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">新增一筆交易</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
-          <div><div class="field-label">日期</div><input id="tr-date" type="date" class="field-input"></div>
-          <div><div class="field-label">股票代碼</div><input id="tr-code" placeholder="2330" class="field-input"></div>
+          <div><div class="field-label">進場日</div><input id="tr-entry" type="date" class="field-input"></div>
+          <div><div class="field-label">出場日（平倉日）</div><input id="tr-exit" type="date" class="field-input"></div>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+          <div><div class="field-label">股票代碼</div><input id="tr-code" placeholder="2330" class="field-input"></div>
           <div><div class="field-label">方向</div><select id="tr-dir" class="field-input"><option value="long">做多</option><option value="short">做空</option></select></div>
-          <div><div class="field-label">盈虧金額（賺正、賠負）</div><input id="tr-pnl" type="number" placeholder="+5000 或 -3000" class="field-input"></div>
+        </div>
+        <div style="margin-bottom:10px">
+          <div class="field-label">盈虧金額（賺正、賠負）</div><input id="tr-pnl" type="number" placeholder="+5000 或 -3000" class="field-input">
         </div>
         <button onclick="addTradeFromForm()" class="btn-block" style="background:linear-gradient(135deg,#A855F7,#3B82F6)">＋ 新增交易</button>
       </div>
@@ -176,11 +179,12 @@
 
       <!-- 本地備份 -->
       <div style="background:var(--bg);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:14px">
-        <div style="font-size:11px;color:var(--buy);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">💾 本地備份（存成檔案，刪網頁也不怕）</div>
-        <div style="display:flex;gap:8px">
-          <button onclick="exportLocalFile()" class="btn-block" style="background:var(--buy);color:#001812">⬇️ 匯出備份檔</button>
-          <button onclick="triggerImport()" class="btn-block" style="background:var(--bg);border:1px solid var(--acc);color:var(--acc)">⬆️ 匯入備份檔</button>
+        <div style="font-size:11px;color:var(--buy);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">💾 本地備份（JSON，可還原資料）</div>
+        <div style="display:flex;gap:8px;margin-bottom:8px">
+          <button onclick="exportLocalFile()" class="btn-block" style="background:var(--buy);color:#001812">⬇️ 匯出 JSON 備份</button>
+          <button onclick="triggerImport()" class="btn-block" style="background:var(--bg);border:1px solid var(--acc);color:var(--acc)">⬆️ 匯入 JSON</button>
         </div>
+        <button onclick="exportMarkdown()" class="btn-block" style="background:linear-gradient(135deg,#F0B429,#FF4D6D)">📊 匯出 Markdown 分析檔（給 AI 回測）</button>
         <input id="import-file" type="file" accept=".json" style="display:none" onchange="importLocalFile(this)">
       </div>
 

@@ -7,7 +7,9 @@
 function openJournal() {
   $('journal-overlay').style.display = 'block';
   switchModalTab('journal');
-  if (!$('tr-date').value) $('tr-date').value = new Date().toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  if (!$('tr-entry').value) $('tr-entry').value = today;
+  if (!$('tr-exit').value)  $('tr-exit').value = today;
   refreshJournal();
 }
 function closeJournal() { $('journal-overlay').style.display = 'none'; }
@@ -23,13 +25,17 @@ function switchModalTab(tab) {
    分頁一：交易日誌
    ══════════════════════════════════════════════════════════════════════ */
 async function addTradeFromForm() {
-  const date = $('tr-date').value;
+  const entryDate = $('tr-entry').value;
+  const exitDate  = $('tr-exit').value;
   const code = $('tr-code').value.trim().toUpperCase();
   const dir  = $('tr-dir').value;
   const pnl  = parseFloat($('tr-pnl').value);
-  if (!date || isNaN(pnl)) { alert('請填日期與盈虧金額'); return; }
+  if (!entryDate || !exitDate || isNaN(pnl)) { alert('請填進場日、出場日與盈虧金額'); return; }
+  // 抱倉天數
+  const holdDays = Math.max(0, Math.round((new Date(exitDate) - new Date(entryDate)) / 86400000));
   const result = pnl >= 0 ? 'win' : 'loss';
-  await dbAddTrade({ date, code, direction: dir, result, pnl });
+  // date 欄位用出場日（平倉日決定成敗），保留進場日
+  await dbAddTrade({ date: exitDate, entryDate, exitDate, holdDays, code, direction: dir, result, pnl });
   $('tr-pnl').value = ''; $('tr-code').value = '';
   await refreshJournal();
   await syncWinRateToMain();
@@ -54,10 +60,12 @@ async function refreshJournal() {
   }
   $('journal-list').innerHTML = trades.map(t => {
     const win = t.result === 'win';
+    const hold = t.holdDays != null ? `抱${t.holdDays}天` : '';
     return `<div style="display:flex;align-items:center;gap:8px;background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:8px 12px;margin-bottom:6px">
-      <span style="font-family:var(--mono);font-size:11px;color:var(--muted);width:78px">${t.date}</span>
-      <span style="font-family:var(--mono);font-size:12px;width:48px">${t.code || '—'}</span>
-      <span style="font-size:10px;color:var(--muted);width:32px">${t.direction === 'long' ? '多' : '空'}</span>
+      <span style="font-family:var(--mono);font-size:11px;color:var(--muted);width:74px">${t.exitDate || t.date}</span>
+      <span style="font-family:var(--mono);font-size:12px;width:44px">${t.code || '—'}</span>
+      <span style="font-size:10px;color:var(--muted);width:24px">${t.direction === 'long' ? '多' : '空'}</span>
+      <span style="font-size:9px;color:var(--muted2);width:42px">${hold}</span>
       <span style="font-family:var(--mono);font-size:13px;font-weight:600;color:${win ? 'var(--buy)' : 'var(--sell)'};flex:1;text-align:right">${t.pnl >= 0 ? '+' : ''}${fmtV(t.pnl)}</span>
       <button onclick="delTrade('${t.id}')" style="background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:14px">🗑️</button>
     </div>`;
@@ -114,6 +122,88 @@ async function testGasConnection() {
     msg.textContent = `❌ 連線失敗：${e.message}（請確認 GAS 部署權限設為「所有人」）`;
     msg.style.color = 'var(--sell)';
     await ErrorLog.push('testGasConnection', e);
+  }
+}
+
+// ── 匯出分析用 Markdown（給 AI 回測優化）─────────────────────────────
+async function exportMarkdown() {
+  const msg = $('settings-msg');
+  try {
+    const trades = await dbGetAllTrades();
+    if (!trades.length) { msg.textContent = '⚠️ 尚無交易紀錄可匯出'; msg.style.color = 'var(--warn)'; return; }
+    const s = computeAdvancedStats(trades);
+    const cur = n => (n>=0?'+':'') + Math.round(n).toLocaleString();
+
+    let md = `# 短線雷達 交易回測分析資料\n\n`;
+    md += `匯出時間：${new Date().toLocaleString('zh-TW')}　|　程式版本：v${APP_VERSION}\n\n`;
+
+    // 一、整體統計
+    md += `## 一、整體績效\n\n`;
+    md += `| 指標 | 數值 |\n|------|------|\n`;
+    md += `| 總交易筆數 | ${s.count} |\n`;
+    md += `| 勝率 | ${(s.winRate*100).toFixed(1)}% |\n`;
+    md += `| 盈虧比（平均賺/平均賠） | ${s.payoff.toFixed(2)} |\n`;
+    md += `| 期望值/筆 | ${cur(s.expectancy)} |\n`;
+    md += `| 總盈虧 | ${cur(s.totalPnl)} |\n`;
+    md += `| 平均獲利 | ${cur(s.avgWin)} |\n`;
+    md += `| 平均虧損 | ${cur(s.avgLoss)} |\n`;
+    md += `| 最大連勝 | ${s.maxWinStreak} 筆 |\n`;
+    md += `| 最大連敗 | ${s.maxLossStreak} 筆 |\n`;
+    md += `| 平均抱倉天數 | ${s.avgHoldDays.toFixed(1)} 天 |\n`;
+    md += `| 最大回撤 | ${cur(s.maxDrawdown)} |\n\n`;
+
+    // 二、依方向
+    md += `## 二、做多 vs 做空\n\n`;
+    md += `| 方向 | 筆數 | 勝率 | 盈虧比 | 期望值 |\n|------|------|------|--------|--------|\n`;
+    for (const dir of ['long','short']) {
+      const d = s.byDirection[dir];
+      if (d) md += `| ${dir==='long'?'做多':'做空'} | ${d.count} | ${(d.winRate*100).toFixed(1)}% | ${d.payoff.toFixed(2)} | ${cur(d.expectancy)} |\n`;
+    }
+    md += `\n`;
+
+    // 三、依股票代碼
+    md += `## 三、各股票表現\n\n`;
+    md += `| 代碼 | 筆數 | 勝率 | 總盈虧 |\n|------|------|------|--------|\n`;
+    for (const code in s.byCode) {
+      const d = s.byCode[code];
+      md += `| ${code} | ${d.count} | ${(d.winRate*100).toFixed(1)}% | ${cur(d.totalPnl)} |\n`;
+    }
+    md += `\n`;
+
+    // 四、完整交易明細
+    md += `## 四、完整交易明細\n\n`;
+    md += `| 進場日 | 出場日 | 抱倉天 | 代碼 | 方向 | 結果 | 盈虧 |\n|--------|--------|--------|------|------|------|------|\n`;
+    const sorted = [...trades].sort((a,b)=>(a.exitDate||a.date)<(b.exitDate||b.date)?1:-1);
+    for (const t of sorted) {
+      md += `| ${t.entryDate||'—'} | ${t.exitDate||t.date} | ${t.holdDays!=null?t.holdDays:'—'} | ${t.code||'—'} | ${t.direction==='long'?'多':'空'} | ${t.result==='win'?'賺':'賠'} | ${cur(t.pnl)} |\n`;
+    }
+    md += `\n`;
+
+    // 五、目前使用的自創公式（供 AI 參考調整方向）
+    md += `## 五、目前系統使用的自創公式\n\n`;
+    md += `### STI 訊號張力指數（統計學）\n`;
+    md += `\`STI = Σ[wᵢ·tanh(zᵢ)] / Σwᵢ × 100\`，zᵢ 為 Z 分數標準化。子訊號權重：報酬動能 1.2、乖離 1.0、量能 0.8、波幅 0.6。\n\n`;
+    md += `### MFD 動量流變導數（微積分）\n`;
+    md += `\`MFD = α·(dP/dt) + β·(d²P/dt²)\`，α=1.0、β=3.0。衰竭門檻：加速度 < -0.15%。\n\n`;
+    md += `### ECO 熵能轉折指標（資訊論）\n`;
+    md += `\`ECO = (1 − H/Hmax)×100\`，H 為夏農熵，5 桶分布。成形門檻：ECO > 40。\n\n`;
+    md += `### 崩跌預警權重\n`;
+    md += `動能衰竭 +30、熵偏空 +25、量價背離 +20、STI轉空 +15、連漲過熱 +10。高風險門檻 60。\n\n`;
+    md += `### 回測加權參數\n`;
+    md += `預測天數 ${5} 天、大漲跌門檻 ±3%、最小樣本 3 筆。\n\n`;
+
+    // 下載
+    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `短線雷達分析_${new Date().toISOString().slice(0,10)}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+    msg.textContent = '✅ 已匯出 Markdown 分析檔，可丟給 AI 回測優化'; msg.style.color = 'var(--buy)';
+  } catch (e) {
+    msg.textContent = '❌ 匯出失敗：' + e.message; msg.style.color = 'var(--sell)';
+    await ErrorLog.push('exportMarkdown', e);
   }
 }
 
