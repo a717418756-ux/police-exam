@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#0A0E1A">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>短線雷達 StockRadar</title>
+<title>短線雷達 StockRadar Pro</title>
 <link rel="manifest" href="./manifest.json">
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap');
 :root{
   --bg:#0A0E1A;--surf:#111827;--surf2:#151f30;
   --bd:#1E2D45;--bd2:#243552;
@@ -16,39 +16,26 @@
   --buy:#00D4A0;--buy-d:#00D4A015;--buy-b:#00D4A050;
   --sell:#FF4D6D;--sell-d:#FF4D6D15;--sell-b:#FF4D6D50;
   --warn:#F0B429;--warn-d:#F0B42915;
-  --acc:#3B82F6;
-  --mono:'JetBrains Mono',monospace;
-  --sans:'Inter',sans-serif;
+  --acc:#3B82F6;--purple:#A855F7;--purple-d:#A855F715;
+  --mono:'JetBrains Mono',monospace;--sans:'Inter',sans-serif;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:14px;-webkit-font-smoothing:antialiased}
 #app{display:flex;flex-direction:column;min-height:100vh}
-
 header{display:flex;align-items:center;justify-content:space-between;padding:12px 18px;border-bottom:1px solid var(--bd);background:#0C1220;position:sticky;top:0;z-index:100}
 .logo{display:flex;align-items:center;gap:10px}
 .logo-icon{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--acc),var(--buy));display:flex;align-items:center;justify-content:center;font-size:18px;box-shadow:0 0 16px #3B82F640}
 .logo-name{font-size:15px;font-weight:700;letter-spacing:-.3px}
 .logo-sub{font-size:9px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase}
 #time-pill{font-family:var(--mono);font-size:11px;color:var(--muted);background:var(--bg);border:1px solid var(--bd);border-radius:6px;padding:3px 9px;display:none}
-
-main{flex:1;padding:16px;max-width:900px;margin:0 auto;width:100%}
-
-/* search */
-.search-card{background:var(--surf);border:1px solid var(--bd);border-radius:16px;padding:18px;margin-bottom:14px}
-.search-hint{font-size:11px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px}
+main{flex:1;padding:16px;max-width:920px;margin:0 auto;width:100%}
+.card{background:var(--surf);border:1px solid var(--bd);border-radius:16px;padding:18px;margin-bottom:14px}
+.hint{font-size:11px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px}
 .search-row{display:flex;gap:8px}
-#ticker-input{
-  flex:1;background:var(--bg);border:1.5px solid var(--bd2);border-radius:10px;
-  color:var(--txt);font-family:var(--mono);font-size:22px;font-weight:600;
-  padding:10px 14px;outline:none;letter-spacing:3px;transition:border-color .2s;
-}
+#ticker-input{flex:1;background:var(--bg);border:1.5px solid var(--bd2);border-radius:10px;color:var(--txt);font-family:var(--mono);font-size:22px;font-weight:600;padding:10px 14px;outline:none;letter-spacing:3px;transition:border-color .2s}
 #ticker-input:focus{border-color:var(--acc)}
 #ticker-input::placeholder{color:var(--muted);font-size:13px;letter-spacing:0;font-weight:400}
-#go-btn{
-  background:linear-gradient(135deg,var(--acc),#1d4ed8);border:none;border-radius:10px;
-  color:#fff;font-size:15px;font-weight:700;padding:10px 22px;cursor:pointer;
-  transition:opacity .15s,transform .1s;white-space:nowrap;box-shadow:0 2px 12px #3B82F640;
-}
+#go-btn{background:linear-gradient(135deg,var(--acc),#1d4ed8);border:none;border-radius:10px;color:#fff;font-size:15px;font-weight:700;padding:10px 22px;cursor:pointer;transition:opacity .15s,transform .1s;white-space:nowrap;box-shadow:0 2px 12px #3B82F640}
 #go-btn:hover{opacity:.88}#go-btn:active{transform:scale(.97)}#go-btn:disabled{opacity:.4;cursor:not-allowed}
 .input-notes{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
 .note-tag{font-size:11px;color:var(--muted);background:var(--bg);border:1px solid var(--bd);border-radius:6px;padding:3px 10px;display:flex;align-items:center;gap:5px}
@@ -56,8 +43,12 @@ main{flex:1;padding:16px;max-width:900px;margin:0 auto;width:100%}
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
 .chip{background:var(--bg);border:1px solid var(--bd);border-radius:20px;padding:4px 13px;font-family:var(--mono);font-size:12px;color:var(--muted);cursor:pointer;transition:all .15s}
 .chip:hover{border-color:var(--acc);color:var(--acc)}
-
-/* stock bar */
+.settings-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:12px}
+.set-field{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:8px 10px}
+.set-label{font-size:9px;color:var(--muted);letter-spacing:.3px;text-transform:uppercase;margin-bottom:3px}
+.set-field input{width:100%;background:transparent;border:none;color:var(--txt);font-family:var(--mono);font-size:15px;font-weight:600;outline:none}
+@media(max-width:480px){.settings-row{grid-template-columns:1fr}}
+#err-box{display:none;background:var(--surf);border:1px solid var(--sell);border-radius:12px;padding:16px;margin-bottom:14px}
 #stock-bar{background:var(--surf);border:1px solid var(--bd);border-radius:16px;padding:14px 18px;margin-bottom:14px;display:none}
 .sb-top{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:10px}
 .sb-name{font-size:18px;font-weight:700}.sb-code{font-family:var(--mono);font-size:12px;color:var(--muted)}
@@ -68,76 +59,71 @@ main{flex:1;padding:16px;max-width:900px;margin:0 auto;width:100%}
 .mi{display:flex;flex-direction:column}
 .mi-l{font-size:10px;color:var(--muted);letter-spacing:.8px;text-transform:uppercase}
 .mi-v{font-family:var(--mono);font-size:12px;font-weight:600;margin-top:2px}
-
-/* verdict */
-#verdict{border-radius:16px;padding:18px 20px;margin-bottom:14px;display:none;border:2px solid;position:relative;overflow:hidden}
-#verdict::before{content:'';position:absolute;inset:0;opacity:.06}
-#verdict.buy{border-color:var(--buy);background:#001812}#verdict.buy::before{background:var(--buy)}
-#verdict.sell{border-color:var(--sell);background:#1a0008}#verdict.sell::before{background:var(--sell)}
-#verdict.hold{border-color:var(--warn);background:#181000}#verdict.hold::before{background:var(--warn)}
-.vd-top{display:flex;align-items:center;gap:14px;margin-bottom:14px;position:relative;z-index:1}
-.vd-icon{font-size:36px;line-height:1}
-.vd-lbl{font-size:10px;color:var(--muted);letter-spacing:1.2px;text-transform:uppercase}
-.vd-txt{font-size:28px;font-weight:800;letter-spacing:-1px}
-.vd-txt.buy{color:var(--buy)}.vd-txt.sell{color:var(--sell)}.vd-txt.hold{color:var(--warn)}
-.vd-right{margin-left:auto;text-align:right}
-.vd-cnt{font-family:var(--mono);font-size:13px;margin-top:4px}
-.sbar-track{background:var(--bd);border-radius:99px;height:9px;display:flex;overflow:hidden;margin-bottom:8px;position:relative;z-index:1}
-.sbar-buy{background:var(--buy);border-radius:99px 0 0 99px;transition:width .7s ease}
-.sbar-hold{background:var(--warn);transition:width .7s ease}
-.sbar-sell{background:var(--sell);border-radius:0 99px 99px 0;transition:width .7s ease}
-.sbar-lbls{display:flex;justify-content:space-between;position:relative;z-index:1}
-.sbl{font-size:12px;display:flex;align-items:center;gap:5px}
-.dot{width:7px;height:7px;border-radius:50%;display:inline-block}
-.thresh{font-size:11px;color:var(--muted);margin-top:7px;position:relative;z-index:1}
-
-/* category tabs */
+.layer-title{display:flex;align-items:center;gap:8px;margin:18px 0 10px;font-size:13px;font-weight:700;letter-spacing:.5px}
+.layer-num{width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11px;font-family:var(--mono);font-weight:700}
+.ln1{background:var(--acc);color:#fff}.ln2{background:var(--sell);color:#fff}
+.ln3{background:var(--purple);color:#fff}.ln4{background:var(--buy);color:#001812}
+.layer-sub{font-size:10px;color:var(--muted);font-weight:400;margin-left:4px}
+#trend-banner{display:none;border-radius:14px;padding:16px 18px;margin-bottom:14px;border:2px solid;position:relative;overflow:hidden}
+#trend-banner.bull{border-color:var(--buy);background:#001812}
+#trend-banner.bear{border-color:var(--sell);background:#1a0008}
+#trend-banner.neutral{border-color:var(--warn);background:#181000}
+.tb-top{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+.tb-icon{font-size:30px}
+.tb-verdict{font-size:20px;font-weight:800;letter-spacing:-.5px}
+.tb-verdict.bull{color:var(--buy)}.tb-verdict.bear{color:var(--sell)}.tb-verdict.neutral{color:var(--warn)}
+.tb-detail{font-size:12px;color:var(--muted);line-height:1.6}
+.tb-gate{margin-top:8px;padding:8px 12px;border-radius:8px;font-size:12px;font-weight:600;background:rgba(0,0,0,.25)}
+#risk-card{display:none}
+.risk-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
+.risk-box{background:var(--bg);border:1px solid var(--bd);border-radius:10px;padding:13px 15px;position:relative;overflow:hidden}
+.risk-box::after{content:'';position:absolute;top:0;left:0;width:3px;height:100%;background:var(--sell)}
+.risk-box.good::after{background:var(--buy)}
+.risk-box.warn::after{background:var(--warn)}
+.rb-label{font-size:10px;color:var(--muted);letter-spacing:.3px;text-transform:uppercase;margin-bottom:6px;display:flex;align-items:center;gap:5px}
+.rb-value{font-family:var(--mono);font-size:20px;font-weight:700;margin-bottom:3px;line-height:1.2}
+.rb-sub{font-size:11px;color:var(--muted);line-height:1.5}
+.rb-value.buy{color:var(--buy)}.rb-value.sell{color:var(--sell)}.rb-value.warn{color:var(--warn)}
+#psych-card{display:none}
+.psych-alert{background:var(--bg);border:1px solid var(--bd);border-radius:10px;padding:12px 14px;margin-bottom:8px;display:flex;gap:10px;align-items:flex-start}
+.psych-alert:last-child{margin-bottom:0}
+.psych-alert.fire{border-color:var(--sell);background:#FF4D6D0a}
+.psych-alert.ok{border-color:var(--buy);background:#00D4A00a}
+.pa-icon{font-size:18px;flex-shrink:0;margin-top:1px}
+.pa-body{flex:1}
+.pa-title{font-size:12px;font-weight:700;margin-bottom:3px}
+.pa-title.fire{color:var(--sell)}.pa-title.ok{color:var(--buy)}
+.pa-desc{font-size:11px;color:var(--muted);line-height:1.55}
 .cat-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
-.cat-tab{
-  font-size:11px;font-weight:600;padding:4px 12px;border-radius:20px;
-  border:1px solid var(--bd);color:var(--muted);background:var(--bg);cursor:pointer;transition:all .15s;
-}
+.cat-tab{font-size:11px;font-weight:600;padding:4px 12px;border-radius:20px;border:1px solid var(--bd);color:var(--muted);background:var(--bg);cursor:pointer;transition:all .15s}
 .cat-tab.active{border-color:var(--acc);color:var(--acc);background:#3B82F615}
-
-/* indicators grid */
-#ind-grid{display:none;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px;margin-bottom:14px}
+#ind-grid{display:none;grid-template-columns:repeat(auto-fill,minmax(245px,1fr));gap:10px;margin-bottom:14px}
 .ic{background:var(--surf);border:1px solid var(--bd);border-radius:12px;padding:13px 15px;position:relative;overflow:hidden}
 .ic::after{content:'';position:absolute;top:0;left:0;width:3px;height:100%}
 .ic.buy::after{background:var(--buy)}.ic.sell::after{background:var(--sell)}.ic.hold::after{background:var(--warn)}
-.ic-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.ic-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
 .ic-name{font-size:10px;color:var(--muted);letter-spacing:.5px;text-transform:uppercase;font-weight:500}
 .ic-group{font-size:9px;color:var(--muted2);font-family:var(--mono);margin-bottom:4px}
 .ic-badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px}
 .bb{background:var(--buy-d);color:var(--buy)}.bs{background:var(--sell-d);color:var(--sell)}.bh{background:var(--warn-d);color:var(--warn)}
-.ic-val{font-family:var(--mono);font-size:16px;font-weight:600;margin-bottom:4px;line-height:1.3}
+.ic-val{font-family:var(--mono);font-size:15px;font-weight:600;margin-bottom:4px;line-height:1.3}
 .ic-desc{font-size:11px;color:var(--muted);line-height:1.55}
 .ic-range{display:flex;align-items:center;gap:6px;margin-top:8px}
 .rbar{flex:1;height:4px;background:var(--bd2);border-radius:99px;position:relative}
 .rdot{position:absolute;top:50%;transform:translate(-50%,-50%);width:8px;height:8px;border-radius:50%;background:var(--txt);border:2px solid var(--bg)}
 .rmin,.rmax{font-family:var(--mono);font-size:10px;color:var(--muted)}
-
-/* AI card */
-#ai-card{background:var(--surf);border:1px solid var(--bd);border-radius:16px;padding:18px;margin-bottom:14px;display:none}
+#ai-card{display:none}
 .ai-hd{display:flex;align-items:center;gap:10px;margin-bottom:14px}
 .ai-ttl{font-size:14px;font-weight:600}
 .ai-pill{font-size:10px;background:linear-gradient(135deg,var(--acc),var(--buy));color:#fff;padding:2px 9px;border-radius:20px;font-weight:600}
 #ai-body{font-size:12.5px;line-height:1.85;color:#C0D4E8}
 #ai-body p{margin-bottom:6px}
-
 .spin{display:inline-block;width:16px;height:16px;border:2px solid var(--bd2);border-top-color:var(--acc);border-radius:50%;animation:sp .65s linear infinite;vertical-align:middle}
 @keyframes sp{to{transform:rotate(360deg)}}
 .loading-row{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px}
-
 .disc{background:var(--surf);border:1px solid var(--bd);border-radius:12px;padding:13px 16px;font-size:11px;color:var(--muted);display:flex;gap:8px;align-items:flex-start;margin-bottom:14px}
-
-@keyframes pb{0%,100%{box-shadow:0 0 0 0 var(--buy-b)}50%{box-shadow:0 0 22px 6px var(--buy-d)}}
-@keyframes ps{0%,100%{box-shadow:0 0 0 0 var(--sell-b)}50%{box-shadow:0 0 22px 6px var(--sell-d)}}
-.pulse-buy{animation:pb 2.2s infinite}.pulse-sell{animation:ps 2.2s infinite}
-
-.err-card{background:var(--surf);border:1px solid var(--sell);border-radius:12px;padding:16px;margin-bottom:14px}
-
 footer{text-align:center;padding:14px;font-size:11px;color:var(--muted);border-top:1px solid var(--bd)}
-@media(max-width:480px){main{padding:10px}#ticker-input{font-size:18px}.vd-txt{font-size:22px}.sb-price{font-size:20px}}
+@media(max-width:480px){main{padding:10px}#ticker-input{font-size:18px}}
 </style>
 </head>
 <body>
@@ -145,572 +131,76 @@ footer{text-align:center;padding:14px;font-size:11px;color:var(--muted);border-t
 <header>
   <div class="logo">
     <div class="logo-icon">📡</div>
-    <div><div class="logo-name">短線雷達</div><div class="logo-sub">Stock Radar</div></div>
+    <div><div class="logo-name">短線雷達 Pro</div><div class="logo-sub">Risk-First System</div></div>
   </div>
   <div id="time-pill"></div>
 </header>
-
 <main>
-  <div class="search-card">
-    <div class="search-hint">輸入股票代碼進行技術分析</div>
+  <div class="card">
+    <div class="hint">輸入股票代碼進行分層決策分析</div>
     <div class="search-row">
       <input id="ticker-input" placeholder="台股：2330　　美股：AAPL" maxlength="10" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false">
       <button id="go-btn" onclick="go()">⚡ 分析</button>
     </div>
     <div class="input-notes">
-      <div class="note-tag">🇹🇼 台股輸入 <b>4位數字</b>，例如 2330、0050</div>
-      <div class="note-tag">🇺🇸 美股輸入 <b>英文代碼</b>，例如 AAPL、NVDA</div>
+      <div class="note-tag">🇹🇼 台股輸入 <b>4位數字</b></div>
+      <div class="note-tag">🇺🇸 美股輸入 <b>英文代碼</b></div>
+    </div>
+    <div class="settings-row">
+      <div class="set-field"><div class="set-label">💰 帳戶總資金</div><input id="in-capital" type="number" value="1000000" inputmode="numeric"></div>
+      <div class="set-field"><div class="set-label">⚠️ 單筆風險 %</div><input id="in-risk" type="number" value="1" step="0.5" inputmode="decimal"></div>
+      <div class="set-field"><div class="set-label">🎯 你的歷史勝率 %</div><input id="in-winrate" type="number" value="50" step="5" inputmode="numeric"></div>
     </div>
     <div class="chips">
       <span class="chip" onclick="qs('2330')">台積電 2330</span>
       <span class="chip" onclick="qs('2317')">鴻海 2317</span>
       <span class="chip" onclick="qs('2454')">聯發科 2454</span>
-      <span class="chip" onclick="qs('2881')">富邦金 2881</span>
-      <span class="chip" onclick="qs('2412')">中華電 2412</span>
-      <span class="chip" onclick="qs('0050')">元大台50 0050</span>
+      <span class="chip" onclick="qs('0050')">0050</span>
       <span class="chip" onclick="qs('NVDA')">NVDA</span>
       <span class="chip" onclick="qs('AAPL')">AAPL</span>
-      <span class="chip" onclick="qs('TSLA')">TSLA</span>
     </div>
   </div>
-
-  <div id="err-box" style="display:none" class="err-card"></div>
-
+  <div id="err-box"></div>
   <div id="stock-bar">
     <div class="sb-top">
-      <span class="sb-name" id="sb-name">—</span>
-      <span class="sb-code" id="sb-code">—</span>
-      <span class="sb-price" id="sb-price">—</span>
-      <span class="sb-chg"  id="sb-chg">—</span>
+      <span class="sb-name" id="sb-name">—</span><span class="sb-code" id="sb-code">—</span>
+      <span class="sb-price" id="sb-price">—</span><span class="sb-chg" id="sb-chg">—</span>
     </div>
     <div class="sb-meta">
       <div class="mi"><span class="mi-l">開盤</span><span class="mi-v" id="m-open">—</span></div>
       <div class="mi"><span class="mi-l">最高</span><span class="mi-v" id="m-high">—</span></div>
       <div class="mi"><span class="mi-l">最低</span><span class="mi-v" id="m-low">—</span></div>
       <div class="mi"><span class="mi-l">昨收</span><span class="mi-v" id="m-prev">—</span></div>
+      <div class="mi"><span class="mi-l">ATR(14)</span><span class="mi-v" id="m-atr">—</span></div>
       <div class="mi"><span class="mi-l">成交量</span><span class="mi-v" id="m-vol">—</span></div>
-      <div class="mi"><span class="mi-l">5日均量</span><span class="mi-v" id="m-avol">—</span></div>
     </div>
   </div>
-
-  <div id="verdict">
-    <div class="vd-top">
-      <div class="vd-icon" id="vd-icon">—</div>
-      <div>
-        <div class="vd-lbl">綜合技術訊號</div>
-        <div class="vd-txt" id="vd-txt">—</div>
-      </div>
-      <div class="vd-right">
-        <div class="vd-lbl">指標票數</div>
-        <div class="vd-cnt" id="vd-cnt">—</div>
-      </div>
-    </div>
-    <div class="sbar-track">
-      <div class="sbar-buy"  id="sb-buy"  style="width:0%"></div>
-      <div class="sbar-hold" id="sb-hold" style="width:0%"></div>
-      <div class="sbar-sell" id="sb-sell" style="width:0%"></div>
-    </div>
-    <div class="sbar-lbls">
-      <span class="sbl"><span class="dot" style="background:var(--buy)"></span><span id="n-buy">0</span> 買進</span>
-      <span class="sbl"><span class="dot" style="background:var(--warn)"></span><span id="n-hold">0</span> 中立</span>
-      <span class="sbl"><span class="dot" style="background:var(--sell)"></span><span id="n-sell">0</span> 賣出</span>
-    </div>
-    <div class="thresh" id="thresh-note"></div>
+  <div class="layer-title"><span class="layer-num" style="background:#64748b;color:#fff">0</span>大盤環境<span class="layer-sub">期貨/法人/PCR/美股隔夜 — 純數據參考，判斷你自己來</span></div>
+  <div class="card" id="market-card" style="display:none"><div class="risk-grid" id="market-grid"></div>
+    <div style="font-size:10px;color:var(--muted);margin-top:10px;line-height:1.6">⚠️ 以上為期交所/Yahoo 盤後公開資料，反映「市場情緒傾向」，非即時、非精準預測。法人未平倉與美股隔夜僅供環境判斷，買賣決策仍以下方個股分層為主。</div>
   </div>
 
-  <!-- 分類篩選 -->
-  <div id="cat-row" style="display:none">
-    <div class="cat-tabs" id="cat-tabs"></div>
+  <div class="layer-title"><span class="layer-num ln1">1</span>趨勢過濾<span class="layer-sub">200MA / 50MA — 決定能不能進場</span></div>
+  <div id="trend-banner">
+    <div class="tb-top"><span class="tb-icon" id="tb-icon">—</span><span class="tb-verdict" id="tb-verdict">—</span></div>
+    <div class="tb-detail" id="tb-detail">—</div>
+    <div class="tb-gate" id="tb-gate">—</div>
   </div>
-
+  <div class="layer-title"><span class="layer-num ln2">2</span>風險管理<span class="layer-sub">ATR停損 / 部位 / 凱利 / 風報比 — 最重要</span></div>
+  <div class="card" id="risk-card"><div class="risk-grid" id="risk-grid"></div></div>
+  <div class="layer-title"><span class="layer-num ln3">3</span>心理偏誤檢查<span class="layer-sub">反人性 — 系統的靈魂</span></div>
+  <div class="card" id="psych-card"><div id="psych-list"></div></div>
+  <div class="layer-title"><span class="layer-num ln4">4</span>進場訊號<span class="layer-sub">技術指標群 — 只在趨勢對的時候參考</span></div>
+  <div id="cat-row" style="display:none"><div class="cat-tabs" id="cat-tabs"></div></div>
   <div id="ind-grid"></div>
-
-  <div id="ai-card">
-    <div class="ai-hd">
-      <span style="font-size:17px">🤖</span>
-      <span class="ai-ttl">AI 綜合研判</span>
-      <span class="ai-pill">Claude AI</span>
-    </div>
+  <div class="card" id="ai-card">
+    <div class="ai-hd"><span style="font-size:17px">🤖</span><span class="ai-ttl">AI 綜合研判</span><span class="ai-pill">Claude AI</span></div>
     <div id="ai-body"></div>
   </div>
-
-  <div class="disc">
-    <span style="font-size:15px;flex-shrink:0">⚠️</span>
-    <span>本工具僅為技術指標輔助參考，<strong>不構成任何投資建議</strong>。股市有風險，投資須謹慎。所有指標均為歷史數據推算，無法保證未來績效。資料透過你自己的 Google Apps Script 後端抓取（台股 TWSE/TPEX、美股 Yahoo Finance）。</span>
-  </div>
+  <div class="disc"><span style="font-size:15px;flex-shrink:0">⚠️</span><span>本工具僅為技術與風險輔助參考，<strong>不構成投資建議</strong>。凱利公式的勝率須由你依自身交易紀錄填入。順勢、控制風險、讓獲利奔跑，比追求單一神奇指標更重要。</span></div>
 </main>
-<footer>短線雷達 StockRadar &nbsp;·&nbsp; 20項技術指標綜合分析 &nbsp;·&nbsp; 僅供參考，不構成投資建議</footer>
+<footer>短線雷達 Pro &nbsp;·&nbsp; 風險優先分層決策系統 &nbsp;·&nbsp; 僅供參考</footer>
 </div>
-
-<script>
-// ══ DOM helpers ═══════════════════════════════════════════════════════
-const $=id=>document.getElementById(id);
-const fmt=(n,d=2)=>n==null||isNaN(n)?'—':Number(n).toLocaleString('zh-TW',{minimumFractionDigits:d,maximumFractionDigits:d});
-const fmtV=v=>v==null?'—':v>=1e8?(v/1e8).toFixed(2)+'億':v>=1e4?(v/1e4).toFixed(1)+'萬':Number(v).toLocaleString();
-const p=s=>parseFloat((s+'').replace(/,/g,''))||0;
-
-function showErr(msg){
-  $('err-box').style.display='block';
-  $('err-box').innerHTML=`<p style="color:var(--sell);font-weight:600;margin-bottom:6px">❌ ${msg}</p>
-    <p style="color:var(--muted);font-size:12px">台股請輸入4位數字（如 2330），美股請輸入英文代碼（如 AAPL）。<br>若確認代碼正確仍失敗，可能為 API 暫時限流，請稍後再試。</p>`;
-}
-function hideErr(){ $('err-box').style.display='none'; }
-
-// ══ GAS 後端代理設定 ═══════════════════════════════════════════════════
-// ⚠️ 部署 Code.gs 後，把你的「網頁應用程式 URL」貼在這裡（取代下面整串）
-const GAS_URL='https://script.google.com/macros/s/AKfycbwdxRK2Ugv8-2fu8YtWAv0PJC0CzGx007FGz6RWCW_A7SzSnJo8q-Q90SNF6gSf29eB/exec';
-
-// ══ 透過 GAS 抓資料（台股美股皆同一支）═════════════════════════════════
-async function fetchStock(code){
-  if(GAS_URL.indexOf('http')!==0){
-    throw new Error('尚未設定 GAS 網址，請先部署 Code.gs 並把 URL 填入 index.html 的 GAS_URL');
-  }
-  const url=`${GAS_URL}?code=${encodeURIComponent(code)}`;
-  let r;
-  try{
-    r=await fetch(url);
-  }catch(e){
-    throw new Error('無法連線到 GAS 後端，請確認網址與部署權限（須設為「所有人」）');
-  }
-  if(!r.ok) throw new Error(`後端回應錯誤（${r.status}）`);
-  const j=await r.json();
-  if(!j.ok) throw new Error(j.error||'後端無法取得資料');
-  if(!j.closes||j.closes.length<10) throw new Error(`${code} 歷史資料不足，無法計算指標`);
-  return j;
-}
-
-// ══ Math utilities ════════════════════════════════════════════════════
-function sma(a,n){return a.map((_,i)=>i<n-1?null:a.slice(i-n+1,i+1).reduce((s,v)=>s+v,0)/n);}
-function ema(a,n){const k=2/(n+1);let e=null;return a.map(v=>{e=e===null?v:v*k+e*(1-k);return e;});}
-function stddev(a){const m=a.reduce((s,v)=>s+v,0)/a.length;return Math.sqrt(a.reduce((s,v)=>s+(v-m)**2,0)/a.length);}
-
-function calcRSI(c,n=14){
-  const g=[],l=[];
-  for(let i=1;i<c.length;i++){const d=c[i]-c[i-1];g.push(d>0?d:0);l.push(d<0?-d:0);}
-  let ag=g.slice(0,n).reduce((a,b)=>a+b,0)/n,al=l.slice(0,n).reduce((a,b)=>a+b,0)/n;
-  const out=[...Array(n+1).fill(null)];
-  out[n]=al===0?100:100-100/(1+ag/al);
-  for(let i=n;i<g.length;i++){ag=(ag*(n-1)+g[i])/n;al=(al*(n-1)+l[i])/n;out.push(al===0?100:100-100/(1+ag/al));}
-  return out[out.length-1];
-}
-
-function calcMACD(c){
-  const e12=ema(c,12),e26=ema(c,26);
-  const diff=e12.map((v,i)=>v-e26[i]);
-  const sig=ema(diff.slice(25),9);
-  const d=diff[diff.length-1],s=sig[sig.length-1];
-  return{diff:d,sig:s,hist:d-s};
-}
-
-function calcKD(h,l,c,n=9){
-  const rsv=c.map((_,i)=>{
-    if(i<n-1)return 50;
-    const hi=Math.max(...h.slice(i-n+1,i+1)),lo=Math.min(...l.slice(i-n+1,i+1));
-    return hi===lo?50:(c[i]-lo)/(hi-lo)*100;
-  });
-  let k=50,d=50;
-  for(const r of rsv){k=k*2/3+r/3;d=d*2/3+k/3;}
-  return{k,d,j:3*k-2*d};
-}
-
-function calcBB(c,n=20,m=2){
-  const s=sma(c,n),last=s[s.length-1];
-  const std=stddev(c.slice(-n));
-  return{upper:last+m*std,mid:last,lower:last-m*std,std};
-}
-
-function calcWR(h,l,c,n=14){
-  const i=c.length-1;
-  const hi=Math.max(...h.slice(Math.max(0,i-n+1),i+1));
-  const lo=Math.min(...l.slice(Math.max(0,i-n+1),i+1));
-  return hi===lo?-50:(hi-c[i])/(hi-lo)*-100;
-}
-
-function calcCCI(h,l,c,n=20){
-  const tp=c.map((_,i)=>(h[i]+l[i]+c[i])/3);
-  const sl=tp.slice(-n),mean=sl.reduce((a,b)=>a+b,0)/n;
-  const mad=sl.reduce((a,v)=>a+Math.abs(v-mean),0)/n;
-  return mad===0?0:(tp[tp.length-1]-mean)/(0.015*mad);
-}
-
-function calcDMI(h,l,c,n=14){
-  let pdm=0,ndm=0,tr=0;
-  for(let i=Math.max(1,c.length-n);i<c.length;i++){
-    const upMove=h[i]-h[i-1],downMove=l[i-1]-l[i];
-    pdm+=upMove>downMove&&upMove>0?upMove:0;
-    ndm+=downMove>upMove&&downMove>0?downMove:0;
-    tr+=Math.max(h[i]-l[i],Math.abs(h[i]-c[i-1]),Math.abs(l[i]-c[i-1]));
-  }
-  if(tr===0)return{adx:0,pdi:0,ndi:0};
-  const pdi=pdm/tr*100,ndi=ndm/tr*100;
-  const dx=Math.abs(pdi-ndi)/(pdi+ndi)*100||0;
-  return{adx:dx,pdi,ndi};
-}
-
-function calcROC(c,n=12){
-  const p=c[c.length-1-n];
-  return p?(c[c.length-1]-p)/p*100:0;
-}
-
-function calcPSY(c,n=12){
-  let up=0;
-  for(let i=c.length-n;i<c.length;i++) if(c[i]>c[i-1]) up++;
-  return up/n*100;
-}
-
-// ══ 心理學 & 特殊指標 ══════════════════════════════════════════════════
-
-// 恐懼貪婪指數（簡化版：結合RSI、BB位置、動能、成交量）
-function calcFearGreed(rsi14,bbPct,mom10,volRatio){
-  const r=(rsi14/100)*25;
-  const b=(bbPct/100)*25;
-  const m=Math.min(1,Math.max(0,(mom10+5)/10))*25;
-  const v=Math.min(1,volRatio/2)*25;
-  return Math.round(r+b+m+v);
-}
-
-// 均線糾結度（MA5~MA20 的標準差除以均值）
-function calcMATangle(m5,m10,m20){
-  const arr=[m5,m10,m20].filter(v=>v);
-  if(arr.length<2)return 0;
-  return stddev(arr)/(arr.reduce((a,b)=>a+b,0)/arr.length)*100;
-}
-
-// 籌碼安定度（用成交量的5日/20日比值反映換手）
-function calcChipStability(vols){
-  if(vols.length<21)return 1;
-  const v5=vols.slice(-5).reduce((a,b)=>a+b,0)/5;
-  const v20=vols.slice(-20).reduce((a,b)=>a+b,0)/20;
-  return v5/v20;
-}
-
-// ══ 主評估函式 ════════════════════════════════════════════════════════
-function evaluate(D){
-  const{closes:c,highs:h,lows:l,volumes:v,price,open,prevClose}=D;
-  const sigs=[];
-
-  const add=(name,group,val,raw,min,max,s,desc)=>sigs.push({name,group,val,raw,min,max,s,desc});
-
-  // ── 震盪指標 ──────────────────────────────────────────────────────
-  const {k,d,j}=calcKD(h,l,c);
-  add('KD 隨機指標','震盪',`K:${k.toFixed(1)}  D:${d.toFixed(1)}  J:${j.toFixed(1)}`,k,0,100,
-    k<20&&k>d?'buy':k>80&&k<d?'sell':'hold',
-    k<20&&k>d?`K${k.toFixed(0)} 低檔黃金交叉，超賣反彈 → 買進`:
-    k>80&&k<d?`K${k.toFixed(0)} 高檔死亡交叉，超買回落 → 賣出`:
-    j<0?`J值 ${j.toFixed(0)} 極度超賣，短線留意反彈`:`K值 ${k.toFixed(0)} 中性帶，等待交叉`);
-
-  const rsi14=calcRSI(c,14);
-  add('RSI 14日','震盪',rsi14?.toFixed(1)??'—',rsi14,0,100,
-    rsi14<30?'buy':rsi14>70?'sell':'hold',
-    rsi14<30?`RSI ${rsi14?.toFixed(1)} < 30 超賣 → 買進`:
-    rsi14>70?`RSI ${rsi14?.toFixed(1)} > 70 超買 → 賣出`:
-    `RSI ${rsi14?.toFixed(1)}，中性區間 30~70`);
-
-  const rsi6=calcRSI(c,6);
-  add('RSI 6日（短線）','震盪',rsi6?.toFixed(1)??'—',rsi6,0,100,
-    rsi6<20?'buy':rsi6>85?'sell':'hold',
-    rsi6<20?`RSI6 ${rsi6?.toFixed(1)} 極度超賣 → 強烈短線反彈訊號`:
-    rsi6>85?`RSI6 ${rsi6?.toFixed(1)} 極度超買 → 短線獲利了結`:
-    `RSI6 ${rsi6?.toFixed(1)}，短線中性`);
-
-  const wr=calcWR(h,l,c);
-  add('W%R 威廉指標','震盪',wr.toFixed(1),-wr,0,100,
-    wr<-80?'buy':wr>-20?'sell':'hold',
-    wr<-80?`W%R ${wr.toFixed(1)} < -80 超賣 → 買進`:
-    wr>-20?`W%R ${wr.toFixed(1)} > -20 超買 → 賣出`:
-    `W%R ${wr.toFixed(1)}，中性`);
-
-  const cv=calcCCI(h,l,c);
-  add('CCI 商品通道','震盪',cv.toFixed(1),cv,-250,250,
-    cv<-100?'buy':cv>100?'sell':'hold',
-    cv<-100?`CCI ${cv.toFixed(0)} < -100 超賣區 → 買進`:
-    cv>100?`CCI ${cv.toFixed(0)} > +100 超買區 → 賣出`:
-    `CCI ${cv.toFixed(0)} 正常波動`);
-
-  // ── 趨勢指標 ──────────────────────────────────────────────────────
-  const mc=calcMACD(c);
-  add('MACD','趨勢',`DIF:${mc.diff?.toFixed(2)}  DEA:${mc.sig?.toFixed(2)}`,mc.hist,-Math.abs(mc.hist||1)*2.5,Math.abs(mc.hist||1)*2.5,
-    mc.diff>mc.sig&&mc.hist>0?'buy':mc.diff<mc.sig&&mc.hist<0?'sell':'hold',
-    mc.diff>mc.sig&&mc.hist>0?'DIF>DEA 柱狀體轉正，多頭排列 → 買進':
-    mc.diff<mc.sig&&mc.hist<0?'DIF<DEA 柱狀體轉負，空頭排列 → 賣出':
-    'MACD 訊號不明確，觀望');
-
-  const s5=sma(c,5),s10=sma(c,10),s20=sma(c,20),s60=sma(c,Math.min(60,c.length-1));
-  const m5=s5[s5.length-1],m10=s10[s10.length-1],m20=s20[s20.length-1],m60=s60[s60.length-1];
-  const maB=price>m5&&m5>m10&&m10>m20,maS=price<m5&&m5<m10&&m10<m20;
-  add('均線多空排列','趨勢',`5:${fmt(m5)} 10:${fmt(m10)} 20:${fmt(m20)}`,null,null,null,
-    maB?'buy':maS?'sell':'hold',
-    maB?'價>MA5>MA10>MA20，完整多頭排列 → 買進':
-    maS?'價<MA5<MA10<MA20，完整空頭排列 → 賣出':
-    '均線交叉錯雜，方向待確認');
-
-  const dmi=calcDMI(h,l,c);
-  add('DMI 趨向指標','趨勢',`+DI:${dmi.pdi.toFixed(1)}  -DI:${dmi.ndi.toFixed(1)}  ADX:${dmi.adx.toFixed(1)}`,dmi.adx,0,60,
-    dmi.pdi>dmi.ndi&&dmi.adx>20?'buy':dmi.ndi>dmi.pdi&&dmi.adx>20?'sell':'hold',
-    dmi.pdi>dmi.ndi&&dmi.adx>20?`+DI>${dmi.pdi.toFixed(0)} 強於 -DI，ADX ${dmi.adx.toFixed(0)} 趨勢強 → 多方`:
-    dmi.ndi>dmi.pdi&&dmi.adx>20?`-DI>${dmi.ndi.toFixed(0)} 強於 +DI，ADX ${dmi.adx.toFixed(0)} 趨勢強 → 空方`:
-    `ADX ${dmi.adx.toFixed(0)} < 20，無明顯趨勢，盤整`);
-
-  // ── 通道 ──────────────────────────────────────────────────────────
-  const bb=calcBB(c);
-  const bbP=(price-bb.lower)/(bb.upper-bb.lower)*100;
-  add('布林通道 BB(20,2)','通道',`上:${fmt(bb.upper)} 中:${fmt(bb.mid)} 下:${fmt(bb.lower)}`,bbP,0,100,
-    price<=bb.lower?'buy':price>=bb.upper?'sell':'hold',
-    price<=bb.lower?`觸及下軌(${fmt(bb.lower)})，超賣 → 買進`:
-    price>=bb.upper?`觸及上軌(${fmt(bb.upper)})，超買 → 賣出`:
-    `位於通道 ${bbP.toFixed(0)}%，中性`);
-
-  // 布林頻寬（Bandwidth）→ 越小表示即將爆量
-  const bw=(bb.upper-bb.lower)/bb.mid*100;
-  add('布林頻寬 Bandwidth','通道',bw.toFixed(2)+'%',bw,0,20,
-    bw<3?'buy':bw>15?'hold':'hold',
-    bw<3?`頻寬 ${bw.toFixed(1)}% 極窄，蓄勢待發，即將出現大波段！留意突破方向`:
-    bw>12?`頻寬 ${bw.toFixed(1)}% 偏寬，波動擴大期，注意方向`:
-    `頻寬 ${bw.toFixed(1)}%，波動正常`);
-
-  // ── 動能 ─────────────────────────────────────────────────────────
-  const roc=calcROC(c,12);
-  add('ROC 變動率(12日)','動能',`${roc>=0?'+':''}${roc.toFixed(2)}%`,roc,-15,15,
-    roc>4?'buy':roc<-4?'sell':'hold',
-    roc>4?`12日漲幅 +${roc.toFixed(1)}%，上升動能充足 → 買進`:
-    roc<-4?`12日跌幅 ${roc.toFixed(1)}%，下跌動能強 → 賣出`:
-    `動能 ${roc.toFixed(1)}%，方向不強`);
-
-  const bias5=(price-m5)/m5*100;
-  add('BIAS 乖離率(5日)','動能',`${bias5>=0?'+':''}${bias5.toFixed(2)}%`,bias5,-10,10,
-    bias5<-3?'buy':bias5>5?'sell':'hold',
-    bias5<-3?`乖離 ${bias5.toFixed(1)}%，嚴重偏低，均值回歸 → 買進`:
-    bias5>5?`乖離 +${bias5.toFixed(1)}%，嚴重偏高，壓回風險 → 賣出`:
-    `乖離 ${bias5.toFixed(1)}%，正常範圍`);
-
-  // ── 量能 ─────────────────────────────────────────────────────────
-  const vr=v.length>=6?v[v.length-1]/(v.slice(-6,-1).reduce((a,b)=>a+b,0)/5):1;
-  const vUp=price>open&&vr>1.5,vDn=price<open&&vr>1.5;
-  add('成交量比(5日均)','量能',`${vr.toFixed(2)}x`,vr,0,3,
-    vUp?'buy':vDn?'sell':'hold',
-    vUp?`放量收紅 ${vr.toFixed(1)}x，法人進場 → 買進`:
-    vDn?`放量收黑 ${vr.toFixed(1)}x，出貨訊號 → 賣出`:
-    vr>2?`爆量但方向不明，觀察次日走勢`:
-    `量能 ${vr.toFixed(1)}x，正常`);
-
-  // ── 型態 ─────────────────────────────────────────────────────────
-  const hi=h[h.length-1],lo=l[l.length-1],range=hi-lo||0.01;
-  const body=Math.abs(price-open),bodyR=body/range;
-  const isBull=price>=open;
-  const isHammer=!isBull&&(open-lo)>body*2&&(hi-price)<body*0.5;
-  const isStar=isBull&&(hi-price)>body*2&&(open-lo)<body*0.5;
-  const isDoji=bodyR<0.08;
-  let kPat,kS;
-  if(isHammer){kPat='槌子線 🔨';kS='buy';}
-  else if(isStar){kPat='射擊之星 ⭐';kS='sell';}
-  else if(isDoji){kPat='十字線 ✚';kS='hold';}
-  else if(isBull&&bodyR>0.6){kPat='大陽線 📈';kS='buy';}
-  else if(!isBull&&bodyR>0.6){kPat='大陰線 📉';kS='sell';}
-  else{kPat=isBull?'小陽線':'小陰線';kS='hold';}
-  add('K線型態','型態',kPat,null,null,null,kS,
-    isHammer?'下影線長，低點強力支撐，看漲反彈':
-    isStar?'上影線長，高點賣壓沉重，看跌':
-    isDoji?'開收近乎相同，多空膠著，等待方向':
-    isBull&&bodyR>0.6?'大實體陽線，當日多頭強勢':
-    !isBull&&bodyR>0.6?'大實體陰線，當日空頭強勢':
-    '小實體，力道偏弱');
-
-  // ── 心理/數學 ────────────────────────────────────────────────────
-  const psy=calcPSY(c,12);
-  add('PSY 心理線(12日)','心理',`${psy.toFixed(0)}%`,psy,0,100,
-    psy<25?'buy':psy>75?'sell':'hold',
-    psy<25?`PSY ${psy.toFixed(0)}%，12日內上漲天數極少，市場過度悲觀 → 逆勢買進`:
-    psy>75?`PSY ${psy.toFixed(0)}%，12日內上漲天數過多，市場過度樂觀 → 逆勢賣出`:
-    `PSY ${psy.toFixed(0)}%，市場情緒中性`);
-
-  // 均線糾結 → 蓄勢突破訊號
-  const tangle=calcMATangle(m5,m10,m20);
-  add('均線糾結度','心理',`${tangle.toFixed(2)}%`,tangle,0,5,
-    tangle<0.5?'buy':'hold',
-    tangle<0.5?`MA5/10/20 高度糾結 ${tangle.toFixed(2)}%，即將爆發性突破，留意方向！`:
-    tangle>3?`均線發散，趨勢明顯，追高需謹慎`:
-    `均線糾結度 ${tangle.toFixed(2)}%，蓄勢中`);
-
-  // 籌碼安定度
-  const chip=calcChipStability(v);
-  add('籌碼安定度','心理',`${chip.toFixed(2)}x`,chip,0,3,
-    chip<0.6?'buy':chip>2?'sell':'hold',
-    chip<0.6?`近期換手量少 ${chip.toFixed(2)}x，籌碼安定，惜售 → 看漲`:
-    chip>2?`短期換手率暴增 ${chip.toFixed(2)}x，主力出貨嫌疑 → 賣出`:
-    `換手 ${chip.toFixed(2)}x，籌碼分布正常`);
-
-  // 恐懼貪婪
-  const fg=calcFearGreed(rsi14??50,bbP,roc,vr);
-  add('恐懼貪婪指數','心理',`${fg}/100`,fg,0,100,
-    fg<30?'buy':fg>70?'sell':'hold',
-    fg<30?`市場極度恐懼 ${fg}，歷史上往往是最佳買點`:
-    fg>70?`市場極度貪婪 ${fg}，風險偏高，宜減碼`:
-    `情緒指數 ${fg}，市場情緒中性`);
-
-  // 黃金分割支撐（斐波那契）
-  const h52=Math.max(...h.slice(-Math.min(h.length,60)));
-  const l52=Math.min(...l.slice(-Math.min(l.length,60)));
-  const fib382=h52-(h52-l52)*0.382;
-  const fib618=h52-(h52-l52)*0.618;
-  const nearFib=Math.abs(price-fib382)<(h52-l52)*0.03||Math.abs(price-fib618)<(h52-l52)*0.03;
-  const aboveFib=price>fib382;
-  add('費波那契黃金分割','數學',`0.382:${fmt(fib382)}  0.618:${fmt(fib618)}`,null,null,null,
-    price<=fib618?'buy':price>=h52*(0.97)?'sell':'hold',
-    price<=fib618?`價格 ${fmt(price)} 接觸 61.8% 回撤(${fmt(fib618)})，強力支撐 → 買進`:
-    price>=h52*0.97?`接近波段高點，上方壓力大 → 賣出`:
-    nearFib?`價格靠近黃金分割位，支撐壓力明顯，留意`:
-    `位於 38.2%(${fmt(fib382)}) ~ 61.8%(${fmt(fib618)}) 之間`);
-
-  return sigs;
-}
-
-// ══ state ════════════════════════════════════════════════════════════
-let allSigs=[], activeCat='全部';
-
-// ══ render verdict ═════════════════════════════════════════════════════
-function renderVerdict(sigs){
-  const buy=sigs.filter(s=>s.s==='buy').length;
-  const sell=sigs.filter(s=>s.s==='sell').length;
-  const hold=sigs.filter(s=>s.s==='hold').length;
-  const total=sigs.length, thr=Math.ceil(total*2/3);
-
-  const card=$('verdict'); card.style.display='block'; card.className='';
-  let txt,icon,cls;
-  if(buy>=thr){txt='強力買進訊號';icon='🟢';cls='buy';}
-  else if(sell>=thr){txt='強力賣出訊號';icon='🔴';cls='sell';}
-  else if(buy>sell&&buy>hold){txt='偏多，謹慎買進';icon='🟡';cls='hold';}
-  else if(sell>buy&&sell>hold){txt='偏空，觀望為宜';icon='🟡';cls='hold';}
-  else{txt='多空均衡，中立';icon='⚪';cls='hold';}
-
-  card.className=cls+(cls==='buy'?' pulse-buy':cls==='sell'?' pulse-sell':'');
-  $('vd-icon').textContent=icon;
-  const vt=$('vd-txt'); vt.textContent=txt; vt.className='vd-txt '+cls;
-  $('vd-cnt').textContent=`買${buy} / 中${hold} / 賣${sell}`;
-  $('n-buy').textContent=buy; $('n-hold').textContent=hold; $('n-sell').textContent=sell;
-  $('sb-buy').style.width=(buy/total*100)+'%';
-  $('sb-hold').style.width=(hold/total*100)+'%';
-  $('sb-sell').style.width=(sell/total*100)+'%';
-  $('thresh-note').textContent=`共 ${total} 項指標，超過三分之二（≥${thr} 項）同向才觸發強烈訊號`;
-  return{txt,cls,buy,sell,hold};
-}
-
-// ══ render category tabs ══════════════════════════════════════════════
-function renderTabs(sigs){
-  const cats=['全部',...new Set(sigs.map(s=>s.group))];
-  const row=$('cat-tabs'); row.innerHTML='';
-  cats.forEach(c=>{
-    const t=document.createElement('div');
-    t.className='cat-tab'+(c===activeCat?' active':'');
-    const n=c==='全部'?sigs.length:sigs.filter(s=>s.group===c).length;
-    t.textContent=`${c} (${n})`;
-    t.onclick=()=>{activeCat=c;renderTabs(allSigs);renderGrid(allSigs);};
-    row.appendChild(t);
-  });
-  $('cat-row').style.display='block';
-}
-
-// ══ render indicator cards ════════════════════════════════════════════
-function renderGrid(sigs){
-  const filtered=activeCat==='全部'?sigs:sigs.filter(s=>s.group===activeCat);
-  const grid=$('ind-grid'); grid.innerHTML=''; grid.style.display='grid';
-  for(const s of filtered){
-    const bc=s.s==='buy'?'bb':s.s==='sell'?'bs':'bh';
-    const bl=s.s==='buy'?'▲ 買進':s.s==='sell'?'▼ 賣出':'◆ 中立';
-    let range='';
-    if(s.raw!==null&&s.min!==null){
-      const pct=Math.min(100,Math.max(0,(s.raw-s.min)/(s.max-s.min)*100));
-      range=`<div class="ic-range"><span class="rmin">${s.min}</span><div class="rbar"><div class="rdot" style="left:${pct}%"></div></div><span class="rmax">${s.max}</span></div>`;
-    }
-    const el=document.createElement('div');
-    el.className=`ic ${s.s}`;
-    el.innerHTML=`<div class="ic-top"><span class="ic-name">${s.name}</span><span class="ic-badge ${bc}">${bl}</span></div>
-      <div class="ic-group">${s.group}</div>
-      <div class="ic-val">${s.val}</div>
-      <div class="ic-desc">${s.desc}</div>${range}`;
-    grid.appendChild(el);
-  }
-}
-
-// ══ AI analysis ═══════════════════════════════════════════════════════
-async function aiAnalysis(code,price,currency,sigs,verdict){
-  const card=$('ai-card'), body=$('ai-body');
-  card.style.display='block';
-  body.innerHTML='<div class="loading-row"><span class="spin"></span> AI 綜合研判中...</div>';
-  const sum=sigs.map(s=>`[${s.group}] ${s.name}: ${s.s.toUpperCase()} — ${s.desc}`).join('\n');
-  try{
-    const res=await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        model:'claude-sonnet-4-6',max_tokens:1000,
-        system:`你是頂尖的短線技術分析師，擅長台灣與美國股市。請以繁體中文，條理分明，250字以內，直接給出判斷，不要廢話前言。格式：
-1. 📊 市場結構（1~2句：趨勢方向與強弱）
-2. 🎯 核心訊號（點出最關鍵的2~3項指標，說明為何重要）
-3. ⚠️ 主要風險（1句：最需要注意的事）
-4. 💡 短線建議（具體：進場時機、停損停利概念）`,
-        messages:[{role:'user',content:`股票：${code}｜現價：${currency==='TWD'?'NT$':'$'}${price}｜綜合判決：${verdict}\n\n${sum}`}]
-      })
-    });
-    const d=await res.json();
-    const txt=d.content?.[0]?.text||'無法取得分析';
-    body.innerHTML=txt.split('\n').filter(l=>l.trim()).map(l=>`<p>${l}</p>`).join('');
-  }catch(e){
-    body.innerHTML='<p style="color:var(--muted)">AI 分析暫時不可用，請依上方指標研判。</p>';
-  }
-}
-
-// ══ main ══════════════════════════════════════════════════════════════
-function qs(t){$('ticker-input').value=t;go();}
-
-async function go(){
-  const raw=$('ticker-input').value.trim();
-  if(!raw)return;
-  const btn=$('go-btn'); btn.disabled=true; btn.innerHTML='<span class="spin"></span>';
-  hideErr();
-  ['stock-bar','verdict','ai-card'].forEach(id=>$(id).style.display='none');
-  $('ind-grid').style.display='none'; $('ind-grid').innerHTML='';
-  $('cat-row').style.display='none'; $('cat-tabs').innerHTML='';
-  activeCat='全部';
-
-  try{
-    const D=await fetchStock(raw.trim().toUpperCase());
-
-    // stock bar
-    const chg=D.price-D.prevClose, chgP=D.prevClose?(chg/D.prevClose*100):0;
-    const cur=D.currency==='TWD'?'':'$';
-    $('sb-name').textContent=D.name;
-    $('sb-code').textContent=D.code;
-    $('sb-price').textContent=cur+fmt(D.price);
-    const sc=$('sb-chg');
-    sc.textContent=`${chg>=0?'+':''}${fmt(chg)} (${chgP>=0?'+':''}${chgP.toFixed(2)}%)`;
-    sc.className='sb-chg '+(chg>=0?'up':'dn');
-    $('m-open').textContent=cur+fmt(D.open);
-    $('m-high').textContent=cur+fmt(D.high);
-    $('m-low').textContent=cur+fmt(D.low);
-    $('m-prev').textContent=cur+fmt(D.prevClose);
-    $('m-vol').textContent=fmtV(D.volume)+(D.currency==='TWD'?' 張':' 股');
-    $('m-avol').textContent=fmtV(Math.round(D.avgVol5))+(D.currency==='TWD'?' 張':' 股');
-    $('stock-bar').style.display='block';
-
-    const now=new Date();
-    const tp=$('time-pill');
-    tp.textContent=`${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')} 更新`;
-    tp.style.display='block';
-
-    allSigs=evaluate(D);
-    const{txt}=renderVerdict(allSigs);
-    renderTabs(allSigs);
-    renderGrid(allSigs);
-    await aiAnalysis(D.code,D.price,D.currency,allSigs,txt);
-
-  }catch(e){
-    showErr(e.message);
-  }finally{
-    btn.disabled=false; btn.innerHTML='⚡ 分析';
-  }
-}
-
-$('ticker-input').addEventListener('keydown',e=>{if(e.key==='Enter')go();});
-if('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(()=>{});
-</script>
+<script src="./app.js"></script>
 </body>
 </html>
