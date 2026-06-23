@@ -7,124 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>短線雷達 StockRadar Pro</title>
 <link rel="manifest" href="./manifest.json">
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap');
-:root{
-  --bg:#0A0E1A;--surf:#111827;--surf2:#151f30;
-  --bd:#1E2D45;--bd2:#243552;
-  --txt:#E8EDF5;--muted:#5A7090;--muted2:#2a3f5a;
-  --buy:#00D4A0;--buy-d:#00D4A015;--buy-b:#00D4A050;
-  --sell:#FF4D6D;--sell-d:#FF4D6D15;--sell-b:#FF4D6D50;
-  --warn:#F0B429;--warn-d:#F0B42915;
-  --acc:#3B82F6;--purple:#A855F7;--purple-d:#A855F715;
-  --mono:'JetBrains Mono',monospace;--sans:'Inter',sans-serif;
-}
-*{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%;background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:14px;-webkit-font-smoothing:antialiased}
-#app{display:flex;flex-direction:column;min-height:100vh}
-header{display:flex;align-items:center;justify-content:space-between;padding:12px 18px;border-bottom:1px solid var(--bd);background:#0C1220;position:sticky;top:0;z-index:100}
-.logo{display:flex;align-items:center;gap:10px}
-.logo-icon{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--acc),var(--buy));display:flex;align-items:center;justify-content:center;font-size:18px;box-shadow:0 0 16px #3B82F640}
-.logo-name{font-size:15px;font-weight:700;letter-spacing:-.3px}
-.logo-sub{font-size:9px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase}
-#time-pill{font-family:var(--mono);font-size:11px;color:var(--muted);background:var(--bg);border:1px solid var(--bd);border-radius:6px;padding:3px 9px;display:none}
-main{flex:1;padding:16px;max-width:920px;margin:0 auto;width:100%}
-.card{background:var(--surf);border:1px solid var(--bd);border-radius:16px;padding:18px;margin-bottom:14px}
-.hint{font-size:11px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px}
-.search-row{display:flex;gap:8px}
-#ticker-input{flex:1;background:var(--bg);border:1.5px solid var(--bd2);border-radius:10px;color:var(--txt);font-family:var(--mono);font-size:22px;font-weight:600;padding:10px 14px;outline:none;letter-spacing:3px;transition:border-color .2s}
-#ticker-input:focus{border-color:var(--acc)}
-#ticker-input::placeholder{color:var(--muted);font-size:13px;letter-spacing:0;font-weight:400}
-#go-btn{background:linear-gradient(135deg,var(--acc),#1d4ed8);border:none;border-radius:10px;color:#fff;font-size:15px;font-weight:700;padding:10px 22px;cursor:pointer;transition:opacity .15s,transform .1s;white-space:nowrap;box-shadow:0 2px 12px #3B82F640}
-#go-btn:hover{opacity:.88}#go-btn:active{transform:scale(.97)}#go-btn:disabled{opacity:.4;cursor:not-allowed}
-.input-notes{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
-.note-tag{font-size:11px;color:var(--muted);background:var(--bg);border:1px solid var(--bd);border-radius:6px;padding:3px 10px;display:flex;align-items:center;gap:5px}
-.note-tag b{color:var(--acc);font-family:var(--mono)}
-.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
-.chip{background:var(--bg);border:1px solid var(--bd);border-radius:20px;padding:4px 13px;font-family:var(--mono);font-size:12px;color:var(--muted);cursor:pointer;transition:all .15s}
-.chip:hover{border-color:var(--acc);color:var(--acc)}
-.settings-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:12px}
-.set-field{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:8px 10px}
-.set-label{font-size:9px;color:var(--muted);letter-spacing:.3px;text-transform:uppercase;margin-bottom:3px}
-.set-field input{width:100%;background:transparent;border:none;color:var(--txt);font-family:var(--mono);font-size:15px;font-weight:600;outline:none}
-@media(max-width:480px){.settings-row{grid-template-columns:1fr}}
-#err-box{display:none;background:var(--surf);border:1px solid var(--sell);border-radius:12px;padding:16px;margin-bottom:14px}
-#stock-bar{background:var(--surf);border:1px solid var(--bd);border-radius:16px;padding:14px 18px;margin-bottom:14px;display:none}
-.sb-top{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:10px}
-.sb-name{font-size:18px;font-weight:700}.sb-code{font-family:var(--mono);font-size:12px;color:var(--muted)}
-.sb-price{font-family:var(--mono);font-size:26px;font-weight:700}
-.sb-chg{font-family:var(--mono);font-size:13px;padding:2px 9px;border-radius:6px}
-.up{background:var(--buy-d);color:var(--buy)}.dn{background:var(--sell-d);color:var(--sell)}
-.sb-meta{display:flex;gap:18px;flex-wrap:wrap}
-.mi{display:flex;flex-direction:column}
-.mi-l{font-size:10px;color:var(--muted);letter-spacing:.8px;text-transform:uppercase}
-.mi-v{font-family:var(--mono);font-size:12px;font-weight:600;margin-top:2px}
-.layer-title{display:flex;align-items:center;gap:8px;margin:18px 0 10px;font-size:13px;font-weight:700;letter-spacing:.5px}
-.layer-num{width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11px;font-family:var(--mono);font-weight:700}
-.ln1{background:var(--acc);color:#fff}.ln2{background:var(--sell);color:#fff}
-.ln3{background:var(--purple);color:#fff}.ln4{background:var(--buy);color:#001812}
-.layer-sub{font-size:10px;color:var(--muted);font-weight:400;margin-left:4px}
-#trend-banner{display:none;border-radius:14px;padding:16px 18px;margin-bottom:14px;border:2px solid;position:relative;overflow:hidden}
-#trend-banner.bull{border-color:var(--buy);background:#001812}
-#trend-banner.bear{border-color:var(--sell);background:#1a0008}
-#trend-banner.neutral{border-color:var(--warn);background:#181000}
-.tb-top{display:flex;align-items:center;gap:12px;margin-bottom:8px}
-.tb-icon{font-size:30px}
-.tb-verdict{font-size:20px;font-weight:800;letter-spacing:-.5px}
-.tb-verdict.bull{color:var(--buy)}.tb-verdict.bear{color:var(--sell)}.tb-verdict.neutral{color:var(--warn)}
-.tb-detail{font-size:12px;color:var(--muted);line-height:1.6}
-.tb-gate{margin-top:8px;padding:8px 12px;border-radius:8px;font-size:12px;font-weight:600;background:rgba(0,0,0,.25)}
-#risk-card{display:none}
-.risk-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
-.risk-box{background:var(--bg);border:1px solid var(--bd);border-radius:10px;padding:13px 15px;position:relative;overflow:hidden}
-.risk-box::after{content:'';position:absolute;top:0;left:0;width:3px;height:100%;background:var(--sell)}
-.risk-box.good::after{background:var(--buy)}
-.risk-box.warn::after{background:var(--warn)}
-.rb-label{font-size:10px;color:var(--muted);letter-spacing:.3px;text-transform:uppercase;margin-bottom:6px;display:flex;align-items:center;gap:5px}
-.rb-value{font-family:var(--mono);font-size:20px;font-weight:700;margin-bottom:3px;line-height:1.2}
-.rb-sub{font-size:11px;color:var(--muted);line-height:1.5}
-.rb-value.buy{color:var(--buy)}.rb-value.sell{color:var(--sell)}.rb-value.warn{color:var(--warn)}
-#psych-card{display:none}
-.psych-alert{background:var(--bg);border:1px solid var(--bd);border-radius:10px;padding:12px 14px;margin-bottom:8px;display:flex;gap:10px;align-items:flex-start}
-.psych-alert:last-child{margin-bottom:0}
-.psych-alert.fire{border-color:var(--sell);background:#FF4D6D0a}
-.psych-alert.ok{border-color:var(--buy);background:#00D4A00a}
-.pa-icon{font-size:18px;flex-shrink:0;margin-top:1px}
-.pa-body{flex:1}
-.pa-title{font-size:12px;font-weight:700;margin-bottom:3px}
-.pa-title.fire{color:var(--sell)}.pa-title.ok{color:var(--buy)}
-.pa-desc{font-size:11px;color:var(--muted);line-height:1.55}
-.cat-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
-.cat-tab{font-size:11px;font-weight:600;padding:4px 12px;border-radius:20px;border:1px solid var(--bd);color:var(--muted);background:var(--bg);cursor:pointer;transition:all .15s}
-.cat-tab.active{border-color:var(--acc);color:var(--acc);background:#3B82F615}
-#ind-grid{display:none;grid-template-columns:repeat(auto-fill,minmax(245px,1fr));gap:10px;margin-bottom:14px}
-.ic{background:var(--surf);border:1px solid var(--bd);border-radius:12px;padding:13px 15px;position:relative;overflow:hidden}
-.ic::after{content:'';position:absolute;top:0;left:0;width:3px;height:100%}
-.ic.buy::after{background:var(--buy)}.ic.sell::after{background:var(--sell)}.ic.hold::after{background:var(--warn)}
-.ic-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
-.ic-name{font-size:10px;color:var(--muted);letter-spacing:.5px;text-transform:uppercase;font-weight:500}
-.ic-group{font-size:9px;color:var(--muted2);font-family:var(--mono);margin-bottom:4px}
-.ic-badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px}
-.bb{background:var(--buy-d);color:var(--buy)}.bs{background:var(--sell-d);color:var(--sell)}.bh{background:var(--warn-d);color:var(--warn)}
-.ic-val{font-family:var(--mono);font-size:15px;font-weight:600;margin-bottom:4px;line-height:1.3}
-.ic-desc{font-size:11px;color:var(--muted);line-height:1.55}
-.ic-range{display:flex;align-items:center;gap:6px;margin-top:8px}
-.rbar{flex:1;height:4px;background:var(--bd2);border-radius:99px;position:relative}
-.rdot{position:absolute;top:50%;transform:translate(-50%,-50%);width:8px;height:8px;border-radius:50%;background:var(--txt);border:2px solid var(--bg)}
-.rmin,.rmax{font-family:var(--mono);font-size:10px;color:var(--muted)}
-#ai-card{display:none}
-.ai-hd{display:flex;align-items:center;gap:10px;margin-bottom:14px}
-.ai-ttl{font-size:14px;font-weight:600}
-.ai-pill{font-size:10px;background:linear-gradient(135deg,var(--acc),var(--buy));color:#fff;padding:2px 9px;border-radius:20px;font-weight:600}
-#ai-body{font-size:12.5px;line-height:1.85;color:#C0D4E8}
-#ai-body p{margin-bottom:6px}
-.spin{display:inline-block;width:16px;height:16px;border:2px solid var(--bd2);border-top-color:var(--acc);border-radius:50%;animation:sp .65s linear infinite;vertical-align:middle}
-@keyframes sp{to{transform:rotate(360deg)}}
-.loading-row{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px}
-.disc{background:var(--surf);border:1px solid var(--bd);border-radius:12px;padding:13px 16px;font-size:11px;color:var(--muted);display:flex;gap:8px;align-items:flex-start;margin-bottom:14px}
-footer{text-align:center;padding:14px;font-size:11px;color:var(--muted);border-top:1px solid var(--bd)}
-@media(max-width:480px){main{padding:10px}#ticker-input{font-size:18px}}
-</style>
+<link rel="stylesheet" href="./styles.css">
 </head>
 <body>
 <div id="app">
@@ -223,52 +106,95 @@ footer{text-align:center;padding:14px;font-size:11px;color:var(--muted);border-t
   </div>
   <div class="disc"><span style="font-size:15px;flex-shrink:0">⚠️</span><span>本工具僅為技術與風險輔助參考，<strong>不構成投資建議</strong>。凱利公式的勝率須由你依自身交易紀錄填入。順勢、控制風險、讓獲利奔跑，比追求單一神奇指標更重要。</span></div>
 </main>
-<footer>短線雷達 Pro &nbsp;·&nbsp; 風險優先分層決策系統 &nbsp;·&nbsp; 僅供參考</footer>
+<footer>短線雷達 Pro <span id="ver-tag"></span>&nbsp;·&nbsp; 風險優先分層決策系統 &nbsp;·&nbsp; 僅供參考</footer>
 </div>
 <!-- 交易日誌浮動按鈕 -->
 <button id="journal-fab" onclick="openJournal()" style="position:fixed;right:18px;bottom:18px;z-index:200;width:56px;height:56px;border-radius:16px;border:none;background:linear-gradient(135deg,#A855F7,#3B82F6);color:#fff;font-size:22px;cursor:pointer;box-shadow:0 4px 20px #A855F750">📒</button>
 
 <!-- 交易日誌面板 -->
 <div id="journal-overlay" style="display:none;position:fixed;inset:0;z-index:300;background:rgba(5,8,15,.7);backdrop-filter:blur(4px)" onclick="if(event.target===this)closeJournal()">
-  <div style="max-width:560px;margin:40px auto;background:var(--surf);border:1px solid var(--bd);border-radius:18px;max-height:88vh;overflow-y:auto;padding:20px">
+  <div style="max-width:560px;margin:30px auto;background:var(--surf);border:1px solid var(--bd);border-radius:18px;max-height:90vh;overflow-y:auto;padding:20px">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-      <div style="font-size:16px;font-weight:700">📒 交易日誌 — 自動算勝率</div>
+      <div style="font-size:16px;font-weight:700">📒 交易與設定</div>
       <button onclick="closeJournal()" style="background:var(--bg);border:1px solid var(--bd);color:var(--txt);border-radius:8px;width:32px;height:32px;cursor:pointer;font-size:16px">✕</button>
     </div>
 
-    <!-- 統計總覽 -->
-    <div id="journal-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px"></div>
-
-    <!-- 新增交易 -->
-    <div style="background:var(--bg);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:16px">
-      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">新增一筆交易</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
-        <div><div style="font-size:9px;color:var(--muted);margin-bottom:3px">日期</div><input id="tr-date" type="date" style="width:100%;background:var(--surf);border:1px solid var(--bd2);border-radius:8px;color:var(--txt);padding:8px;font-family:var(--mono);outline:none"></div>
-        <div><div style="font-size:9px;color:var(--muted);margin-bottom:3px">股票代碼</div><input id="tr-code" placeholder="2330" style="width:100%;background:var(--surf);border:1px solid var(--bd2);border-radius:8px;color:var(--txt);padding:8px;font-family:var(--mono);outline:none"></div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
-        <div><div style="font-size:9px;color:var(--muted);margin-bottom:3px">方向</div>
-          <select id="tr-dir" style="width:100%;background:var(--surf);border:1px solid var(--bd2);border-radius:8px;color:var(--txt);padding:8px;outline:none"><option value="long">做多</option><option value="short">做空</option></select></div>
-        <div><div style="font-size:9px;color:var(--muted);margin-bottom:3px">盈虧金額（賺正、賠負）</div><input id="tr-pnl" type="number" placeholder="例 +5000 或 -3000" style="width:100%;background:var(--surf);border:1px solid var(--bd2);border-radius:8px;color:var(--txt);padding:8px;font-family:var(--mono);outline:none"></div>
-      </div>
-      <button onclick="addTradeFromForm()" style="width:100%;background:linear-gradient(135deg,#A855F7,#3B82F6);border:none;border-radius:8px;color:#fff;font-weight:700;padding:10px;cursor:pointer">＋ 新增交易</button>
+    <!-- 分頁切換 -->
+    <div class="modal-tabs">
+      <div class="modal-tab active" data-tab="journal" onclick="switchModalTab('journal')">📊 交易日誌</div>
+      <div class="modal-tab" data-tab="settings" onclick="switchModalTab('settings')">⚙️ 設定與備份</div>
     </div>
 
-    <!-- 雲端同步 -->
-    <div style="display:flex;gap:8px;margin-bottom:16px">
-      <button onclick="doCloudSave()" style="flex:1;background:var(--bg);border:1px solid var(--acc);color:var(--acc);border-radius:8px;padding:9px;cursor:pointer;font-size:13px;font-weight:600">☁️ 存到雲端</button>
-      <button onclick="doCloudLoad()" style="flex:1;background:var(--bg);border:1px solid var(--buy);color:var(--buy);border-radius:8px;padding:9px;cursor:pointer;font-size:13px;font-weight:600">⬇️ 從雲端載入</button>
+    <!-- ═══ 分頁一：交易日誌 ═══ -->
+    <div class="modal-pane active" data-pane="journal">
+      <div id="journal-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px"></div>
+      <div style="background:var(--bg);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:16px">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">新增一筆交易</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+          <div><div class="field-label">日期</div><input id="tr-date" type="date" class="field-input"></div>
+          <div><div class="field-label">股票代碼</div><input id="tr-code" placeholder="2330" class="field-input"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+          <div><div class="field-label">方向</div><select id="tr-dir" class="field-input"><option value="long">做多</option><option value="short">做空</option></select></div>
+          <div><div class="field-label">盈虧金額（賺正、賠負）</div><input id="tr-pnl" type="number" placeholder="+5000 或 -3000" class="field-input"></div>
+        </div>
+        <button onclick="addTradeFromForm()" class="btn-block" style="background:linear-gradient(135deg,#A855F7,#3B82F6)">＋ 新增交易</button>
+      </div>
+      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">交易紀錄</div>
+      <div id="journal-list"></div>
     </div>
-    <div id="sync-msg" style="font-size:11px;text-align:center;margin-bottom:12px;min-height:14px"></div>
 
-    <!-- 交易列表 -->
-    <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">交易紀錄</div>
-    <div id="journal-list"></div>
+    <!-- ═══ 分頁二：設定與備份 ═══ -->
+    <div class="modal-pane" data-pane="settings">
+      <!-- GAS 網址設定 -->
+      <div style="background:var(--bg);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:14px">
+        <div style="font-size:11px;color:var(--acc);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">🔗 GAS 後端網址（必填）</div>
+        <input id="set-gas-url" placeholder="https://script.google.com/macros/s/.../exec" class="field-input" style="margin-bottom:8px">
+        <div style="display:flex;gap:8px">
+          <button onclick="saveGasUrl()" class="btn-block" style="background:var(--acc)">💾 儲存網址</button>
+          <button onclick="testGasConnection()" class="btn-block" style="background:var(--bg);border:1px solid var(--buy);color:var(--buy)">🔌 測試連線</button>
+        </div>
+      </div>
+
+      <!-- 本地備份 -->
+      <div style="background:var(--bg);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:14px">
+        <div style="font-size:11px;color:var(--buy);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">💾 本地備份（存成檔案，刪網頁也不怕）</div>
+        <div style="display:flex;gap:8px">
+          <button onclick="exportLocalFile()" class="btn-block" style="background:var(--buy);color:#001812">⬇️ 匯出備份檔</button>
+          <button onclick="triggerImport()" class="btn-block" style="background:var(--bg);border:1px solid var(--acc);color:var(--acc)">⬆️ 匯入備份檔</button>
+        </div>
+        <input id="import-file" type="file" accept=".json" style="display:none" onchange="importLocalFile(this)">
+      </div>
+
+      <!-- 雲端備份 -->
+      <div style="background:var(--bg);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:14px">
+        <div style="font-size:11px;color:var(--purple);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">☁️ 雲端備份（存到你的 GAS）</div>
+        <div style="display:flex;gap:8px">
+          <button onclick="doCloudSave()" class="btn-block" style="background:linear-gradient(135deg,#A855F7,#3B82F6)">☁️ 存到雲端</button>
+          <button onclick="doCloudLoad()" class="btn-block" style="background:var(--bg);border:1px solid var(--purple);color:var(--purple)">⬇️ 從雲端載入</button>
+        </div>
+      </div>
+
+      <div id="settings-msg" style="font-size:11px;text-align:center;margin-bottom:14px;min-height:14px"></div>
+
+      <!-- 錯誤記錄 -->
+      <div style="background:var(--bg);border:1px solid var(--bd);border-radius:12px;padding:14px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="font-size:11px;color:var(--sell);text-transform:uppercase;letter-spacing:.5px">🐞 錯誤記錄（手機看不到 F12 用）</div>
+          <button onclick="clearErrorLog()" style="background:transparent;border:1px solid var(--bd);color:var(--muted);border-radius:6px;font-size:10px;padding:3px 8px;cursor:pointer">清除</button>
+        </div>
+        <div id="error-log-list"></div>
+      </div>
+    </div>
   </div>
 </div>
 
+<script src="./config.js"></script>
 <script src="./db.js"></script>
+<script src="./market.js"></script>
 <script src="./quant.js"></script>
+<script src="./journal.js"></script>
 <script src="./app.js"></script>
+<script>document.getElementById('ver-tag').textContent='v'+APP_VERSION;</script>
 </body>
 </html>

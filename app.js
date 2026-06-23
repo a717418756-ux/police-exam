@@ -3,7 +3,7 @@
 // ══════════════════════════════════════════════════════════════════════
 
 // ⚠️ 部署 Code.gs 後，把「網頁應用程式 URL」貼在這裡
-const GAS_URL='https://script.google.com/macros/s/AKfycbwdxRK2Ugv8-2fu8YtWAv0PJC0CzGx007FGz6RWCW_A7SzSnJo8q-Q90SNF6gSf29eB/exec';
+// GAS_URL 由 config.js 宣告、啟動時從 IndexedDB 載入
 
 // ── DOM helpers ───────────────────────────────────────────────────────
 const $=id=>document.getElementById(id);
@@ -18,7 +18,7 @@ async function fetchStock(code){
   if(GAS_URL.indexOf('http')!==0) throw new Error('尚未設定 GAS 網址，請先部署 Code.gs 並把 URL 填入 app.js 的 GAS_URL');
   let r;
   try{ r=await fetch(`${GAS_URL}?code=${encodeURIComponent(code)}`); }
-  catch(e){ throw new Error('無法連線到 GAS 後端，請確認網址與部署權限（須設為「所有人」）'); }
+  catch(e){ if(typeof ErrorLog!=='undefined')ErrorLog.push('fetchStock連線',e); throw new Error('無法連線到 GAS 後端。請到右下 📒 → 設定，確認已填入 GAS 網址並按「測試連線」'); }
   if(!r.ok) throw new Error(`後端回應錯誤（${r.status}）`);
   const j=await r.json();
   if(!j.ok) throw new Error(j.error||'後端無法取得資料');
@@ -27,61 +27,7 @@ async function fetchStock(code){
 }
 
 // ── 抓大盤環境（第⓪層） ────────────────────────────────────────────────
-async function fetchMarket(){
-  if(GAS_URL.indexOf('http')!==0) return null;
-  try{
-    const r=await fetch(`${GAS_URL}?action=market`);
-    if(!r.ok) return null;
-    const j=await r.json();
-    return j.ok?j:null;
-  }catch(e){ return null; }
-}
 
-function renderMarket(m){
-  if(!m){ $('market-card').style.display='none'; return; }
-  $('market-card').style.display='block';
-  const boxes=[];
-  const t=m.taifex||{}, us=m.us||{};
-
-  // 外資台指期未平倉
-  if(t.foreignNet!=null){
-    const long=t.foreignNet>0;
-    boxes.push({cls:long?'good':'',label:'🏦 外資台指期淨未平倉',
-      value:`${t.foreignNet>0?'+':''}${fmtV(t.foreignNet)} 口`,valCls:long?'buy':'sell',
-      sub:`${long?'淨多單，外資偏多佈局':'淨空單，外資偏空避險'}${t.date?'｜'+t.date:''}`});
-  }
-  // 三大法人合計
-  if(t.institutionNet!=null){
-    const long=t.institutionNet>0;
-    boxes.push({cls:long?'good':'',label:'🏛️ 三大法人台指期淨額',
-      value:`${t.institutionNet>0?'+':''}${fmtV(t.institutionNet)} 口`,valCls:long?'buy':'sell',
-      sub:`${long?'法人整體偏多':'法人整體偏空'}（僅供環境參考）`});
-  }
-  // PCR
-  if(t.pcrOI!=null && t.pcrOI>0){
-    // PCR > 1 通常代表避險賣權多→偏空情緒；但過高反為反指標
-    const pcr=t.pcrOI;
-    let tone='warn', desc;
-    if(pcr>120){tone='good';desc=`PCR ${pcr.toFixed(0)}% 偏高，賣權避險濃，散戶恐慌，常為反指標（物極必反偏多）`;}
-    else if(pcr<80){tone='';desc=`PCR ${pcr.toFixed(0)}% 偏低，市場樂觀，留意過熱`;}
-    else{desc=`PCR ${pcr.toFixed(0)}%，選擇權多空情緒中性`;}
-    boxes.push({cls:tone,label:'⚖️ PCR 賣權買權比(未平倉)',value:`${pcr.toFixed(0)}%`,valCls:tone==='good'?'buy':'warn',sub:desc});
-  }
-  // 美股隔夜
-  const usItem=(label,icon,d,note)=>{
-    if(!d)return;
-    const up=d.changePct>=0;
-    boxes.push({cls:up?'good':'',label:`${icon} ${label}（隔夜）`,
-      value:`${up?'+':''}${d.changePct.toFixed(2)}%`,valCls:up?'buy':'sell',
-      sub:`收 ${fmt(d.price)}｜${note}`});
-  };
-  usItem('費城半導體 SOX','🔌',us.sox,'對台積電/聯發科等連動高');
-  usItem('那斯達克','💻',us.nasdaq,'對台股科技股連動');
-  usItem('標普 500','📊',us.sp500,'美股大盤氣氛');
-
-  if(boxes.length===0){ $('market-card').style.display='none'; return; }
-  $('market-grid').innerHTML=boxes.map(x=>`<div class="risk-box ${x.cls}"><div class="rb-label">${x.label}</div><div class="rb-value ${x.valCls}">${x.value}</div><div class="rb-sub">${x.sub}</div></div>`).join('');
-}
 function sma(a,n){return a.map((_,i)=>i<n-1?null:a.slice(i-n+1,i+1).reduce((s,v)=>s+v,0)/n);}
 function ema(a,n){const k=2/(n+1);let e=null;return a.map(v=>{e=e===null?v:v*k+e*(1-k);return e;});}
 function stddev(a){const m=a.reduce((s,v)=>s+v,0)/a.length;return Math.sqrt(a.reduce((s,v)=>s+(v-m)**2,0)/a.length);}
@@ -602,83 +548,14 @@ async function saveSettings(){
 });
 
 // ══════════════════════════════════════════════════════════════════════
-// 交易日誌
+// 啟動初始化：載入 GAS 網址 + 個人設定
 // ══════════════════════════════════════════════════════════════════════
-function openJournal(){ $('journal-overlay').style.display='block'; refreshJournal(); 
-  if(!$('tr-date').value) $('tr-date').value=new Date().toISOString().slice(0,10);
+async function init(){
+  try{
+    // 從 IndexedDB 載入使用者填的 GAS 網址（取代改程式碼）
+    const url=await dbGetSetting('gasUrl');
+    if(url) GAS_URL=url;
+  }catch(e){ console.warn('載入 GAS 網址失敗',e); }
+  await loadSettings();
 }
-function closeJournal(){ $('journal-overlay').style.display='none'; }
-
-async function addTradeFromForm(){
-  const date=$('tr-date').value;
-  const code=$('tr-code').value.trim().toUpperCase();
-  const dir=$('tr-dir').value;
-  const pnl=parseFloat($('tr-pnl').value);
-  if(!date||isNaN(pnl)){ alert('請填日期與盈虧金額'); return; }
-  const result=pnl>=0?'win':'loss';
-  await dbAddTrade({date,code,direction:dir,result,pnl});
-  $('tr-pnl').value='';$('tr-code').value='';
-  await refreshJournal();
-  await syncWinRateToMain();
-}
-
-async function refreshJournal(){
-  const trades=await dbGetAllTrades();
-  const s=computeStats(trades);
-  // 統計卡
-  const box=(label,val,col)=>`<div style="background:var(--bg);border:1px solid var(--bd);border-radius:10px;padding:10px;text-align:center"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;margin-bottom:4px">${label}</div><div style="font-family:var(--mono);font-size:18px;font-weight:700;color:${col||'var(--txt)'}">${val}</div></div>`;
-  $('journal-stats').innerHTML=
-    box('交易筆數',s.count)+
-    box('勝率',(s.winRate*100).toFixed(0)+'%','var(--buy)')+
-    box('盈虧比',s.payoff.toFixed(2),'var(--acc)')+
-    box('總盈虧',(s.totalPnl>=0?'+':'')+fmtV(Math.round(s.totalPnl)),s.totalPnl>=0?'var(--buy)':'var(--sell)')+
-    box('平均獲利',fmtV(Math.round(s.avgWin)),'var(--buy)')+
-    box('期望值/筆',(s.expectancy>=0?'+':'')+fmtV(Math.round(s.expectancy)),s.expectancy>=0?'var(--buy)':'var(--sell)');
-
-  // 列表
-  if(trades.length===0){ $('journal-list').innerHTML='<div style="font-size:12px;color:var(--muted);text-align:center;padding:16px">尚無交易紀錄，新增後自動計算真實勝率</div>'; return; }
-  $('journal-list').innerHTML=trades.map(t=>{
-    const win=t.result==='win';
-    return `<div style="display:flex;align-items:center;gap:8px;background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:8px 12px;margin-bottom:6px">
-      <span style="font-family:var(--mono);font-size:11px;color:var(--muted);width:78px">${t.date}</span>
-      <span style="font-family:var(--mono);font-size:12px;width:48px">${t.code||'—'}</span>
-      <span style="font-size:10px;color:var(--muted);width:32px">${t.direction==='long'?'多':'空'}</span>
-      <span style="font-family:var(--mono);font-size:13px;font-weight:600;color:${win?'var(--buy)':'var(--sell)'};flex:1;text-align:right">${t.pnl>=0?'+':''}${fmtV(t.pnl)}</span>
-      <button onclick="delTrade('${t.id}')" style="background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:14px">🗑️</button>
-    </div>`;
-  }).join('');
-}
-
-async function delTrade(id){
-  await dbDeleteTrade(id);
-  await refreshJournal();
-  await syncWinRateToMain();
-}
-
-// 把算出的真實勝率自動帶回主頁勝率欄
-async function syncWinRateToMain(){
-  const trades=await dbGetAllTrades();
-  const s=computeStats(trades);
-  if(s.count>=5){ // 至少5筆才有參考價值
-    const wr=Math.round(s.winRate*100);
-    $('in-winrate').value=wr;
-    await dbSetSetting('winrate',wr);
-  }
-}
-
-// ══════════════════════════════════════════════════════════════════════
-// 雲端同步按鈕
-// ══════════════════════════════════════════════════════════════════════
-async function doCloudSave(){
-  const msg=$('sync-msg');msg.textContent='儲存中...';msg.style.color='var(--muted)';
-  try{ await saveSettings(); await cloudSave(); msg.textContent='✅ 已存到雲端';msg.style.color='var(--buy)'; }
-  catch(e){ msg.textContent='❌ '+e.message;msg.style.color='var(--sell)'; }
-}
-async function doCloudLoad(){
-  const msg=$('sync-msg');msg.textContent='載入中...';msg.style.color='var(--muted)';
-  try{ await cloudLoad(); await loadSettings(); await refreshJournal(); await syncWinRateToMain(); msg.textContent='✅ 已從雲端載入';msg.style.color='var(--buy)'; }
-  catch(e){ msg.textContent='❌ '+e.message;msg.style.color='var(--sell)'; }
-}
-
-// 啟動時載入本地設定
-loadSettings();
+init();
