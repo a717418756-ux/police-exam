@@ -12,7 +12,43 @@
    資料限制：主力(券商分點)、產業強弱 無免費API，未實作或以近似標註
    ══════════════════════════════════════════════════════════════════════ */
 
-/* ══ 區塊 A：籌碼面 ════════════════════════════════════════════════════ */
+/* ══ 區塊 H：ADX 市場狀態過濾器 ════════════════════════════════════════
+   機構73%使用：ADX 不告訴方向，而是告訴你「該用哪種策略」
+   ADX>25 趨勢明確→用趨勢指標；ADX<20 盤整→用震盪指標或觀望
+   ════════════════════════════════════════════════════════════════════ */
+function computeRegime(D) {
+  // 複用 app.js 的 DMI 計算（已存在 calcDMI）
+  const dmi = calcDMI(D.highs, D.lows, D.closes, 14);
+  let regime, advice, cls, icon;
+  if (dmi.adx >= 25) {
+    regime = '趨勢盤';
+    icon = '📈';
+    cls = dmi.pdi > dmi.ndi ? 'bull' : 'bear';
+    advice = `ADX ${dmi.adx.toFixed(0)} 趨勢明確（${dmi.pdi > dmi.ndi ? '多方' : '空方'}主導）→ 適合「順勢策略」：跟均線、突破、MACD。此時 RSI 超買超賣易失效（強勢可一直超買）。`;
+  } else if (dmi.adx < 20) {
+    regime = '盤整盤';
+    icon = '🔄';
+    cls = 'neutral';
+    advice = `ADX ${dmi.adx.toFixed(0)} 無明顯趨勢 → 適合「震盪策略」：RSI/KD 超買超賣來回操作，或乾脆觀望。此時追突破易被巴。`;
+  } else {
+    regime = '過渡帶';
+    icon = '⚖️';
+    cls = 'neutral';
+    advice = `ADX ${dmi.adx.toFixed(0)} 介於 20~25，趨勢醞釀中。建議減少部位，等方向明確再加碼。`;
+  }
+  return { adx: dmi.adx, pdi: dmi.pdi, ndi: dmi.ndi, regime, advice, cls, icon };
+}
+
+function renderRegime(r) {
+  const card = document.getElementById('regime-card');
+  card.style.display = 'block';
+  const col = r.cls === 'bull' ? 'var(--buy)' : r.cls === 'bear' ? 'var(--sell)' : 'var(--warn)';
+  document.getElementById('regime-icon').textContent = r.icon;
+  document.getElementById('regime-name').textContent = r.regime;
+  document.getElementById('regime-name').style.color = col;
+  document.getElementById('regime-advice').textContent = r.advice;
+}
+
 function renderChip(chip) {
   const card = document.getElementById('chip-card');
   if (!chip) { card.style.display = 'none'; return; }

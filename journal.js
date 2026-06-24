@@ -31,12 +31,34 @@ async function addTradeFromForm() {
   const dir  = $('tr-dir').value;
   const pnl  = parseFloat($('tr-pnl').value);
   if (!entryDate || !exitDate || isNaN(pnl)) { alert('請填進場日、出場日與盈虧金額'); return; }
-  // 抱倉天數
   const holdDays = Math.max(0, Math.round((new Date(exitDate) - new Date(entryDate)) / 86400000));
   const result = pnl >= 0 ? 'win' : 'loss';
-  // date 欄位用出場日（平倉日決定成敗），保留進場日
-  await dbAddTrade({ date: exitDate, entryDate, exitDate, holdDays, code, direction: dir, result, pnl });
+
+  // ── 判斷品質欄位 ──
+  const mae = parseFloat($('tr-mae').value);            // 最大不利幅度 %
+  const plannedStop = parseFloat($('tr-plannedstop').value); // 原訂停損 %
+  const holdOn = $('tr-holdon').value;                  // yes/no 凹單
+  const exitReason = $('tr-exitreason').value;          // 出場原因
+
+  // ── 自動判定「判斷對錯」──
+  // 規則：凹單(holdOn=yes) 或 MAE超過原停損 → 判斷錯誤（即使帳面沒賠）
+  let judgment = 'correct';  // correct=判斷正確, wrong=判斷錯誤
+  const reasons = [];
+  if (holdOn === 'yes') { judgment = 'wrong'; reasons.push('凹單'); }
+  if (!isNaN(mae) && !isNaN(plannedStop) && mae > plannedStop) {
+    judgment = 'wrong'; reasons.push(`MAE(${mae}%)超過原停損(${plannedStop}%)`);
+  }
+  if (exitReason === 'holdback') { judgment = 'wrong'; if (!reasons.includes('凹單')) reasons.push('凹單回本'); }
+
+  await dbAddTrade({
+    date: exitDate, entryDate, exitDate, holdDays, code, direction: dir, result, pnl,
+    mae: isNaN(mae) ? null : mae,
+    plannedStop: isNaN(plannedStop) ? null : plannedStop,
+    holdOn, exitReason,
+    judgment, judgmentReason: reasons.join('、')
+  });
   $('tr-pnl').value = ''; $('tr-code').value = '';
+  $('tr-mae').value = ''; $('tr-plannedstop').value = '';
   await refreshJournal();
   await syncWinRateToMain();
 }
@@ -48,11 +70,11 @@ async function refreshJournal() {
     `<div style="background:var(--bg);border:1px solid var(--bd);border-radius:10px;padding:10px;text-align:center"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;margin-bottom:4px">${label}</div><div style="font-family:var(--mono);font-size:18px;font-weight:700;color:${col || 'var(--txt)'}">${val}</div></div>`;
   $('journal-stats').innerHTML =
     box('交易筆數', s.count) +
-    box('勝率', (s.winRate * 100).toFixed(0) + '%', 'var(--buy)') +
+    box('帳面勝率', (s.winRate * 100).toFixed(0) + '%', 'var(--warn)') +
+    box('真實勝率', (s.trueWinRate * 100).toFixed(0) + '%', 'var(--buy)') +
+    box('判斷錯誤', s.misjudged + ' 筆', s.misjudged > 0 ? 'var(--sell)' : 'var(--muted)') +
     box('盈虧比', s.payoff.toFixed(2), 'var(--acc)') +
-    box('總盈虧', (s.totalPnl >= 0 ? '+' : '') + fmtV(Math.round(s.totalPnl)), s.totalPnl >= 0 ? 'var(--buy)' : 'var(--sell)') +
-    box('平均獲利', fmtV(Math.round(s.avgWin)), 'var(--buy)') +
-    box('期望值/筆', (s.expectancy >= 0 ? '+' : '') + fmtV(Math.round(s.expectancy)), s.expectancy >= 0 ? 'var(--buy)' : 'var(--sell)');
+    box('總盈虧', (s.totalPnl >= 0 ? '+' : '') + fmtV(Math.round(s.totalPnl)), s.totalPnl >= 0 ? 'var(--buy)' : 'var(--sell)');
 
   if (trades.length === 0) {
     $('journal-list').innerHTML = '<div style="font-size:12px;color:var(--muted);text-align:center;padding:16px">尚無交易紀錄，新增後自動計算真實勝率</div>';
@@ -61,12 +83,15 @@ async function refreshJournal() {
   $('journal-list').innerHTML = trades.map(t => {
     const win = t.result === 'win';
     const hold = t.holdDays != null ? `抱${t.holdDays}天` : '';
-    return `<div style="display:flex;align-items:center;gap:8px;background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:8px 12px;margin-bottom:6px">
+    // 判斷錯誤標記（凹單僥倖的假贏單）
+    const wrongTag = t.judgment === 'wrong'
+      ? `<span style="font-size:9px;background:var(--sell-d);color:var(--sell);padding:1px 5px;border-radius:4px;margin-left:4px" title="${t.judgmentReason||''}">判斷錯</span>` : '';
+    return `<div style="display:flex;align-items:center;gap:8px;background:var(--bg);border:1px solid ${t.judgment==='wrong'?'var(--sell)':'var(--bd)'};border-radius:8px;padding:8px 12px;margin-bottom:6px">
       <span style="font-family:var(--mono);font-size:11px;color:var(--muted);width:74px">${t.exitDate || t.date}</span>
       <span style="font-family:var(--mono);font-size:12px;width:44px">${t.code || '—'}</span>
-      <span style="font-size:10px;color:var(--muted);width:24px">${t.direction === 'long' ? '多' : '空'}</span>
-      <span style="font-size:9px;color:var(--muted2);width:42px">${hold}</span>
-      <span style="font-family:var(--mono);font-size:13px;font-weight:600;color:${win ? 'var(--buy)' : 'var(--sell)'};flex:1;text-align:right">${t.pnl >= 0 ? '+' : ''}${fmtV(t.pnl)}</span>
+      <span style="font-size:10px;color:var(--muted);width:20px">${t.direction === 'long' ? '多' : '空'}</span>
+      <span style="font-size:9px;color:var(--muted2);width:38px">${hold}</span>
+      <span style="font-family:var(--mono);font-size:13px;font-weight:600;color:${win ? 'var(--buy)' : 'var(--sell)'};flex:1;text-align:right">${t.pnl >= 0 ? '+' : ''}${fmtV(t.pnl)}${wrongTag}</span>
       <button onclick="delTrade('${t.id}')" style="background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:14px">🗑️</button>
     </div>`;
   }).join('');
@@ -141,7 +166,9 @@ async function exportMarkdown() {
     md += `## 一、整體績效\n\n`;
     md += `| 指標 | 數值 |\n|------|------|\n`;
     md += `| 總交易筆數 | ${s.count} |\n`;
-    md += `| 勝率 | ${(s.winRate*100).toFixed(1)}% |\n`;
+    md += `| **帳面勝率**（含凹單僥倖） | ${(s.winRate*100).toFixed(1)}% |\n`;
+    md += `| **真實勝率**（扣除判斷錯誤） | ${(s.trueWinRate*100).toFixed(1)}% |\n`;
+    md += `| 判斷錯誤筆數（凹單/MAE超停損） | ${s.misjudged} |\n`;
     md += `| 盈虧比（平均賺/平均賠） | ${s.payoff.toFixed(2)} |\n`;
     md += `| 期望值/筆 | ${cur(s.expectancy)} |\n`;
     md += `| 總盈虧 | ${cur(s.totalPnl)} |\n`;
@@ -151,6 +178,13 @@ async function exportMarkdown() {
     md += `| 最大連敗 | ${s.maxLossStreak} 筆 |\n`;
     md += `| 平均抱倉天數 | ${s.avgHoldDays.toFixed(1)} 天 |\n`;
     md += `| 最大回撤 | ${cur(s.maxDrawdown)} |\n\n`;
+
+    // 重要提示給 AI
+    if (s.misjudged > 0) {
+      const gap = ((s.winRate - s.trueWinRate) * 100).toFixed(1);
+      md += `> ⚠️ **回測校正重點**：帳面勝率與真實勝率相差 ${gap} 個百分點，代表有 ${s.misjudged} 筆是「判斷錯誤但凹單/僥倖沒賠」的假贏單。\n`;
+      md += `> 分析訊號有效性時，請以「判斷正確」欄位為準，**不要把這些假贏單當成有效訊號**，否則會把錯誤訊號學成有效訊號（結果論偏誤）。\n\n`;
+    }
 
     // 二、依方向
     md += `## 二、做多 vs 做空\n\n`;
@@ -172,10 +206,13 @@ async function exportMarkdown() {
 
     // 四、完整交易明細
     md += `## 四、完整交易明細\n\n`;
-    md += `| 進場日 | 出場日 | 抱倉天 | 代碼 | 方向 | 結果 | 盈虧 |\n|--------|--------|--------|------|------|------|------|\n`;
+    md += `| 進場日 | 出場日 | 抱倉天 | 代碼 | 方向 | 帳面結果 | 判斷對錯 | MAE% | 原停損% | 出場原因 | 盈虧 |\n`;
+    md += `|--------|--------|--------|------|------|----------|----------|------|---------|----------|------|\n`;
     const sorted = [...trades].sort((a,b)=>(a.exitDate||a.date)<(b.exitDate||b.date)?1:-1);
+    const reasonMap = { tp:'停利達標', sl:'觸及停損', holdback:'凹單回本', early:'提早跑', panic:'恐慌殺出' };
     for (const t of sorted) {
-      md += `| ${t.entryDate||'—'} | ${t.exitDate||t.date} | ${t.holdDays!=null?t.holdDays:'—'} | ${t.code||'—'} | ${t.direction==='long'?'多':'空'} | ${t.result==='win'?'賺':'賠'} | ${cur(t.pnl)} |\n`;
+      const judge = t.judgment === 'wrong' ? `❌錯誤(${t.judgmentReason||''})` : '✅正確';
+      md += `| ${t.entryDate||'—'} | ${t.exitDate||t.date} | ${t.holdDays!=null?t.holdDays:'—'} | ${t.code||'—'} | ${t.direction==='long'?'多':'空'} | ${t.result==='win'?'賺':'賠'} | ${judge} | ${t.mae!=null?t.mae:'—'} | ${t.plannedStop!=null?t.plannedStop:'—'} | ${reasonMap[t.exitReason]||'—'} | ${cur(t.pnl)} |\n`;
     }
     md += `\n`;
 

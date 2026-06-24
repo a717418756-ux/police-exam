@@ -60,7 +60,7 @@
   </div>
   <!-- 專屬量化分數 -->
   <div id="quant-card" style="display:none">
-    <div class="layer-title"><span class="layer-num" style="background:linear-gradient(135deg,#A855F7,#3B82F6);color:#fff">★</span>專屬量化分數<span class="layer-sub">回測這檔歷史 × 動態權重 × 韭菜反指標</span></div>
+    <div class="layer-title"><span class="layer-num" style="background:linear-gradient(135deg,#A855F7,#3B82F6);color:#fff">★</span>專屬量化分數<span class="layer-sub">回測這檔歷史 × 動態權重 × 韭菜反指標</span><button onclick="showHelp('quant')" class="help-btn" title="說明">ⓘ</button></div>
     <div class="card">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
         <div style="background:var(--bg);border:1px solid var(--buy);border-radius:12px;padding:16px;text-align:center">
@@ -84,7 +84,7 @@
 
   <!-- 自創公式 -->
   <div id="formula-card" style="display:none">
-    <div class="layer-title"><span class="layer-num" style="background:linear-gradient(135deg,#F0B429,#FF4D6D);color:#fff">∑</span>自創量化公式<span class="layer-sub">統計學 × 微積分 × 資訊熵 — 市面無，原創組合</span></div>
+    <div class="layer-title"><span class="layer-num" style="background:linear-gradient(135deg,#F0B429,#FF4D6D);color:#fff">∑</span>自創量化公式<span class="layer-sub">統計學 × 微積分 × 資訊熵 — 市面無，原創組合</span><button onclick="showHelp('fusion')" class="help-btn" title="說明">ⓘ</button></div>
     <div class="card">
       <!-- 融合總分 -->
       <div id="fusion-box" style="text-align:center;padding:16px;border-radius:12px;margin-bottom:14px;border:2px solid var(--bd)">
@@ -100,7 +100,7 @@
     </div>
   </div>
 
-  <div class="layer-title"><span class="layer-num" style="background:#64748b;color:#fff">0</span>大盤環境<span class="layer-sub">期貨/法人/PCR/美股隔夜 — 純數據參考，判斷你自己來</span></div>
+  <div class="layer-title"><span class="layer-num" style="background:#64748b;color:#fff">0</span>大盤環境<span class="layer-sub">期貨/法人/PCR/美股隔夜 — 純數據參考，判斷你自己來</span><button onclick="showHelp('market')" class="help-btn" title="說明">ⓘ</button></div>
   <div class="card" id="market-card" style="display:none"><div class="risk-grid" id="market-grid"></div>
     <div style="font-size:10px;color:var(--muted);margin-top:10px;line-height:1.6">⚠️ 以上為期交所/Yahoo 盤後公開資料，反映「市場情緒傾向」，非即時、非精準預測。法人未平倉與美股隔夜僅供環境判斷，買賣決策仍以下方個股分層為主。</div>
   </div>
@@ -108,7 +108,7 @@
   <!-- 市場環境總分（含VIX）-->
   <div id="mktscore-card" style="display:none">
     <div class="card" style="text-align:center">
-      <div style="font-size:11px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">🌡️ 市場環境總分（外資+PCR+SOX+VIX 合成）</div>
+      <div style="font-size:11px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">🌡️ 市場環境總分 <button onclick="showHelp('mktscore')" class="help-btn" title="說明">ⓘ</button></div>
       <div id="ms-score" style="font-family:var(--mono);font-size:40px;font-weight:800;line-height:1">—</div>
       <div id="ms-label" style="font-size:16px;font-weight:700;margin-top:4px">—</div>
       <div id="ms-vix" style="font-size:12px;color:var(--warn);margin-top:8px"></div>
@@ -118,37 +118,52 @@
 
   <!-- 籌碼面 -->
   <div id="chip-card" style="display:none">
-    <div class="layer-title"><span class="layer-num" style="background:#0EA5E9;color:#fff">籌</span>籌碼面<span class="layer-sub">外資/投信買賣超 — 技術面漂亮但主力倒貨時的照妖鏡</span></div>
+    <div class="layer-title"><span class="layer-num" style="background:#0EA5E9;color:#fff">籌</span>籌碼面<span class="layer-sub">外資/投信買賣超 — 技術面漂亮但主力倒貨時的照妖鏡</span><button onclick="showHelp('chip')" class="help-btn" title="說明">ⓘ</button></div>
     <div class="card">
       <div class="risk-grid" id="chip-grid"></div>
       <div style="font-size:10px;color:var(--muted);margin-top:10px;line-height:1.6">⚠️ 資料為 TWSE 三大法人公開資訊。「主力（券商分點）」需付費資料源，免費 API 無法提供，故不顯示。投信連買常是飆股訊號，但仍須配合其他層級判斷。</div>
     </div>
   </div>
 
-  <div class="layer-title"><span class="layer-num ln1">1</span>趨勢過濾<span class="layer-sub">200MA / 50MA — 決定能不能進場</span></div>
+  <!-- ADX 市場狀態過濾器 -->
+  <div id="regime-card" style="display:none">
+    <div class="layer-title"><span class="layer-num" style="background:#6366F1;color:#fff">◈</span>市場狀態<span class="layer-sub">ADX — 該用趨勢策略還是震盪策略</span><button onclick="showHelp('regime')" class="help-btn" title="說明">ⓘ</button></div>
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:10px">
+        <span id="regime-icon" style="font-size:30px">—</span>
+        <div>
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">當前盤型</div>
+          <div id="regime-name" style="font-size:20px;font-weight:800">—</div>
+        </div>
+      </div>
+      <div id="regime-advice" style="font-size:12px;color:var(--muted);line-height:1.7"></div>
+    </div>
+  </div>
+
+  <div class="layer-title"><span class="layer-num ln1">1</span>趨勢過濾<span class="layer-sub">200MA / 50MA — 決定能不能進場</span><button onclick="showHelp('trend')" class="help-btn" title="說明">ⓘ</button></div>
   <div id="trend-banner">
     <div class="tb-top"><span class="tb-icon" id="tb-icon">—</span><span class="tb-verdict" id="tb-verdict">—</span></div>
     <div class="tb-detail" id="tb-detail">—</div>
     <div class="tb-gate" id="tb-gate">—</div>
   </div>
-  <div class="layer-title"><span class="layer-num ln2">2</span>風險管理<span class="layer-sub">ATR停損 / 部位 / 凱利 / 風報比 — 最重要</span></div>
+  <div class="layer-title"><span class="layer-num ln2">2</span>風險管理<span class="layer-sub">ATR停損 / 部位 / 凱利 / 風報比 — 最重要</span><button onclick="showHelp('risk')" class="help-btn" title="說明">ⓘ</button></div>
   <div class="card" id="risk-card"><div class="risk-grid" id="risk-grid"></div></div>
 
   <!-- 進出場劇本 -->
   <div id="playbook-card" style="display:none">
-    <div class="layer-title"><span class="layer-num" style="background:#10B981;color:#fff">劇</span>進出場劇本<span class="layer-sub">具體操作價位 — 比看KD/RSI更實用</span></div>
+    <div class="layer-title"><span class="layer-num" style="background:#10B981;color:#fff">劇</span>進出場劇本<span class="layer-sub">具體操作價位 — 比看KD/RSI更實用</span><button onclick="showHelp('playbook')" class="help-btn" title="說明">ⓘ</button></div>
     <div class="card"><div class="risk-grid" id="pb-rows"></div></div>
   </div>
 
   <!-- 風險強化 -->
   <div id="riskmetric-card" style="display:none">
-    <div class="layer-title"><span class="layer-num" style="background:#EF4444;color:#fff">險</span>風險強化<span class="layer-sub">最大回撤 + 波動率 — 報酬背後的代價</span></div>
+    <div class="layer-title"><span class="layer-num" style="background:#EF4444;color:#fff">險</span>風險強化<span class="layer-sub">最大回撤 + 波動率 — 報酬背後的代價</span><button onclick="showHelp('riskmetric')" class="help-btn" title="說明">ⓘ</button></div>
     <div class="card"><div class="risk-grid" id="rm-grid"></div></div>
   </div>
 
   <!-- 多週期回測 -->
   <div id="multiperiod-card" style="display:none">
-    <div class="layer-title"><span class="layer-num" style="background:#8B5CF6;color:#fff">期</span>多週期勝率<span class="layer-sub">3/5/10/20天回測 — 適合哪種玩法</span></div>
+    <div class="layer-title"><span class="layer-num" style="background:#8B5CF6;color:#fff">期</span>多週期勝率<span class="layer-sub">3/5/10/20天回測 — 適合哪種玩法</span><button onclick="showHelp('multiperiod')" class="help-btn" title="說明">ⓘ</button></div>
     <div class="card">
       <div id="mp-rows"></div>
       <div id="mp-advice" style="font-size:12px;color:var(--buy);margin-top:10px;font-weight:600"></div>
@@ -157,7 +172,7 @@
 
   <!-- 個股健康度 -->
   <div id="health-card" style="display:none">
-    <div class="layer-title"><span class="layer-num" style="background:linear-gradient(135deg,#10B981,#3B82F6);color:#fff">檢</span>個股健康度<span class="layer-sub">體檢報告 — 一眼看懂</span></div>
+    <div class="layer-title"><span class="layer-num" style="background:linear-gradient(135deg,#10B981,#3B82F6);color:#fff">檢</span>個股健康度<span class="layer-sub">體檢報告 — 一眼看懂</span><button onclick="showHelp('health')" class="help-btn" title="說明">ⓘ</button></div>
     <div class="card">
       <div style="text-align:center;margin-bottom:14px">
         <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">總評</div>
@@ -167,9 +182,9 @@
     </div>
   </div>
 
-  <div class="layer-title"><span class="layer-num ln3">3</span>心理偏誤檢查<span class="layer-sub">反人性 — 系統的靈魂</span></div>
+  <div class="layer-title"><span class="layer-num ln3">3</span>心理偏誤檢查<span class="layer-sub">反人性 — 系統的靈魂</span><button onclick="showHelp('psych')" class="help-btn" title="說明">ⓘ</button></div>
   <div class="card" id="psych-card"><div id="psych-list"></div></div>
-  <div class="layer-title"><span class="layer-num ln4">4</span>進場訊號<span class="layer-sub">技術指標群 — 只在趨勢對的時候參考</span></div>
+  <div class="layer-title"><span class="layer-num ln4">4</span>進場訊號<span class="layer-sub">技術指標群 — 只在趨勢對的時候參考</span><button onclick="showHelp('signals')" class="help-btn" title="說明">ⓘ</button></div>
   <div id="cat-row" style="display:none"><div class="cat-tabs" id="cat-tabs"></div></div>
   <div id="ind-grid"></div>
   <div class="card" id="ai-card">
@@ -212,6 +227,18 @@
         </div>
         <div style="margin-bottom:10px">
           <div class="field-label">盈虧金額（賺正、賠負）</div><input id="tr-pnl" type="number" placeholder="+5000 或 -3000" class="field-input">
+        </div>
+        <!-- ── 判斷品質欄位（區分凹單僥倖 vs 真實判斷）── -->
+        <div style="border-top:1px dashed var(--bd2);padding-top:10px;margin-bottom:8px">
+          <div style="font-size:10px;color:var(--purple);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">📐 判斷品質（選填，讓 AI 看穿凹單僥倖）</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+            <div><div class="field-label">最大不利幅度 MAE %（持倉中最深虧多少，填正數）</div><input id="tr-mae" type="number" step="0.1" placeholder="例 12 = 一度虧12%" class="field-input"></div>
+            <div><div class="field-label">原訂停損 %（當初設定）</div><input id="tr-plannedstop" type="number" step="0.1" placeholder="例 6" class="field-input"></div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div><div class="field-label">是否凹單（超過原停損還硬抱）</div><select id="tr-holdon" class="field-input"><option value="no">否，有守紀律</option><option value="yes">是，有凹單</option></select></div>
+            <div><div class="field-label">出場原因</div><select id="tr-exitreason" class="field-input"><option value="tp">停利達標</option><option value="sl">觸及停損</option><option value="holdback">凹單回本</option><option value="early">提早跑掉</option><option value="panic">恐慌殺出</option></select></div>
+          </div>
         </div>
         <button onclick="addTradeFromForm()" class="btn-block" style="background:linear-gradient(135deg,#A855F7,#3B82F6)">＋ 新增交易</button>
       </div>
@@ -266,6 +293,7 @@
 </div>
 
 <script src="./config.js"></script>
+<script src="./help.js"></script>
 <script src="./db.js"></script>
 <script src="./market.js"></script>
 <script src="./quant.js"></script>

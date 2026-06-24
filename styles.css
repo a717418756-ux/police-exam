@@ -129,3 +129,15 @@ footer{text-align:center;padding:14px;font-size:11px;color:var(--muted);border-t
 .err-log-where{color:var(--warn);font-weight:600}
 .err-log-msg{color:var(--sell);margin-top:2px;word-break:break-all}
 
+
+/* ── ⓘ 說明按鈕 ── */
+.help-btn{
+  background:var(--bg);border:1px solid var(--bd2);color:var(--muted);
+  width:20px;height:20px;border-radius:50%;font-size:11px;font-weight:700;
+  cursor:pointer;line-height:1;padding:0;flex-shrink:0;transition:all .15s;
+  display:inline-flex;align-items:center;justify-content:center;
+}
+.help-btn:hover{border-color:var(--acc);color:var(--acc)}
+/* 讓 layer-title 能把 ⓘ 推到最右 */
+.layer-title{position:relative}
+.layer-title .help-btn{margin-left:auto}

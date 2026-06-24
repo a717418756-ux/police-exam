@@ -416,7 +416,7 @@ async function go(){
   if(!raw)return;
   const btn=$('go-btn');btn.disabled=true;btn.innerHTML='<span class="spin"></span>';
   hideErr();
-  ['stock-bar','trend-banner','risk-card','psych-card','ai-card','market-card','quant-card','formula-card','mktscore-card','chip-card','playbook-card','riskmetric-card','multiperiod-card','health-card'].forEach(id=>$(id).style.display='none');
+  ['stock-bar','trend-banner','risk-card','psych-card','ai-card','market-card','quant-card','formula-card','mktscore-card','chip-card','playbook-card','riskmetric-card','multiperiod-card','health-card','regime-card'].forEach(id=>$(id).style.display='none');
   $('ind-grid').style.display='none';$('ind-grid').innerHTML='';
   $('cat-row').style.display='none';$('cat-tabs').innerHTML='';
   activeCat='全部';
@@ -445,6 +445,9 @@ async function go(){
     allSigs=analyzeSignals(D,atr,trend);
 
     renderTrend(trend);
+    // ADX 市場狀態（該用趨勢還是震盪策略）
+    try{ renderRegime(computeRegime(D)); }
+    catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('市場狀態',err); }
     renderRisk(risk);
     renderPsych(psych);
     renderTabs(allSigs);

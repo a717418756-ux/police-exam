@@ -85,17 +85,26 @@ async function dbClearTrades() {
 
 /* ── 由交易紀錄計算真實統計 ──────────────────────────────────────────── */
 function computeStats(trades) {
-  if (!trades.length) return { count:0,wins:0,losses:0,winRate:0,avgWin:0,avgLoss:0,payoff:0,expectancy:0,totalPnl:0 };
+  if (!trades.length) return { count:0,wins:0,losses:0,winRate:0,avgWin:0,avgLoss:0,payoff:0,expectancy:0,totalPnl:0,trueWinRate:0,trueWins:0,misjudged:0 };
   const wins   = trades.filter(t => t.result === 'win');
   const losses = trades.filter(t => t.result === 'loss');
   const sumWin  = wins.reduce((a, t) => a + Math.abs(t.pnl || 0), 0);
   const sumLoss = losses.reduce((a, t) => a + Math.abs(t.pnl || 0), 0);
   const avgWin  = wins.length ? sumWin / wins.length : 0;
   const avgLoss = losses.length ? sumLoss / losses.length : 0;
-  const winRate = trades.length ? wins.length / trades.length : 0;
+  const winRate = trades.length ? wins.length / trades.length : 0;        // 帳面勝率
   const payoff  = avgLoss > 0 ? avgWin / avgLoss : 0;
   const expectancy = winRate * avgWin - (1 - winRate) * avgLoss;
-  return { count: trades.length, wins: wins.length, losses: losses.length, winRate, avgWin, avgLoss, payoff, expectancy, totalPnl: trades.reduce((a, t) => a + (t.pnl || 0), 0) };
+
+  // ── 真實勝率：扣掉「判斷錯誤」的假贏單（凹單僥倖回本）──
+  // 判斷正確且賺錢 = 真贏；判斷錯誤即使帳面賺 = 不算真贏
+  const trueWins = trades.filter(t => t.result === 'win' && t.judgment !== 'wrong').length;
+  const trueWinRate = trades.length ? trueWins / trades.length : 0;
+  const misjudged = trades.filter(t => t.judgment === 'wrong').length; // 判斷錯誤總數（含假贏單）
+
+  return { count: trades.length, wins: wins.length, losses: losses.length, winRate, avgWin, avgLoss, payoff, expectancy,
+    totalPnl: trades.reduce((a, t) => a + (t.pnl || 0), 0),
+    trueWinRate, trueWins, misjudged };
 }
 
 /* ── 進階統計（給 Markdown 匯出用）──────────────────────────────────── */
