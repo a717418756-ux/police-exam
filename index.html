@@ -184,6 +184,43 @@
 
   <div class="layer-title"><span class="layer-num ln3">3</span>心理偏誤檢查<span class="layer-sub">反人性 — 系統的靈魂</span><button onclick="showHelp('psych')" class="help-btn" title="說明">ⓘ</button></div>
   <div class="card" id="psych-card"><div id="psych-list"></div></div>
+  <!-- RS Rating 相對強弱 -->
+  <div id="rs-card" style="display:none">
+    <div class="layer-title"><span class="layer-num" style="background:#F59E0B;color:#fff">RS</span>相對強弱評級<span class="layer-sub">vs 大盤 — 贏過幾%的股票（O'Neil法）</span><button onclick="showHelp('rs')" class="help-btn" title="說明">ⓘ</button></div>
+    <div class="card" style="text-align:center">
+      <div id="rs-val" style="font-family:var(--mono);font-size:44px;font-weight:800;line-height:1">—</div>
+      <div id="rs-desc" style="font-size:13px;font-weight:600;margin-top:6px"></div>
+      <div id="rs-detail" style="font-size:11px;color:var(--muted);margin-top:8px"></div>
+    </div>
+  </div>
+
+  <!-- Beta/Alpha -->
+  <div id="beta-card" style="display:none">
+    <div class="layer-title"><span class="layer-num" style="background:#06B6D4;color:#fff">βα</span>Beta / Alpha<span class="layer-sub">波動係數 + 超額報酬 — 是否真打敗大盤</span><button onclick="showHelp('beta')" class="help-btn" title="說明">ⓘ</button></div>
+    <div class="card"><div class="risk-grid" id="beta-grid"></div></div>
+  </div>
+
+  <!-- 機率預測 -->
+  <div id="prob-card" style="display:none">
+    <div class="layer-title"><span class="layer-num" style="background:#10B981;color:#fff">%</span>機率預測<span class="layer-sub">歷史相似情境的漲跌機率 — 比買賣燈更精準</span><button onclick="showHelp('prob')" class="help-btn" title="說明">ⓘ</button></div>
+    <div class="card">
+      <div id="prob-dir" style="font-size:12px;color:var(--muted);margin-bottom:10px"></div>
+      <div id="prob-rows"></div>
+    </div>
+  </div>
+
+  <!-- 支撐壓力 -->
+  <div id="sr-card" style="display:none">
+    <div class="layer-title"><span class="layer-num" style="background:#8B5CF6;color:#fff">SR</span>支撐壓力<span class="layer-sub">自動辨識關鍵價位 — 實戰必看</span><button onclick="showHelp('sr')" class="help-btn" title="說明">ⓘ</button></div>
+    <div class="card"><div id="sr-content"></div></div>
+  </div>
+
+  <!-- 量價異常雷達 -->
+  <div id="vpradar-card" style="display:none">
+    <div class="layer-title"><span class="layer-num" style="background:#EF4444;color:#fff">量</span>量價異常雷達<span class="layer-sub">出貨/動能不足偵測</span><button onclick="showHelp('vpradar')" class="help-btn" title="說明">ⓘ</button></div>
+    <div class="card"><div id="vpradar-list"></div></div>
+  </div>
+
   <div class="layer-title"><span class="layer-num ln4">4</span>進場訊號<span class="layer-sub">技術指標群 — 只在趨勢對的時候參考</span><button onclick="showHelp('signals')" class="help-btn" title="說明">ⓘ</button></div>
   <div id="cat-row" style="display:none"><div class="cat-tabs" id="cat-tabs"></div></div>
   <div id="ind-grid"></div>
@@ -216,31 +253,29 @@
     <div class="modal-pane active" data-pane="journal">
       <div id="journal-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px"></div>
       <div style="background:var(--bg);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:16px">
-        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">新增一筆交易</div>
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">新增交易（只填5格，其餘自動算）</div>
+        <div style="font-size:10px;color:var(--purple);margin-bottom:10px">💡 系統會自動抓K線算出最大虧損(MAE)、最高獲利(MFE)、盈虧%、是否凹單</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
           <div><div class="field-label">進場日</div><input id="tr-entry" type="date" class="field-input"></div>
           <div><div class="field-label">出場日（平倉日）</div><input id="tr-exit" type="date" class="field-input"></div>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:8px;margin-bottom:8px">
           <div><div class="field-label">股票代碼</div><input id="tr-code" placeholder="2330" class="field-input"></div>
           <div><div class="field-label">方向</div><select id="tr-dir" class="field-input"><option value="long">做多</option><option value="short">做空</option></select></div>
         </div>
-        <div style="margin-bottom:10px">
-          <div class="field-label">盈虧金額（賺正、賠負）</div><input id="tr-pnl" type="number" placeholder="+5000 或 -3000" class="field-input">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+          <div><div class="field-label">進場價</div><input id="tr-entryprice" type="number" step="0.01" placeholder="105.5" class="field-input"></div>
+          <div><div class="field-label">出場價</div><input id="tr-exitprice" type="number" step="0.01" placeholder="112.0" class="field-input"></div>
         </div>
-        <!-- ── 判斷品質欄位（區分凹單僥倖 vs 真實判斷）── -->
-        <div style="border-top:1px dashed var(--bd2);padding-top:10px;margin-bottom:8px">
-          <div style="font-size:10px;color:var(--purple);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">📐 判斷品質（選填，讓 AI 看穿凹單僥倖）</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
-            <div><div class="field-label">最大不利幅度 MAE %（持倉中最深虧多少，填正數）</div><input id="tr-mae" type="number" step="0.1" placeholder="例 12 = 一度虧12%" class="field-input"></div>
-            <div><div class="field-label">原訂停損 %（當初設定）</div><input id="tr-plannedstop" type="number" step="0.1" placeholder="例 6" class="field-input"></div>
+        <details style="margin-bottom:10px">
+          <summary style="font-size:11px;color:var(--muted);cursor:pointer">▸ 進階（選填）：股數、預設停損%</summary>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
+            <div><div class="field-label">股數（算金額用）</div><input id="tr-shares" type="number" placeholder="1000" class="field-input"></div>
+            <div><div class="field-label">原訂停損%（判定凹單用）</div><input id="tr-plannedstop" type="number" step="0.1" placeholder="6" class="field-input"></div>
           </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-            <div><div class="field-label">是否凹單（超過原停損還硬抱）</div><select id="tr-holdon" class="field-input"><option value="no">否，有守紀律</option><option value="yes">是，有凹單</option></select></div>
-            <div><div class="field-label">出場原因</div><select id="tr-exitreason" class="field-input"><option value="tp">停利達標</option><option value="sl">觸及停損</option><option value="holdback">凹單回本</option><option value="early">提早跑掉</option><option value="panic">恐慌殺出</option></select></div>
-          </div>
-        </div>
-        <button onclick="addTradeFromForm()" class="btn-block" style="background:linear-gradient(135deg,#A855F7,#3B82F6)">＋ 新增交易</button>
+        </details>
+        <button onclick="addTradeFromForm()" class="btn-block" style="background:linear-gradient(135deg,#A855F7,#3B82F6)">⚡ 新增（自動計算）</button>
+        <div id="trade-calc-msg" style="font-size:11px;text-align:center;margin-top:8px;min-height:14px"></div>
       </div>
       <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">交易紀錄</div>
       <div id="journal-list"></div>
@@ -299,6 +334,7 @@
 <script src="./quant.js"></script>
 <script src="./formula.js"></script>
 <script src="./enhance.js"></script>
+<script src="./advanced.js"></script>
 <script src="./journal.js"></script>
 <script src="./app.js"></script>
 <script>document.getElementById('ver-tag').textContent='v'+APP_VERSION;</script>

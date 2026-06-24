@@ -29,36 +29,76 @@ async function addTradeFromForm() {
   const exitDate  = $('tr-exit').value;
   const code = $('tr-code').value.trim().toUpperCase();
   const dir  = $('tr-dir').value;
-  const pnl  = parseFloat($('tr-pnl').value);
-  if (!entryDate || !exitDate || isNaN(pnl)) { alert('請填進場日、出場日與盈虧金額'); return; }
-  const holdDays = Math.max(0, Math.round((new Date(exitDate) - new Date(entryDate)) / 86400000));
-  const result = pnl >= 0 ? 'win' : 'loss';
+  const entryPrice = parseFloat($('tr-entryprice').value);
+  const exitPrice  = parseFloat($('tr-exitprice').value);
+  const shares = parseFloat($('tr-shares').value);          // 選填
+  const plannedStop = parseFloat($('tr-plannedstop').value); // 選填
+  const msg = $('trade-calc-msg');
 
-  // ── 判斷品質欄位 ──
-  const mae = parseFloat($('tr-mae').value);            // 最大不利幅度 %
-  const plannedStop = parseFloat($('tr-plannedstop').value); // 原訂停損 %
-  const holdOn = $('tr-holdon').value;                  // yes/no 凹單
-  const exitReason = $('tr-exitreason').value;          // 出場原因
-
-  // ── 自動判定「判斷對錯」──
-  // 規則：凹單(holdOn=yes) 或 MAE超過原停損 → 判斷錯誤（即使帳面沒賠）
-  let judgment = 'correct';  // correct=判斷正確, wrong=判斷錯誤
-  const reasons = [];
-  if (holdOn === 'yes') { judgment = 'wrong'; reasons.push('凹單'); }
-  if (!isNaN(mae) && !isNaN(plannedStop) && mae > plannedStop) {
-    judgment = 'wrong'; reasons.push(`MAE(${mae}%)超過原停損(${plannedStop}%)`);
+  if (!entryDate || !exitDate || !code || isNaN(entryPrice) || isNaN(exitPrice)) {
+    msg.textContent = '請填進場日、出場日、代碼、進場價、出場價'; msg.style.color = 'var(--sell)'; return;
   }
-  if (exitReason === 'holdback') { judgment = 'wrong'; if (!reasons.includes('凹單')) reasons.push('凹單回本'); }
+
+  const holdDays = Math.max(0, Math.round((new Date(exitDate) - new Date(entryDate)) / 86400000));
+  const isLong = dir === 'long';
+
+  // ── 盈虧% ──（做多：漲賺；做空：跌賺）
+  const pnlPct = isLong ? (exitPrice - entryPrice) / entryPrice * 100
+                        : (entryPrice - exitPrice) / entryPrice * 100;
+  const pnl = !isNaN(shares) ? Math.round((isLong ? exitPrice - entryPrice : entryPrice - exitPrice) * shares) : Math.round(pnlPct * 100);
+  const result = pnlPct >= 0 ? 'win' : 'loss';
+
+  // ── 自動抓區間K線算 MAE / MFE ──
+  msg.textContent = '正在抓取K線自動計算 MAE/MFE...'; msg.style.color = 'var(--muted)';
+  let mae = null, mfe = null, autoNote = '';
+  try {
+    if (GAS_URL && GAS_URL.indexOf('http') === 0) {
+      const r = await fetch(`${GAS_URL}?action=range&code=${encodeURIComponent(code)}&from=${entryDate}&to=${exitDate}`);
+      const j = await r.json();
+      if (j.ok) {
+        // 做多：最大不利＝區間最低 vs 進場價（虧多少）；最大有利＝區間最高
+        if (isLong) {
+          mae = (j.rangeLow - entryPrice) / entryPrice * 100;   // 負值=最深虧
+          mfe = (j.rangeHigh - entryPrice) / entryPrice * 100;  // 正值=最高賺
+        } else {
+          mae = (entryPrice - j.rangeHigh) / entryPrice * 100;  // 做空：最高價是最不利
+          mfe = (entryPrice - j.rangeLow) / entryPrice * 100;
+        }
+        mae = Math.round(mae * 100) / 100;
+        mfe = Math.round(mfe * 100) / 100;
+        autoNote = `自動計算：區間最深虧 ${mae}%、最高賺 ${mfe}%`;
+      } else {
+        autoNote = '⚠️ K線抓取失敗，MAE 留空（不影響記錄）';
+      }
+    }
+  } catch (e) {
+    autoNote = '⚠️ K線抓取失敗，MAE 留空';
+    if (typeof ErrorLog !== 'undefined') ErrorLog.push('MAE自動計算', e);
+  }
+
+  // ── 自動判定凹單 & 判斷對錯 ──
+  // MAE 為負值，取絕對值與停損比；超過停損還沒在那出場 = 凹單
+  let holdOn = 'no', judgment = 'correct', reasons = [];
+  const maeAbs = mae != null ? Math.abs(mae) : null;
+  if (!isNaN(plannedStop) && maeAbs != null && maeAbs > plannedStop) {
+    holdOn = 'yes'; judgment = 'wrong';
+    reasons.push(`MAE(-${maeAbs}%)超過原停損(${plannedStop}%)，凹單`);
+  }
+  // 即使最後賺錢，但中途深虧超過停損 → 判斷錯誤（僥倖回本）
+  // 出場原因自動推斷
+  let exitReason = result === 'win' ? (judgment === 'wrong' ? 'holdback' : 'tp') : (judgment === 'wrong' ? 'sl' : 'sl');
 
   await dbAddTrade({
-    date: exitDate, entryDate, exitDate, holdDays, code, direction: dir, result, pnl,
-    mae: isNaN(mae) ? null : mae,
-    plannedStop: isNaN(plannedStop) ? null : plannedStop,
-    holdOn, exitReason,
-    judgment, judgmentReason: reasons.join('、')
+    date: exitDate, entryDate, exitDate, holdDays, code, direction: dir, result,
+    entryPrice, exitPrice, pnlPct: Math.round(pnlPct * 100) / 100, pnl,
+    shares: isNaN(shares) ? null : shares,
+    mae, mfe, plannedStop: isNaN(plannedStop) ? null : plannedStop,
+    holdOn, exitReason, judgment, judgmentReason: reasons.join('、')
   });
-  $('tr-pnl').value = ''; $('tr-code').value = '';
-  $('tr-mae').value = ''; $('tr-plannedstop').value = '';
+
+  // 清空價格欄
+  $('tr-entryprice').value = ''; $('tr-exitprice').value = ''; $('tr-code').value = '';
+  msg.textContent = '✅ 已新增！' + autoNote; msg.style.color = 'var(--buy)';
   await refreshJournal();
   await syncWinRateToMain();
 }
@@ -82,17 +122,23 @@ async function refreshJournal() {
   }
   $('journal-list').innerHTML = trades.map(t => {
     const win = t.result === 'win';
-    const hold = t.holdDays != null ? `抱${t.holdDays}天` : '';
-    // 判斷錯誤標記（凹單僥倖的假贏單）
+    const hold = t.holdDays != null ? `${t.holdDays}天` : '';
     const wrongTag = t.judgment === 'wrong'
-      ? `<span style="font-size:9px;background:var(--sell-d);color:var(--sell);padding:1px 5px;border-radius:4px;margin-left:4px" title="${t.judgmentReason||''}">判斷錯</span>` : '';
-    return `<div style="display:flex;align-items:center;gap:8px;background:var(--bg);border:1px solid ${t.judgment==='wrong'?'var(--sell)':'var(--bd)'};border-radius:8px;padding:8px 12px;margin-bottom:6px">
-      <span style="font-family:var(--mono);font-size:11px;color:var(--muted);width:74px">${t.exitDate || t.date}</span>
-      <span style="font-family:var(--mono);font-size:12px;width:44px">${t.code || '—'}</span>
-      <span style="font-size:10px;color:var(--muted);width:20px">${t.direction === 'long' ? '多' : '空'}</span>
-      <span style="font-size:9px;color:var(--muted2);width:38px">${hold}</span>
-      <span style="font-family:var(--mono);font-size:13px;font-weight:600;color:${win ? 'var(--buy)' : 'var(--sell)'};flex:1;text-align:right">${t.pnl >= 0 ? '+' : ''}${fmtV(t.pnl)}${wrongTag}</span>
-      <button onclick="delTrade('${t.id}')" style="background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:14px">🗑️</button>
+      ? `<span style="font-size:9px;background:var(--sell-d);color:var(--sell);padding:1px 5px;border-radius:4px;margin-left:4px" title="${t.judgmentReason||''}">凹單</span>` : '';
+    // MAE/MFE 小字（自動算出的）
+    const maeMfe = (t.mae != null || t.mfe != null)
+      ? `<div style="font-size:9px;color:var(--muted2);margin-top:2px">最深虧 ${t.mae!=null?t.mae+'%':'—'}｜最高賺 ${t.mfe!=null?'+'+t.mfe+'%':'—'}</div>` : '';
+    const pnlShow = t.pnlPct != null ? `${t.pnlPct>=0?'+':''}${t.pnlPct}%` : (t.pnl>=0?'+':'')+fmtV(t.pnl);
+    return `<div style="background:var(--bg);border:1px solid ${t.judgment==='wrong'?'var(--sell)':'var(--bd)'};border-radius:8px;padding:8px 12px;margin-bottom:6px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-family:var(--mono);font-size:11px;color:var(--muted);width:72px">${t.exitDate || t.date}</span>
+        <span style="font-family:var(--mono);font-size:12px;width:44px">${t.code || '—'}</span>
+        <span style="font-size:10px;color:var(--muted);width:20px">${t.direction === 'long' ? '多' : '空'}</span>
+        <span style="font-size:9px;color:var(--muted2);width:32px">${hold}</span>
+        <span style="font-family:var(--mono);font-size:13px;font-weight:600;color:${win ? 'var(--buy)' : 'var(--sell)'};flex:1;text-align:right">${pnlShow}${wrongTag}</span>
+        <button onclick="delTrade('${t.id}')" style="background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:14px">🗑️</button>
+      </div>
+      ${maeMfe}
     </div>`;
   }).join('');
 }
@@ -206,13 +252,13 @@ async function exportMarkdown() {
 
     // 四、完整交易明細
     md += `## 四、完整交易明細\n\n`;
-    md += `| 進場日 | 出場日 | 抱倉天 | 代碼 | 方向 | 帳面結果 | 判斷對錯 | MAE% | 原停損% | 出場原因 | 盈虧 |\n`;
-    md += `|--------|--------|--------|------|------|----------|----------|------|---------|----------|------|\n`;
+    md += `| 進場日 | 出場日 | 抱倉天 | 代碼 | 方向 | 盈虧% | 判斷對錯 | 最深虧MAE% | 最高賺MFE% | 凹單 |\n`;
+    md += `|--------|--------|--------|------|------|-------|----------|-----------|-----------|------|\n`;
     const sorted = [...trades].sort((a,b)=>(a.exitDate||a.date)<(b.exitDate||b.date)?1:-1);
-    const reasonMap = { tp:'停利達標', sl:'觸及停損', holdback:'凹單回本', early:'提早跑', panic:'恐慌殺出' };
     for (const t of sorted) {
-      const judge = t.judgment === 'wrong' ? `❌錯誤(${t.judgmentReason||''})` : '✅正確';
-      md += `| ${t.entryDate||'—'} | ${t.exitDate||t.date} | ${t.holdDays!=null?t.holdDays:'—'} | ${t.code||'—'} | ${t.direction==='long'?'多':'空'} | ${t.result==='win'?'賺':'賠'} | ${judge} | ${t.mae!=null?t.mae:'—'} | ${t.plannedStop!=null?t.plannedStop:'—'} | ${reasonMap[t.exitReason]||'—'} | ${cur(t.pnl)} |\n`;
+      const judge = t.judgment === 'wrong' ? '❌錯誤' : '✅正確';
+      const pnlShow = t.pnlPct != null ? (t.pnlPct>=0?'+':'')+t.pnlPct+'%' : cur(t.pnl);
+      md += `| ${t.entryDate||'—'} | ${t.exitDate||t.date} | ${t.holdDays!=null?t.holdDays:'—'} | ${t.code||'—'} | ${t.direction==='long'?'多':'空'} | ${pnlShow} | ${judge} | ${t.mae!=null?t.mae:'—'} | ${t.mfe!=null?'+'+t.mfe:'—'} | ${t.holdOn==='yes'?'是':'否'} |\n`;
     }
     md += `\n`;
 
