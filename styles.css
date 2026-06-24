@@ -132,12 +132,27 @@ footer{text-align:center;padding:14px;font-size:11px;color:var(--muted);border-t
 
 /* ── ⓘ 說明按鈕 ── */
 .help-btn{
-  background:var(--bg);border:1px solid var(--bd2);color:var(--muted);
-  width:20px;height:20px;border-radius:50%;font-size:11px;font-weight:700;
-  cursor:pointer;line-height:1;padding:0;flex-shrink:0;transition:all .15s;
+  background:transparent;border:1px solid var(--bd2);color:var(--muted);
+  width:19px;height:19px;border-radius:50%;font-size:11px;font-weight:600;
+  cursor:pointer;line-height:1;padding:0;flex-shrink:0;transition:all .18s;
   display:inline-flex;align-items:center;justify-content:center;
+  font-family:Georgia,serif;font-style:italic;opacity:.55;
 }
-.help-btn:hover{border-color:var(--acc);color:var(--acc)}
-/* 讓 layer-title 能把 ⓘ 推到最右 */
+.help-btn:hover{border-color:var(--acc);color:var(--acc);opacity:1;background:#3B82F612}
 .layer-title{position:relative}
 .layer-title .help-btn{margin-left:auto}
+
+/* ── 摺疊分組 ── */
+.group{margin-bottom:10px;border:1px solid var(--bd);border-radius:14px;overflow:hidden;background:var(--surf)}
+.group-head{display:flex;align-items:center;gap:10px;padding:14px 16px;cursor:pointer;user-select:none;transition:background .15s}
+.group-head:hover{background:var(--surf2)}
+.group-icon{font-size:18px}
+.group-title{font-size:14px;font-weight:700;flex:1}
+.group-sub{font-size:10px;color:var(--muted)}
+.group-arrow{font-size:12px;color:var(--muted);transition:transform .2s}
+.group.open .group-arrow{transform:rotate(90deg)}
+.group-body{display:none;padding:0 14px 14px}
+.group.open .group-body{display:block}
+/* 決策摘要區（永遠展開，強調）*/
+.decision-zone{border:2px solid var(--acc);border-radius:16px;padding:4px;margin-bottom:14px;background:linear-gradient(180deg,#3B82F608,transparent)}
+.decision-zone .layer-title{margin-top:10px}

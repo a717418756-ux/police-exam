@@ -43,6 +43,40 @@
       <span class="chip" onclick="qs('AAPL')">AAPL</span>
     </div>
   </div>
+  <!-- 中國兵法交易系統 -->
+  <div id="bingfa-card" style="display:none">
+    <div class="layer-title"><span class="layer-num" style="background:linear-gradient(135deg,#991B1B,#DC2626);color:#fff">兵</span>中國兵法交易系統<span class="layer-sub">觀勢 · 順勢 · 知足 — 孫子兵法量化</span><button onclick="showHelp('bingfa')" class="help-btn" title="說明">ⓘ</button></div>
+    <div class="card" style="border:1px solid #DC262640">
+      <div id="bf-warning" style="display:none;margin-bottom:14px"></div>
+      <div style="display:flex;align-items:center;gap:18px;margin-bottom:16px">
+        <div style="text-align:center">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">標的分級</div>
+          <div id="bf-grade" style="font-family:var(--mono);font-size:52px;font-weight:800;line-height:1">—</div>
+        </div>
+        <div style="flex:1">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">勢能分數</div>
+          <div id="bf-shi" style="font-family:var(--mono);font-size:32px;font-weight:800;line-height:1.1">—</div>
+          <div id="bf-desc" style="font-size:12px;color:var(--muted);margin-top:4px"></div>
+        </div>
+      </div>
+      <div id="bf-ma" style="margin-bottom:14px"></div>
+      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">觀勢 — 勢能分數組成</div>
+      <div id="bf-breakdown" style="margin-bottom:16px"></div>
+      <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--bg);border:1px solid var(--bd);border-radius:10px;margin-bottom:14px">
+        <div style="text-align:center;min-width:60px">
+          <div style="font-size:9px;color:var(--muted);text-transform:uppercase">交易評分</div>
+          <div id="bf-tradescore" style="font-family:var(--mono);font-size:28px;font-weight:800;color:var(--acc)">—</div>
+        </div>
+        <div style="flex:1">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:2px">綜合可行性（趨勢35+籌碼25+產業15+動能15+風控10）</div>
+          <div id="bf-tradeparts" style="font-size:11px;color:var(--txt);font-family:var(--mono)"></div>
+        </div>
+      </div>
+      <div id="bf-exit"></div>
+      <div style="font-size:10px;color:var(--muted);margin-top:12px;line-height:1.6;padding-top:12px;border-top:1px solid var(--bd)">⚠️ 產業權重以 RS 相對強弱近似（無免費產業分類API）。整合孫子兵法原則與量化指標，僅供參考。「不戰而屈人之兵」——未達 C 級（60分）建議不進場。</div>
+    </div>
+  </div>
+
   <div id="err-box"></div>
   <div id="stock-bar">
     <div class="sb-top">
@@ -335,6 +369,8 @@
 <script src="./formula.js"></script>
 <script src="./enhance.js"></script>
 <script src="./advanced.js"></script>
+<script src="./bingfa.js"></script>
+<script src="./layout.js"></script>
 <script src="./journal.js"></script>
 <script src="./app.js"></script>
 <script>document.getElementById('ver-tag').textContent='v'+APP_VERSION;</script>

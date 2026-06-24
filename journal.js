@@ -88,12 +88,37 @@ async function addTradeFromForm() {
   // 出場原因自動推斷
   let exitReason = result === 'win' ? (judgment === 'wrong' ? 'holdback' : 'tp') : (judgment === 'wrong' ? 'sl' : 'sl');
 
+  // ── 自動抓「進場日當天」的公式分數（讓匯出能改公式）──
+  let entryFormulas = null;
+  try {
+    if (GAS_URL && GAS_URL.indexOf('http') === 0 && typeof computeFormulas === 'function') {
+      const hr = await fetch(`${GAS_URL}?action=histuntil&code=${encodeURIComponent(code)}&until=${entryDate}`);
+      const hj = await hr.json();
+      if (hj.ok && hj.closes) {
+        const f = computeFormulas(hj);
+        if (f) {
+          entryFormulas = {
+            sti: Math.round(f.sti.value * 10) / 10,
+            mfd: Math.round(f.mfd.value * 100) / 100,
+            eco: Math.round(f.eco.value),
+            fusion: f.fusion.value,
+            crash: f.crash.score
+          };
+          autoNote += `｜進場日公式 FUSION ${f.fusion.value>=0?'+':''}${f.fusion.value}`;
+        }
+      }
+    }
+  } catch (e) {
+    if (typeof ErrorLog !== 'undefined') ErrorLog.push('進場公式分數', e);
+  }
+
   await dbAddTrade({
     date: exitDate, entryDate, exitDate, holdDays, code, direction: dir, result,
     entryPrice, exitPrice, pnlPct: Math.round(pnlPct * 100) / 100, pnl,
     shares: isNaN(shares) ? null : shares,
     mae, mfe, plannedStop: isNaN(plannedStop) ? null : plannedStop,
-    holdOn, exitReason, judgment, judgmentReason: reasons.join('、')
+    holdOn, exitReason, judgment, judgmentReason: reasons.join('、'),
+    entryFormulas   // 進場日的公式分數
   });
 
   // 清空價格欄
@@ -262,7 +287,24 @@ async function exportMarkdown() {
     }
     md += `\n`;
 
-    // 五、目前使用的自創公式（供 AI 參考調整方向）
+    // 四之二、★公式分數 vs 結果對照（AI 改公式的關鍵資料）
+    const withFormula = trades.filter(t => t.entryFormulas);
+    if (withFormula.length > 0) {
+      md += `## 四之二、進場時公式分數 vs 實際結果（★最重要：AI 據此調整公式門檻）\n\n`;
+      md += `| 進場日 | 代碼 | STI | MFD | ECO | FUSION | 崩跌分 | 實際盈虧% | MAE% | 判斷對錯 |\n`;
+      md += `|--------|------|-----|-----|-----|--------|--------|-----------|------|----------|\n`;
+      const sortedF = [...withFormula].sort((a,b)=>(a.exitDate||a.date)<(b.exitDate||b.date)?1:-1);
+      for (const t of sortedF) {
+        const f = t.entryFormulas;
+        md += `| ${t.entryDate} | ${t.code} | ${f.sti>=0?'+':''}${f.sti} | ${f.mfd>=0?'+':''}${f.mfd} | ${f.eco} | ${f.fusion>=0?'+':''}${f.fusion} | ${f.crash} | ${t.pnlPct>=0?'+':''}${t.pnlPct}% | ${t.mae!=null?t.mae:'—'} | ${t.judgment==='wrong'?'❌':'✅'} |\n`;
+      }
+      md += `\n`;
+      md += `> 💡 **這張表是優化公式的核心**：請分析「進場時的公式分數」與「實際盈虧」的關聯。\n`;
+      md += `> 例如：FUSION 分數高的進場是否真的勝率較高？某個門檻以上才進場能否提升真實勝率？\n`;
+      md += `> STI/MFD/ECO 哪個與獲利相關性最強？應該調高哪個的權重？崩跌分高時是否該避開？\n\n`;
+    } else {
+      md += `## 四之二、進場公式分數\n\n尚無含公式分數的交易紀錄。新版交易日誌會自動記錄進場日的 STI/MFD/ECO/FUSION，累積後此處會出現「公式分數 vs 結果」對照表，供 AI 優化公式門檻。\n\n`;
+    }
     md += `## 五、目前系統使用的自創公式\n\n`;
     md += `### STI 訊號張力指數（統計學）\n`;
     md += `\`STI = Σ[wᵢ·tanh(zᵢ)] / Σwᵢ × 100\`，zᵢ 為 Z 分數標準化。子訊號權重：報酬動能 1.2、乖離 1.0、量能 0.8、波幅 0.6。\n\n`;

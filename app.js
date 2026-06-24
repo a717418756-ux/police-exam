@@ -416,7 +416,7 @@ async function go(){
   if(!raw)return;
   const btn=$('go-btn');btn.disabled=true;btn.innerHTML='<span class="spin"></span>';
   hideErr();
-  ['stock-bar','trend-banner','risk-card','psych-card','ai-card','market-card','quant-card','formula-card','mktscore-card','chip-card','playbook-card','riskmetric-card','multiperiod-card','health-card','regime-card'].forEach(id=>$(id).style.display='none');
+  ['stock-bar','trend-banner','risk-card','psych-card','ai-card','market-card','quant-card','formula-card','mktscore-card','chip-card','playbook-card','riskmetric-card','multiperiod-card','health-card','regime-card','rs-card','beta-card','prob-card','sr-card','vpradar-card','bingfa-card'].forEach(id=>$(id).style.display='none');
   $('ind-grid').style.display='none';$('ind-grid').innerHTML='';
   $('cat-row').style.display='none';$('cat-tabs').innerHTML='';
   activeCat='全部';
@@ -479,6 +479,38 @@ async function go(){
     try{ renderMultiPeriod(multiPeriodBacktest(D)); }
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('多週期回測',err); }
 
+    // ── 進階分析（法人等級）──
+    // 支撐壓力、量價雷達、機率預測（不需大盤資料，先做）
+    try{ renderSupportResistance(computeSupportResistance(D)); }
+    catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('支撐壓力',err); }
+    try{ renderVolPriceRadar(computeVolPriceRadar(D)); }
+    catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('量價雷達',err); }
+    try{ renderProbability(computeProbability(D)); }
+    catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('機率預測',err); }
+
+    // RS Rating / Beta / Alpha（需大盤基準，平行抓取）
+    fetchBenchmark(D.currency==='TWD').then(bench=>{
+      let rsRating=null;
+      try{
+        const benchRet = bench && bench.length>252 ? (bench[bench.length-1]-bench[bench.length-253])/bench[bench.length-253] : null;
+        const rs=computeRSRating(D, benchRet);
+        rsRating=rs.rating;
+        renderRSRating(rs);
+      }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('RS評級',err); }
+      try{ renderBetaAlpha(computeBetaAlpha(D, bench)); }
+      catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('BetaAlpha',err); }
+
+      // ── 中國兵法交易系統（整合勢能/分級/評分/停利）──
+      try{
+        const shi=computeShiPower(D, rsRating);
+        const tradeScore=computeTradeScore(D, shi, formulas, riskMetrics, rsRating);
+        const exit=computeBingfaExit(D.price);
+        renderBingfa(D, shi, tradeScore, exit);
+        checkBingfaWarning();
+        if(typeof applyLayout==='function') applyLayout(); // 兵法卡完成後重整版面
+      }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('兵法系統',err); }
+    });
+
     // 回測動態權重 → 專屬分數 → 韭菜反指標
     let formulas=null;
     try{
@@ -492,6 +524,17 @@ async function go(){
     try{
       formulas=computeFormulas(D);
       renderFormulas(formulas);
+      // 記錄「當下這檔的公式分數」，供交易日誌帶入（讓匯出能改公式）
+      if(formulas){
+        window._lastAnalysis={
+          code:D.code, price:D.price, date:new Date().toISOString().slice(0,10),
+          sti:Math.round(formulas.sti.value*10)/10,
+          mfd:Math.round(formulas.mfd.value*100)/100,
+          eco:Math.round(formulas.eco.value),
+          fusion:formulas.fusion.value,
+          crash:formulas.crash.score
+        };
+      }
     }catch(err){ console.warn('自創公式計算失敗',err); if(typeof ErrorLog!=='undefined')ErrorLog.push('自創公式',err); }
 
     // 個股健康度體檢（彙整各層級）
@@ -500,6 +543,9 @@ async function go(){
     }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('健康度',err); }
 
     await aiAnalysis(D,trend,risk,allSigs);
+
+    // 介面整合：把所有卡片分組為「決策摘要 + 摺疊組」
+    if(typeof applyLayout==='function') applyLayout();
   }catch(e){ showErr(e.message); }
   finally{ btn.disabled=false;btn.innerHTML='⚡ 分析'; }
 }
