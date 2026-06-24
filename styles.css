@@ -142,17 +142,36 @@ footer{text-align:center;padding:14px;font-size:11px;color:var(--muted);border-t
 .layer-title{position:relative}
 .layer-title .help-btn{margin-left:auto}
 
-/* ── 摺疊分組 ── */
-.group{margin-bottom:10px;border:1px solid var(--bd);border-radius:14px;overflow:hidden;background:var(--surf)}
-.group-head{display:flex;align-items:center;gap:10px;padding:14px 16px;cursor:pointer;user-select:none;transition:background .15s}
-.group-head:hover{background:var(--surf2)}
-.group-icon{font-size:18px}
-.group-title{font-size:14px;font-weight:700;flex:1}
-.group-sub{font-size:10px;color:var(--muted)}
-.group-arrow{font-size:12px;color:var(--muted);transition:transform .2s}
-.group.open .group-arrow{transform:rotate(90deg)}
-.group-body{display:none;padding:0 14px 14px}
-.group.open .group-body{display:block}
-/* 決策摘要區（永遠展開，強調）*/
-.decision-zone{border:2px solid var(--acc);border-radius:16px;padding:4px;margin-bottom:14px;background:linear-gradient(180deg,#3B82F608,transparent)}
-.decision-zone .layer-title{margin-top:10px}
+
+
+/* ── 分頁式導航 ── */
+.tab-bar{
+  display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;
+  padding:10px 4px;margin:-4px -4px 14px;
+  position:sticky;top:56px;z-index:90;
+  background:rgba(10,14,26,.92);backdrop-filter:blur(8px);
+  scrollbar-width:none;
+}
+.tab-bar::-webkit-scrollbar{display:none}
+.tab-btn{
+  flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:3px;
+  background:var(--surf);border:1px solid var(--bd);border-radius:12px;
+  color:var(--muted);padding:8px 14px;cursor:pointer;transition:all .15s;
+  font-size:11px;font-weight:600;min-width:58px;position:relative;
+}
+.tab-btn span{font-size:11px}
+.tab-btn:first-child{font-size:15px}
+.tab-btn.active{
+  background:linear-gradient(135deg,var(--acc),#1d4ed8);
+  border-color:var(--acc);color:#fff;box-shadow:0 2px 12px #3B82F640;
+}
+.tab-btn .tab-emoji{font-size:16px;line-height:1}
+/* 有資料的分頁，按鈕右上小綠點 */
+.tab-btn.has-data::after{
+  content:'';position:absolute;top:6px;right:8px;
+  width:6px;height:6px;border-radius:50%;background:var(--buy);
+}
+.tab-btn.active.has-data::after{background:#fff}
+.tab-pane{display:none}
+.tab-pane.active{display:block;animation:fadeIn .25s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}

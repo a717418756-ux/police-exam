@@ -1,89 +1,99 @@
 /* ══════════════════════════════════════════════════════════════════════
-   layout.js — 介面整合：把 18 個卡片動態分組為「決策摘要 + 6 摺疊組」
-   做法：分析完成後，用 JS 把現有卡片搬進分組容器（不改原 HTML，零誤傷）
+   layout.js — 介面整合（分頁式）
+   頂部一排可橫向滑動的分頁按鈕，點選切換顯示，免一直下滑
+   做法：分析完成後用 JS 把卡片搬進對應分頁（不改原 HTML，零誤傷）
    ══════════════════════════════════════════════════════════════════════ */
 
-// 分組定義：每組包含哪些卡片 id（順序即顯示順序）
-const LAYOUT_GROUPS = [
-  { id:'g-decision', icon:'🎯', title:'決策摘要', sub:'一眼看完做決定', open:true,
+// 分頁定義（順序即按鈕順序）。cards 含該頁所有卡片 id
+const TABS = [
+  { id:'t-decision', icon:'🎯', name:'決策',
     cards:['bingfa-card','health-card','formula-card','prob-card','playbook-card'] },
-  { id:'g-score', icon:'📊', title:'核心分數', sub:'量化評分與自創公式', open:false,
+  { id:'t-score', icon:'📊', name:'分數',
     cards:['quant-card'] },
-  { id:'g-market', icon:'🌐', title:'市場環境', sub:'大盤/狀態/情緒', open:false,
+  { id:'t-market', icon:'🌐', name:'大盤',
     cards:['mktscore-card','market-card','regime-card'] },
-  { id:'g-chip', icon:'💰', title:'籌碼強弱', sub:'法人/相對強弱/Beta', open:false,
+  { id:'t-chip', icon:'💰', name:'籌碼',
     cards:['chip-card','rs-card','beta-card'] },
-  { id:'g-trend', icon:'📈', title:'趨勢與風險', sub:'趨勢/停損/回撤', open:false,
+  { id:'t-trend', icon:'📈', name:'趨勢',
     cards:['trend-banner','risk-card','riskmetric-card'] },
-  { id:'g-signal', icon:'🔍', title:'進階訊號', sub:'支撐壓力/量價/多週期/指標', open:false,
-    cards:['sr-card','vpradar-card','multiperiod-card','ind-grid'] },
-  { id:'g-mind', icon:'🧠', title:'心理與 AI', sub:'反人性提醒/AI研判', open:false,
+  { id:'t-signal', icon:'🔍', name:'訊號',
+    cards:['sr-card','vpradar-card','multiperiod-card','cat-row','ind-grid'] },
+  { id:'t-mind', icon:'🧠', name:'心理AI',
     cards:['psych-card','ai-card'] },
 ];
 
 let _layoutBuilt = false;
+let _activeTab = 't-decision';
 
 function buildLayout() {
   const main = document.querySelector('main');
   if (!main) return;
-
-  // 找到插入點：stock-bar 之後
   const stockBar = document.getElementById('stock-bar');
 
-  // 建立分組容器（只建一次）
   if (!_layoutBuilt) {
-    for (const g of LAYOUT_GROUPS) {
-      const wrap = document.createElement('div');
-      if (g.id === 'g-decision') {
-        wrap.className = 'decision-zone';
-        wrap.id = g.id;
-        wrap.innerHTML = `<div style="padding:6px 10px;font-size:11px;color:var(--acc);font-weight:700;letter-spacing:.5px">🎯 決策摘要</div><div class="group-body" style="display:block;padding:0 6px 6px" id="${g.id}-body"></div>`;
-      } else {
-        wrap.className = 'group' + (g.open ? ' open' : '');
-        wrap.id = g.id;
-        wrap.innerHTML = `
-          <div class="group-head" onclick="toggleGroup('${g.id}')">
-            <span class="group-icon">${g.icon}</span>
-            <div style="flex:1"><div class="group-title">${g.title}</div><div class="group-sub">${g.sub}</div></div>
-            <span class="group-arrow">▶</span>
-          </div>
-          <div class="group-body" id="${g.id}-body"></div>`;
-      }
-      main.insertBefore(wrap, stockBar.nextSibling);
-    }
-    // 反序插入修正：因為 insertBefore 同一位置會反序，重新依序排列
-    const frag = document.createDocumentFragment();
-    for (const g of LAYOUT_GROUPS) {
-      const el = document.getElementById(g.id);
-      if (el) frag.appendChild(el);
-    }
-    main.insertBefore(frag, stockBar.nextSibling);
+    // 1. 建立分頁按鈕列（吸頂、可橫向滑動）
+    const tabBar = document.createElement('div');
+    tabBar.id = 'tab-bar';
+    tabBar.className = 'tab-bar';
+    tabBar.innerHTML = TABS.map(t =>
+      `<button class="tab-btn${t.id===_activeTab?' active':''}" id="btn-${t.id}" onclick="switchTab('${t.id}')"><span class="tab-emoji">${t.icon}</span><span>${t.name}</span></button>`
+    ).join('');
+
+    // 2. 建立各分頁容器
+    const panes = document.createElement('div');
+    panes.id = 'tab-panes';
+    panes.innerHTML = TABS.map(t =>
+      `<div class="tab-pane${t.id===_activeTab?' active':''}" id="pane-${t.id}"></div>`
+    ).join('');
+
+    // 插入到 stock-bar 之後
+    main.insertBefore(panes, stockBar.nextSibling);
+    main.insertBefore(tabBar, stockBar.nextSibling);
     _layoutBuilt = true;
   }
 
-  // 把卡片搬進對應分組（每次分析後執行，因卡片是 display 控制）
-  for (const g of LAYOUT_GROUPS) {
-    const body = document.getElementById(g.id + '-body');
-    if (!body) continue;
-    for (const cardId of g.cards) {
+  // 3. 把卡片搬進對應分頁（含緊鄰的 layer-title）
+  for (const t of TABS) {
+    const pane = document.getElementById('pane-' + t.id);
+    if (!pane) continue;
+    for (const cardId of t.cards) {
       const card = document.getElementById(cardId);
-      if (!card || card.parentElement === body) continue;
-      // 若卡片前面緊鄰一個獨立的 layer-title，一起搬移
+      if (!card || card.parentElement === pane) continue;
       const prev = card.previousElementSibling;
       if (prev && prev.classList && prev.classList.contains('layer-title')) {
-        body.appendChild(prev);
+        pane.appendChild(prev);
       }
-      body.appendChild(card);
+      pane.appendChild(card);
     }
+  }
+
+  // 4. 更新各分頁是否有內容的提示（沒資料的卡片會 display:none）
+  updateTabBadges();
+}
+
+function switchTab(id) {
+  _activeTab = id;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.id === 'btn-' + id));
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === 'pane-' + id));
+  // 切換後捲到分頁列頂端，體驗更順
+  const bar = document.getElementById('tab-bar');
+  if (bar) bar.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// 分頁按鈕顯示該頁有幾張「有資料」的卡片（小圓點提示）
+function updateTabBadges() {
+  for (const t of TABS) {
+    const btn = document.getElementById('btn-' + t.id);
+    if (!btn) continue;
+    let hasContent = false;
+    for (const cardId of t.cards) {
+      const card = document.getElementById(cardId);
+      if (card && card.style.display !== 'none' && card.id !== 'cat-row') { hasContent = true; break; }
+    }
+    btn.classList.toggle('has-data', hasContent);
   }
 }
 
-function toggleGroup(id) {
-  const el = document.getElementById(id);
-  if (el) el.classList.toggle('open');
-}
-
-// 對外：分析完成後呼叫
 function applyLayout() {
   try { buildLayout(); } catch (e) { console.warn('layout 失敗', e); }
 }
