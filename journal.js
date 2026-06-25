@@ -102,6 +102,7 @@ async function addTradeFromForm() {
             sti: Math.round(f.sti.value * 10) / 10,
             mfd: Math.round(f.mfd.value * 100) / 100,
             eco: Math.round(f.eco.value),
+            psy: f.psy ? Math.round(f.psy.value) : null,
             fusion: f.fusion.value,
             crash: f.crash.score
           };
@@ -198,7 +199,8 @@ async function delTrade(id) {
 
 // 真實勝率（≥5筆）自動帶回主頁凱利欄
 async function syncWinRateToMain() {
-  const trades = await dbGetAllTrades();
+  const allTrades = await dbGetAllTrades();
+  const trades = allTrades.filter(t => !t.sim); // 凱利公式只用真實單，模擬單不污染實戰勝率
   const s = computeStats(trades);
   if (s.count >= 5) {
     const wr = Math.round(s.winRate * 100);
@@ -255,8 +257,21 @@ async function exportMarkdown() {
     let md = `# 短線雷達 交易回測分析資料\n\n`;
     md += `匯出時間：${new Date().toLocaleString('zh-TW')}　|　程式版本：v${APP_VERSION}\n\n`;
 
+    // 真實單 vs 模擬單分組（模擬單=純照系統判斷做的，最能反映系統準確度）
+    const realTrades = trades.filter(t => !t.sim);
+    const simTrades = trades.filter(t => t.sim);
+    if (simTrades.length > 0) {
+      md += `## ★ 真實單 vs 模擬單對照（驗證系統判斷準確度）\n\n`;
+      md += `> 模擬單是「完全照本系統判斷」執行的交易，其勝率直接反映**系統判斷準不準**；真實單則含個人臨場操作。\n`;
+      md += `> 若模擬單勝率 > 真實單，代表你的臨場操作扣分，應更信任系統；反之則系統需優化。\n\n`;
+      const rs = computeStats(realTrades), ss = computeStats(simTrades);
+      md += `| 類型 | 筆數 | 帳面勝率 | 真實勝率 | 總盈虧 |\n|------|------|----------|----------|--------|\n`;
+      md += `| 真實單 | ${rs.count} | ${(rs.winRate*100).toFixed(1)}% | ${(rs.trueWinRate*100).toFixed(1)}% | ${cur(rs.totalPnl)} |\n`;
+      md += `| 🧪模擬單 | ${ss.count} | ${(ss.winRate*100).toFixed(1)}% | ${(ss.trueWinRate*100).toFixed(1)}% | ${cur(ss.totalPnl)} |\n\n`;
+    }
+
     // 一、整體統計
-    md += `## 一、整體績效\n\n`;
+    md += `## 一、整體績效（含真實+模擬）\n\n`;
     md += `| 指標 | 數值 |\n|------|------|\n`;
     md += `| 總交易筆數 | ${s.count} |\n`;
     md += `| **帳面勝率**（含凹單僥倖） | ${(s.winRate*100).toFixed(1)}% |\n`;
@@ -313,17 +328,20 @@ async function exportMarkdown() {
     const withFormula = trades.filter(t => t.entryFormulas);
     if (withFormula.length > 0) {
       md += `## 四之二、進場時公式分數 vs 實際結果（★最重要：AI 據此調整公式門檻）\n\n`;
-      md += `| 進場日 | 代碼 | STI | MFD | ECO | FUSION | 崩跌分 | 實際盈虧% | MAE% | 判斷對錯 |\n`;
-      md += `|--------|------|-----|-----|-----|--------|--------|-----------|------|----------|\n`;
+      md += `| 進場日 | 代碼 | 類型 | STI | MFD | ECO | PSY | FUSION | 崩跌分 | 實際盈虧% | MAE% | 判斷對錯 |\n`;
+      md += `|--------|------|------|-----|-----|-----|-----|--------|--------|-----------|------|----------|\n`;
       const sortedF = [...withFormula].sort((a,b)=>(a.exitDate||a.date)<(b.exitDate||b.date)?1:-1);
       for (const t of sortedF) {
         const f = t.entryFormulas;
-        md += `| ${t.entryDate} | ${t.code} | ${f.sti>=0?'+':''}${f.sti} | ${f.mfd>=0?'+':''}${f.mfd} | ${f.eco} | ${f.fusion>=0?'+':''}${f.fusion} | ${f.crash} | ${t.pnlPct>=0?'+':''}${t.pnlPct}% | ${t.mae!=null?t.mae:'—'} | ${t.judgment==='wrong'?'❌':'✅'} |\n`;
+        const psy = f.psy != null ? f.psy : '—';
+        const type = t.sim ? '🧪模擬' : '真實';
+        md += `| ${t.entryDate} | ${t.code} | ${type} | ${f.sti>=0?'+':''}${f.sti} | ${f.mfd>=0?'+':''}${f.mfd} | ${f.eco} | ${psy} | ${f.fusion>=0?'+':''}${f.fusion} | ${f.crash} | ${t.pnlPct>=0?'+':''}${t.pnlPct}% | ${t.mae!=null?t.mae:'—'} | ${t.judgment==='wrong'?'❌':'✅'} |\n`;
       }
       md += `\n`;
       md += `> 💡 **這張表是優化公式的核心**：請分析「進場時的公式分數」與「實際盈虧」的關聯。\n`;
+      md += `> 🧪模擬單是純照系統判斷做的，最能反映公式準確度，優先分析模擬單的公式分數與結果關聯。\n`;
       md += `> 例如：FUSION 分數高的進場是否真的勝率較高？某個門檻以上才進場能否提升真實勝率？\n`;
-      md += `> STI/MFD/ECO 哪個與獲利相關性最強？應該調高哪個的權重？崩跌分高時是否該避開？\n\n`;
+      md += `> STI/MFD/ECO/PSY 哪個與獲利相關性最強？應該調高哪個的權重？崩跌分高時是否該避開？\n\n`;
     } else {
       md += `## 四之二、進場公式分數\n\n尚無含公式分數的交易紀錄。新版交易日誌會自動記錄進場日的 STI/MFD/ECO/FUSION，累積後此處會出現「公式分數 vs 結果」對照表，供 AI 優化公式門檻。\n\n`;
     }
