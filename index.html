@@ -306,6 +306,15 @@
           <span style="font-size:12px;color:var(--purple)">🧪 這是模擬單（錢不夠買、測試操作用，統計可分開看）</span>
         </label>
         <details style="margin-bottom:10px">
+          <summary style="font-size:11px;color:var(--purple);cursor:pointer">▸ 分批進場 / 加碼（多天分批進場用，自動算平均成本）</summary>
+          <div style="margin-top:8px;padding:10px;background:var(--bg);border:1px solid var(--bd);border-radius:8px">
+            <div style="font-size:10px;color:var(--muted);margin-bottom:8px">每批填進場日+價格（張數選填）。系統自動算加權平均成本，並記錄每批進場時的公式分數，分析加碼決策好壞。</div>
+            <div id="batch-rows"></div>
+            <button onclick="addBatchRow()" style="width:100%;background:var(--bg);border:1px dashed var(--acc);color:var(--acc);border-radius:7px;padding:7px;cursor:pointer;font-size:12px;margin-top:6px">＋ 加一批</button>
+            <div id="batch-result" style="font-size:12px;color:var(--buy);margin-top:8px;text-align:center;min-height:16px"></div>
+          </div>
+        </details>
+        <details style="margin-bottom:10px">
           <summary style="font-size:11px;color:var(--muted);cursor:pointer">▸ 進階（選填）：股數、預設停損%</summary>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
             <div><div class="field-label">股數（算金額用）</div><input id="tr-shares" type="number" placeholder="1000" class="field-input"></div>

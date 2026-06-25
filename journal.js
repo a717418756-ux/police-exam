@@ -4,6 +4,55 @@
    ══════════════════════════════════════════════════════════════════════ */
 
 /* ── 開啟 / 關閉面板 ─────────────────────────────────────────────────── */
+/* ── 分批進場 / 加碼工具 ──────────────────────────────────────────────
+   多批進場，自動算加權平均成本，記錄每批進場日（供抓公式分數）
+   ──────────────────────────────────────────────────────────────────── */
+let _batchCount = 0;
+function addBatchRow() {
+  _batchCount++;
+  const id = _batchCount;
+  const row = document.createElement('div');
+  row.className = 'batch-row';
+  row.id = 'batch-' + id;
+  row.style.cssText = 'display:grid;grid-template-columns:1.1fr 1fr 0.8fr auto;gap:6px;margin-bottom:6px;align-items:center';
+  row.innerHTML = `
+    <input type="date" class="field-input" id="batch-date-${id}" oninput="calcBatch()" style="font-size:11px;padding:6px">
+    <input type="number" step="0.01" placeholder="價格" class="field-input" id="batch-price-${id}" oninput="calcBatch()" style="font-size:11px;padding:6px">
+    <input type="number" placeholder="張數" class="field-input" id="batch-qty-${id}" oninput="calcBatch()" style="font-size:11px;padding:6px">
+    <button onclick="removeBatchRow(${id})" style="background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:14px">✕</button>`;
+  document.getElementById('batch-rows').appendChild(row);
+}
+function removeBatchRow(id) {
+  const r = document.getElementById('batch-' + id);
+  if (r) r.remove();
+  calcBatch();
+}
+function getBatchData() {
+  const rows = document.querySelectorAll('.batch-row');
+  const batches = [];
+  rows.forEach(r => {
+    const id = r.id.split('-')[1];
+    const date = document.getElementById('batch-date-' + id).value;
+    const price = parseFloat(document.getElementById('batch-price-' + id).value);
+    const qty = parseFloat(document.getElementById('batch-qty-' + id).value);
+    if (date && !isNaN(price)) batches.push({ date, price, qty: isNaN(qty) ? 1 : qty });
+  });
+  return batches;
+}
+function calcBatch() {
+  const batches = getBatchData();
+  const res = document.getElementById('batch-result');
+  if (batches.length < 1) { res.textContent = ''; return; }
+  let totalCost = 0, totalQty = 0;
+  batches.forEach(b => { totalCost += b.price * b.qty; totalQty += b.qty; });
+  const avgCost = totalCost / totalQty;
+  const sorted = [...batches].sort((a,b)=>a.date<b.date?-1:1);
+  document.getElementById('tr-entryprice').value = Math.round(avgCost*100)/100;
+  document.getElementById('tr-entry').value = sorted[0].date;
+  if (totalQty > 0 && batches.every(b=>b.qty)) document.getElementById('tr-shares').value = totalQty;
+  res.textContent = `✅ ${batches.length}批 平均成本 ${(Math.round(avgCost*100)/100)}　總${totalQty}張（已填回上方）`;
+}
+
 function openJournal() {
   $('journal-overlay').style.display = 'block';
   switchModalTab('journal');
@@ -114,6 +163,40 @@ async function addTradeFromForm() {
     if (typeof ErrorLog !== 'undefined') ErrorLog.push('進場公式分數', e);
   }
 
+  // ── 分批進場：記錄每批的公式分數 + 分析加碼決策好壞 ──
+  const batches = (typeof getBatchData === 'function') ? getBatchData() : [];
+  let batchRecords = null;
+  if (batches.length >= 2) {
+    batchRecords = [];
+    const sortedB = [...batches].sort((a,b)=>a.date<b.date?-1:1);
+    for (let bi = 0; bi < sortedB.length; bi++) {
+      const b = sortedB[bi];
+      let bf = null;
+      try {
+        if (GAS_URL && GAS_URL.indexOf('http') === 0 && typeof computeFormulas === 'function') {
+          const r = await fetch(`${GAS_URL}?action=histuntil&code=${encodeURIComponent(code)}&until=${b.date}`);
+          const j = await r.json();
+          if (j.ok && j.closes) {
+            const f = computeFormulas(j);
+            if (f) bf = { fusion: f.fusion.value, sti: Math.round(f.sti.value*10)/10, crash: f.crash.score };
+          }
+        }
+      } catch (e) { /* 略過單批 */ }
+      // 加碼決策分析：第2批之後，看是順勢加碼還是逆勢攤平
+      let addJudge = '';
+      if (bi > 0) {
+        const prev = sortedB[bi-1];
+        const isLong = dir === 'long';
+        // 做多加碼在更高價=順勢（對）、更低價=攤平（危險）；做空相反
+        const higherPrice = b.price > prev.price;
+        const trendAdd = isLong ? higherPrice : !higherPrice;
+        addJudge = trendAdd ? '順勢加碼' : '逆勢攤平';
+      }
+      batchRecords.push({ date: b.date, price: b.price, qty: b.qty, fusion: bf?bf.fusion:null, addJudge });
+    }
+    autoNote += `｜已記錄 ${batchRecords.length} 批加碼`;
+  }
+
   await dbAddTrade({
     date: exitDate, entryDate, exitDate, holdDays, code, direction: dir, result,
     entryPrice, exitPrice, pnlPct: Math.round(pnlPct * 100) / 100, pnl,
@@ -121,12 +204,15 @@ async function addTradeFromForm() {
     mae, mfe, plannedStop: isNaN(plannedStop) ? null : plannedStop,
     holdOn, exitReason, judgment, judgmentReason: reasons.join('、'),
     entryFormulas,   // 進場日的公式分數
+    batchRecords,    // 分批加碼紀錄
     sim: isSim       // 模擬單標記
   });
 
   // 清空價格欄
   $('tr-entryprice').value = ''; $('tr-exitprice').value = ''; $('tr-code').value = '';
   $('tr-sim').checked = false;
+  const br = document.getElementById('batch-rows'); if (br) br.innerHTML = '';
+  const brs = document.getElementById('batch-result'); if (brs) brs.textContent = '';
   msg.textContent = '✅ 已新增！' + autoNote; msg.style.color = 'var(--buy)';
   await refreshJournal();
   await syncWinRateToMain();
@@ -345,6 +431,21 @@ async function exportMarkdown() {
     } else {
       md += `## 四之二、進場公式分數\n\n尚無含公式分數的交易紀錄。新版交易日誌會自動記錄進場日的 STI/MFD/ECO/FUSION，累積後此處會出現「公式分數 vs 結果」對照表，供 AI 優化公式門檻。\n\n`;
     }
+    // 四之三、加碼決策分析（分批進場的交易）
+    const withBatch = trades.filter(t => t.batchRecords && t.batchRecords.length >= 2);
+    if (withBatch.length > 0) {
+      md += `## 四之三、加碼決策分析（分批進場）\n\n`;
+      md += `> 分析每次加碼是「順勢加碼」（對的方向繼續加）還是「逆勢攤平」（套牢後攤平成本，危險）。\n\n`;
+      md += `| 代碼 | 出場日 | 批次 | 進場日 | 價格 | 加碼判斷 | 進場FUSION | 最終盈虧% |\n`;
+      md += `|------|--------|------|--------|------|----------|-----------|----------|\n`;
+      for (const t of withBatch) {
+        t.batchRecords.forEach((b, i) => {
+          md += `| ${i===0?t.code:''} | ${i===0?(t.exitDate||t.date):''} | 第${i+1}批 | ${b.date} | ${b.price} | ${b.addJudge||'首批'} | ${b.fusion!=null?(b.fusion>=0?'+':'')+b.fusion:'—'} | ${i===0?(t.pnlPct>=0?'+':'')+t.pnlPct+'%':''} |\n`;
+        });
+      }
+      md += `\n> 💡 重點分析：逆勢攤平的交易最終是賺是賠？順勢加碼的成功率如何？攤平是否常導致大虧？這能驗證你的加碼策略好壞。\n\n`;
+    }
+
     md += `## 五、目前系統使用的自創公式\n\n`;
     md += `### STI 訊號張力指數（統計學）\n`;
     md += `\`STI = Σ[wᵢ·tanh(zᵢ)] / Σwᵢ × 100\`，zᵢ 為 Z 分數標準化。子訊號權重：報酬動能 1.2、乖離 1.0、量能 0.8、波幅 0.6。\n\n`;
