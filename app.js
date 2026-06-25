@@ -488,29 +488,6 @@ async function go(){
     try{ renderProbability(computeProbability(D)); }
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('機率預測',err); }
 
-    // RS Rating / Beta / Alpha（需大盤基準，平行抓取）
-    fetchBenchmark(D.currency==='TWD').then(bench=>{
-      let rsRating=null;
-      try{
-        const benchRet = bench && bench.length>252 ? (bench[bench.length-1]-bench[bench.length-253])/bench[bench.length-253] : null;
-        const rs=computeRSRating(D, benchRet);
-        rsRating=rs.rating;
-        renderRSRating(rs);
-      }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('RS評級',err); }
-      try{ renderBetaAlpha(computeBetaAlpha(D, bench)); }
-      catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('BetaAlpha',err); }
-
-      // ── 中國兵法交易系統（整合勢能/分級/評分/停利）──
-      try{
-        const shi=computeShiPower(D, rsRating);
-        const tradeScore=computeTradeScore(D, shi, formulas, riskMetrics, rsRating);
-        const exit=computeBingfaExit(D.price);
-        renderBingfa(D, shi, tradeScore, exit);
-        checkBingfaWarning();
-        if(typeof applyLayout==='function') applyLayout(); // 兵法卡完成後重整版面
-      }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('兵法系統',err); }
-    });
-
     // 回測動態權重 → 專屬分數 → 韭菜反指標
     let formulas=null;
     try{
@@ -542,9 +519,34 @@ async function go(){
       renderHealthReport({trend,formulas,riskMetrics:riskMetrics||{maxDD:0,annualVol:30},chip:D.chip,marketScore,signals:allSigs});
     }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('健康度',err); }
 
+    // RS Rating / Beta / Alpha / 兵法系統（需大盤基準，此時 formulas 已就緒）
+    fetchBenchmark(D.currency==='TWD').then(bench=>{
+      let rsRating=null;
+      try{
+        const benchRet = bench && bench.length>252 ? (bench[bench.length-1]-bench[bench.length-253])/bench[bench.length-253] : null;
+        const rs=computeRSRating(D, benchRet);
+        rsRating=rs.rating;
+        renderRSRating(rs);
+      }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('RS評級',err); }
+      try{ renderBetaAlpha(computeBetaAlpha(D, bench)); }
+      catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('BetaAlpha',err); }
+
+      // ── 中國兵法交易系統（formulas/riskMetrics 此時保證已算完）──
+      try{
+        const shi=computeShiPower(D, rsRating);
+        const tradeScore=computeTradeScore(D, shi, formulas, riskMetrics, rsRating);
+        const exit=computeBingfaExit(D.price);
+        renderBingfa(D, shi, tradeScore, exit);
+        checkBingfaWarning();
+      }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('兵法系統',err); }
+
+      // 大盤資料回來後重整版面（確保 RS/兵法卡歸位）
+      if(typeof applyLayout==='function') applyLayout();
+    });
+
     await aiAnalysis(D,trend,risk,allSigs);
 
-    // 介面整合：把所有卡片分組為「決策摘要 + 摺疊組」
+    // 介面整合：把所有卡片分組為分頁
     if(typeof applyLayout==='function') applyLayout();
   }catch(e){ showErr(e.message); }
   finally{ btn.disabled=false;btn.innerHTML='⚡ 分析'; }
