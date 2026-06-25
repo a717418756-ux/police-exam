@@ -53,6 +53,53 @@ function calcBatch() {
   res.textContent = `✅ ${batches.length}批 平均成本 ${(Math.round(avgCost*100)/100)}　總${totalQty}張（已填回上方）`;
 }
 
+/* ── 分批出場 / 停利工具（對稱於分批進場）──────────────────────────── */
+let _exitCount = 0;
+function addExitRow() {
+  _exitCount++;
+  const id = _exitCount;
+  const row = document.createElement('div');
+  row.className = 'exit-row';
+  row.id = 'exit-' + id;
+  row.style.cssText = 'display:grid;grid-template-columns:1.1fr 1fr 0.8fr auto;gap:6px;margin-bottom:6px;align-items:center';
+  row.innerHTML = `
+    <input type="date" class="field-input" id="exit-date-${id}" oninput="calcExit()" style="font-size:11px;padding:6px">
+    <input type="number" step="0.01" placeholder="價格" class="field-input" id="exit-price-${id}" oninput="calcExit()" style="font-size:11px;padding:6px">
+    <input type="number" placeholder="張數" class="field-input" id="exit-qty-${id}" oninput="calcExit()" style="font-size:11px;padding:6px">
+    <button onclick="removeExitRow(${id})" style="background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:14px">✕</button>`;
+  document.getElementById('exit-rows').appendChild(row);
+}
+function removeExitRow(id) {
+  const r = document.getElementById('exit-' + id);
+  if (r) r.remove();
+  calcExit();
+}
+function getExitData() {
+  const rows = document.querySelectorAll('.exit-row');
+  const exits = [];
+  rows.forEach(r => {
+    const id = r.id.split('-')[1];
+    const date = document.getElementById('exit-date-' + id).value;
+    const price = parseFloat(document.getElementById('exit-price-' + id).value);
+    const qty = parseFloat(document.getElementById('exit-qty-' + id).value);
+    if (date && !isNaN(price)) exits.push({ date, price, qty: isNaN(qty) ? 1 : qty });
+  });
+  return exits;
+}
+function calcExit() {
+  const exits = getExitData();
+  const res = document.getElementById('exit-result');
+  if (exits.length < 1) { res.textContent = ''; return; }
+  let totalVal = 0, totalQty = 0;
+  exits.forEach(e => { totalVal += e.price * e.qty; totalQty += e.qty; });
+  const avgExit = totalVal / totalQty;
+  const sorted = [...exits].sort((a,b)=>a.date<b.date?-1:1);
+  // 出場價=加權平均、出場日=最後一批（全部出清日）
+  document.getElementById('tr-exitprice').value = Math.round(avgExit*100)/100;
+  document.getElementById('tr-exit').value = sorted[sorted.length-1].date;
+  res.textContent = `✅ ${exits.length}批 平均出場價 ${(Math.round(avgExit*100)/100)}　總${totalQty}張（已填回上方）`;
+}
+
 function openJournal() {
   $('journal-overlay').style.display = 'block';
   switchModalTab('journal');
@@ -197,6 +244,25 @@ async function addTradeFromForm() {
     autoNote += `｜已記錄 ${batchRecords.length} 批加碼`;
   }
 
+  // ── 分批出場：記錄各批 + 分析停利執行 ──
+  const exits = (typeof getExitData === 'function') ? getExitData() : [];
+  let exitRecords = null;
+  if (exits.length >= 2) {
+    const sortedE = [...exits].sort((a,b)=>a.date<b.date?-1:1);
+    const isLong = dir === 'long';
+    exitRecords = sortedE.map((e, i) => {
+      // 分批停利品質：做多時越晚出場價越高=漂亮(讓獲利奔跑)；越低=越賣越差
+      let exitJudge = '';
+      if (i > 0) {
+        const prev = sortedE[i-1];
+        const better = isLong ? e.price > prev.price : e.price < prev.price;
+        exitJudge = better ? '價更優（讓利潤奔跑）' : '價更差（提早跑或追殺）';
+      }
+      return { date: e.date, price: e.price, qty: e.qty, exitJudge };
+    });
+    autoNote += `｜已記錄 ${exitRecords.length} 批出場`;
+  }
+
   await dbAddTrade({
     date: exitDate, entryDate, exitDate, holdDays, code, direction: dir, result,
     entryPrice, exitPrice, pnlPct: Math.round(pnlPct * 100) / 100, pnl,
@@ -205,6 +271,7 @@ async function addTradeFromForm() {
     holdOn, exitReason, judgment, judgmentReason: reasons.join('、'),
     entryFormulas,   // 進場日的公式分數
     batchRecords,    // 分批加碼紀錄
+    exitRecords,     // 分批出場紀錄
     sim: isSim       // 模擬單標記
   });
 
@@ -213,6 +280,8 @@ async function addTradeFromForm() {
   $('tr-sim').checked = false;
   const br = document.getElementById('batch-rows'); if (br) br.innerHTML = '';
   const brs = document.getElementById('batch-result'); if (brs) brs.textContent = '';
+  const er = document.getElementById('exit-rows'); if (er) er.innerHTML = '';
+  const ers = document.getElementById('exit-result'); if (ers) ers.textContent = '';
   msg.textContent = '✅ 已新增！' + autoNote; msg.style.color = 'var(--buy)';
   await refreshJournal();
   await syncWinRateToMain();
@@ -444,6 +513,20 @@ async function exportMarkdown() {
         });
       }
       md += `\n> 💡 重點分析：逆勢攤平的交易最終是賺是賠？順勢加碼的成功率如何？攤平是否常導致大虧？這能驗證你的加碼策略好壞。\n\n`;
+    }
+
+    // 四之四、分批出場（停利執行）分析
+    const withExit = trades.filter(t => t.exitRecords && t.exitRecords.length >= 2);
+    if (withExit.length > 0) {
+      md += `## 四之四、分批出場 / 停利執行分析\n\n`;
+      md += `> 分析分批停利執行得好不好：越賣越高（讓利潤奔跑）還是越賣越低（提早跑/追殺）。\n\n`;
+      md += `| 代碼 | 出場日 | 批次 | 日期 | 價格 | 停利品質 |\n|------|--------|------|------|------|----------|\n`;
+      for (const t of withExit) {
+        t.exitRecords.forEach((e, i) => {
+          md += `| ${i===0?t.code:''} | ${i===0?(t.exitDate||t.date):''} | 第${i+1}批 | ${e.date} | ${e.price} | ${e.exitJudge||'首批出場'} |\n`;
+        });
+      }
+      md += `\n> 💡 重點：你是否常常太早把整批賣掉、錯過後段大漲？還是賣在相對高點？這驗證你的停利紀律。\n\n`;
     }
 
     md += `## 五、目前系統使用的自創公式\n\n`;

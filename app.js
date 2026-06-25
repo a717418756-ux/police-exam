@@ -14,8 +14,14 @@ function showErr(m){$('err-box').style.display='block';$('err-box').innerHTML=`<
 function hideErr(){$('err-box').style.display='none';}
 
 // ── 抓資料（透過 GAS） ─────────────────────────────────────────────────
+const _stockCache = {};  // 個股資料快取（5分鐘，重查同股秒回）
 async function fetchStock(code){
-  if(GAS_URL.indexOf('http')!==0) throw new Error('尚未設定 GAS 網址，請先部署 Code.gs 並把 URL 填入 app.js 的 GAS_URL');
+  if(GAS_URL.indexOf('http')!==0) throw new Error('尚未設定 GAS 網址，請先部署 Code.gs 並把 URL 填入設定');
+  // 快取命中（5分鐘內）
+  const cached=_stockCache[code];
+  if(cached && (Date.now()-cached.time<300000)){
+    return cached.data;
+  }
   let r;
   try{ r=await fetch(`${GAS_URL}?code=${encodeURIComponent(code)}`); }
   catch(e){ if(typeof ErrorLog!=='undefined')ErrorLog.push('fetchStock連線',e); throw new Error('無法連線到 GAS 後端。請到右下 📒 → 設定，確認已填入 GAS 網址並按「測試連線」'); }
@@ -23,6 +29,7 @@ async function fetchStock(code){
   const j=await r.json();
   if(!j.ok) throw new Error(j.error||'後端無法取得資料');
   if(!j.closes||j.closes.length<10) throw new Error(`${code} 歷史資料不足`);
+  _stockCache[code]={data:j,time:Date.now()};
   return j;
 }
 
@@ -416,7 +423,7 @@ async function go(){
   if(!raw)return;
   const btn=$('go-btn');btn.disabled=true;btn.innerHTML='<span class="spin"></span>';
   hideErr();
-  ['stock-bar','trend-banner','risk-card','psych-card','ai-card','market-card','quant-card','formula-card','mktscore-card','chip-card','playbook-card','riskmetric-card','multiperiod-card','health-card','regime-card','rs-card','beta-card','prob-card','sr-card','vpradar-card','bingfa-card'].forEach(id=>$(id).style.display='none');
+  ['stock-bar','trend-banner','risk-card','psych-card','ai-card','market-card','quant-card','formula-card','mktscore-card','chip-card','playbook-card','riskmetric-card','multiperiod-card','health-card','regime-card','rs-card','beta-card','prob-card','sr-card','vpradar-card','bingfa-card','verdict-banner'].forEach(id=>$(id).style.display='none');
   $('ind-grid').style.display='none';$('ind-grid').innerHTML='';
   $('cat-row').style.display='none';$('cat-tabs').innerHTML='';
   activeCat='全部';
@@ -538,6 +545,7 @@ async function go(){
         const exit=computeBingfaExit(D.price);
         renderBingfa(D, shi, tradeScore, exit);
         checkBingfaWarning();
+        renderVerdictBanner(shi, tradeScore, formulas, marketScore);
       }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('兵法系統',err); }
 
       // 大盤資料回來後重整版面（確保 RS/兵法卡歸位）

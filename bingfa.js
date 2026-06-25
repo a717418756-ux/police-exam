@@ -164,7 +164,59 @@ function renderBingfa(D, shi, tradeScore, exit) {
     <div style="font-size:10px;color:var(--muted);padding:4px 10px">${exit.runner.label}</div>`;
 }
 
-/* ── 窮則變：交易日誌30日勝率警示 ──────────────────────────────── */
+/* ── 綜合決策橫幅（整合兵法分級+健康度+崩跌風險，一句話結論）──────── */
+function renderVerdictBanner(shi, tradeScore, formulas, marketScore) {
+  const banner = document.getElementById('verdict-banner');
+  const inner = document.getElementById('vb-inner');
+  if (!banner || !inner) return;
+  banner.style.display = 'block';
+
+  const grade = shi.grade;
+  const crash = formulas && formulas.crash ? formulas.crash.score : 0;
+  const fusion = formulas && formulas.fusion ? formulas.fusion.value : 0;
+
+  // 決定主色與結論
+  let color, bg, title, summary;
+  if (crash >= 60) {
+    color = 'var(--sell)'; bg = 'var(--sell-d)';
+    title = '🚨 崩跌預警，建議避開';
+    summary = `崩跌風險分 ${crash}/100，即使其他指標尚可，風險優先原則下不宜進場`;
+  } else if (grade === 'A' && fusion > 20) {
+    color = 'var(--buy)'; bg = 'var(--buy-d)';
+    title = '🟢 A級標的，多方共振，可優先佈局';
+    summary = `勢能 ${shi.shi}分、交易評分 ${tradeScore.score}、FUSION +${fusion}，順勢可為。記得設好停損與分批停利`;
+  } else if (grade === 'A' || grade === 'B') {
+    color = '#10B981'; bg = 'var(--buy-d)';
+    title = `🟢 ${grade}級標的，條件良好`;
+    summary = `勢能 ${shi.shi}分、交易評分 ${tradeScore.score}。趨勢與籌碼面尚可，留意進場時機與風控`;
+  } else if (grade === 'C') {
+    color = 'var(--warn)'; bg = 'var(--warn-d)';
+    title = '🟡 C級標的，勢能普通，謹慎';
+    summary = `勢能 ${shi.shi}分。條件中等，不急進場，等更明確訊號或更好價位`;
+  } else {
+    color = 'var(--sell)'; bg = 'var(--sell-d)';
+    title = '⚪ 未達標，不戰而屈人之兵';
+    summary = `勢能 ${shi.shi}分未達60。孫子曰條件不足不進場，多看少做`;
+  }
+
+  inner.style.borderColor = color;
+  inner.style.background = bg;
+  document.getElementById('vb-grade').textContent = grade;
+  document.getElementById('vb-grade').style.color = color;
+  document.getElementById('vb-title').textContent = title;
+  document.getElementById('vb-title').style.color = color;
+  document.getElementById('vb-summary').textContent = summary;
+
+  // 關鍵指標小標籤
+  const chip = (label, val, c) => `<div style="background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:5px 10px;font-size:11px"><span style="color:var(--muted)">${label}</span> <span style="font-family:var(--mono);font-weight:700;color:${c}">${val}</span></div>`;
+  const mkt = marketScore ? marketScore.score : null;
+  document.getElementById('vb-metrics').innerHTML =
+    chip('勢能', shi.shi, color) +
+    chip('交易評分', tradeScore.score, 'var(--acc)') +
+    chip('FUSION', (fusion>=0?'+':'')+fusion, fusion>=0?'var(--buy)':'var(--sell)') +
+    chip('崩跌風險', crash, crash>=35?'var(--sell)':'var(--muted)') +
+    (mkt!=null ? chip('大盤', mkt, mkt>=55?'var(--buy)':mkt<=45?'var(--sell)':'var(--warn)') : '');
+}
 async function checkBingfaWarning() {
   try {
     if (typeof dbGetAllTrades !== 'function') return;

@@ -47,8 +47,11 @@ function buildLayout() {
     ).join('');
 
     // 插入到 stock-bar 之後
-    main.insertBefore(panes, stockBar.nextSibling);
-    main.insertBefore(tabBar, stockBar.nextSibling);
+    // 插入點：verdict-banner 之後（若有），否則 stock-bar 之後
+    const vb = document.getElementById('verdict-banner');
+    const anchor = (vb && vb.parentElement === main) ? vb : stockBar;
+    main.insertBefore(panes, anchor.nextSibling);
+    main.insertBefore(tabBar, anchor.nextSibling);
     _layoutBuilt = true;
   }
 

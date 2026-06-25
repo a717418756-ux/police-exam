@@ -92,6 +92,20 @@
       <div class="mi"><span class="mi-l">成交量</span><span class="mi-v" id="m-vol">—</span></div>
     </div>
   </div>
+
+  <!-- 綜合決策橫幅（一眼看結論）-->
+  <div id="verdict-banner" style="display:none">
+    <div id="vb-inner" style="border-radius:14px;padding:16px 18px;margin-bottom:14px;border:2px solid var(--bd)">
+      <div style="display:flex;align-items:center;gap:14px">
+        <div id="vb-grade" style="font-family:var(--mono);font-size:38px;font-weight:800;line-height:1;flex-shrink:0">—</div>
+        <div style="flex:1;min-width:0">
+          <div id="vb-title" style="font-size:15px;font-weight:800;margin-bottom:3px">分析中…</div>
+          <div id="vb-summary" style="font-size:12px;color:var(--muted);line-height:1.5"></div>
+        </div>
+      </div>
+      <div id="vb-metrics" style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"></div>
+    </div>
+  </div>
   <!-- 專屬量化分數 -->
   <div id="quant-card" style="display:none">
     <div class="layer-title"><span class="layer-num" style="background:linear-gradient(135deg,#A855F7,#3B82F6);color:#fff">★</span>專屬量化分數<span class="layer-sub">回測這檔歷史 × 動態權重 × 韭菜反指標</span><button onclick="showHelp('quant')" class="help-btn" title="說明">ⓘ</button></div>
@@ -310,8 +324,17 @@
           <div style="margin-top:8px;padding:10px;background:var(--bg);border:1px solid var(--bd);border-radius:8px">
             <div style="font-size:10px;color:var(--muted);margin-bottom:8px">每批填進場日+價格（張數選填）。系統自動算加權平均成本，並記錄每批進場時的公式分數，分析加碼決策好壞。</div>
             <div id="batch-rows"></div>
-            <button onclick="addBatchRow()" style="width:100%;background:var(--bg);border:1px dashed var(--acc);color:var(--acc);border-radius:7px;padding:7px;cursor:pointer;font-size:12px;margin-top:6px">＋ 加一批</button>
+            <button onclick="addBatchRow()" style="width:100%;background:var(--bg);border:1px dashed var(--acc);color:var(--acc);border-radius:7px;padding:7px;cursor:pointer;font-size:12px;margin-top:6px">＋ 加一批進場</button>
             <div id="batch-result" style="font-size:12px;color:var(--buy);margin-top:8px;text-align:center;min-height:16px"></div>
+          </div>
+        </details>
+        <details style="margin-bottom:10px">
+          <summary style="font-size:11px;color:var(--purple);cursor:pointer">▸ 分批出場 / 停利（分批賣出用，自動算平均出場價）</summary>
+          <div style="margin-top:8px;padding:10px;background:var(--bg);border:1px solid var(--bd);border-radius:8px">
+            <div style="font-size:10px;color:var(--muted);margin-bottom:8px">每批填出場日+價格（張數選填）。系統自動算加權平均出場價，並分析分批停利執行得好不好。</div>
+            <div id="exit-rows"></div>
+            <button onclick="addExitRow()" style="width:100%;background:var(--bg);border:1px dashed var(--buy);color:var(--buy);border-radius:7px;padding:7px;cursor:pointer;font-size:12px;margin-top:6px">＋ 加一批出場</button>
+            <div id="exit-result" style="font-size:12px;color:var(--buy);margin-top:8px;text-align:center;min-height:16px"></div>
           </div>
         </details>
         <details style="margin-bottom:10px">

@@ -289,25 +289,34 @@ function renderPlaybook(D, atr) {
   card.style.display = 'block';
   const price = D.price;
   const cur = D.currency === 'TWD' ? '' : '$';
+  const stopDist = atr * 2;
 
-  // 進場參考：當前價附近（回測常見用前低或均線支撐，這裡用 price 與 ATR）
-  const entry = price;
-  const stop = price - atr * 2;             // 2×ATR 停損
-  const stopDist = price - stop;
-  const tp1 = price + stopDist * 2;          // 風報比 1:2
-  const tp2 = price + stopDist * 3;          // 風報比 1:3
-  const rr = stopDist > 0 ? ((tp2 - price) / stopDist).toFixed(1) : '—';
+  // ── 做多劇本 ──（停損在下、停利在上）
+  const longStop = price - stopDist;
+  const longTp1 = price + stopDist * 2;
+  const longTp2 = price + stopDist * 3;
+  // ── 做空劇本 ──（停損在上、停利在下）
+  const shortStop = price + stopDist;
+  const shortTp1 = price - stopDist * 2;
+  const shortTp2 = price - stopDist * 3;
 
-  const rows = [
-    { label: '🎯 參考進場', value: cur + fmt(entry), col: 'var(--txt)', sub: '當前價（實際可等回踩支撐）' },
-    { label: '🛑 停損', value: cur + fmt(stop), col: 'var(--sell)', sub: `2×ATR，距離 ${fmt(stopDist)}（${(stopDist / price * 100).toFixed(1)}%）` },
-    { label: '✅ 停利一', value: cur + fmt(tp1), col: 'var(--buy)', sub: '風報比 1:2，可先出一半' },
-    { label: '✅ 停利二', value: cur + fmt(tp2), col: 'var(--buy)', sub: '風報比 1:3，剩餘續抱' },
-    { label: '⚖️ 最大風報比', value: '1 : ' + rr, col: 'var(--acc)', sub: rr >= 2 ? '風報比佳，值得進場' : '風報比偏低，不急進場' }
-  ];
-  document.getElementById('pb-rows').innerHTML = rows.map(r =>
-    `<div class="risk-box" style="margin-bottom:8px"><div class="rb-label">${r.label}</div><div class="rb-value" style="color:${r.col}">${r.value}</div><div class="rb-sub">${r.sub}</div></div>`
-  ).join('');
+  const stopPct = (stopDist / price * 100).toFixed(1);
+
+  const scenario = (title, color, entry, stop, tp1, tp2, stopNote) => `
+    <div style="border:1px solid var(--bd);border-radius:12px;padding:12px;margin-bottom:10px">
+      <div style="font-size:13px;font-weight:800;color:${color};margin-bottom:10px">${title}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div class="risk-box"><div class="rb-label">🎯 參考進場</div><div class="rb-value">${cur}${fmt(entry)}</div><div class="rb-sub">當前價</div></div>
+        <div class="risk-box"><div class="rb-label">🛑 停損</div><div class="rb-value" style="color:var(--sell)">${cur}${fmt(stop)}</div><div class="rb-sub">2×ATR｜${stopNote} ${stopPct}%</div></div>
+        <div class="risk-box"><div class="rb-label">✅ 停利一（出50%）</div><div class="rb-value" style="color:var(--buy)">${cur}${fmt(tp1)}</div><div class="rb-sub">風報比 1:2</div></div>
+        <div class="risk-box"><div class="rb-label">✅ 停利二（出25%）</div><div class="rb-value" style="color:var(--buy)">${cur}${fmt(tp2)}</div><div class="rb-sub">風報比 1:3，剩25%續抱</div></div>
+      </div>
+    </div>`;
+
+  document.getElementById('pb-rows').innerHTML =
+    scenario('📈 做多劇本', 'var(--buy)', price, longStop, longTp1, longTp2, '下方') +
+    scenario('📉 做空劇本', 'var(--sell)', price, shortStop, shortTp1, shortTp2, '上方') +
+    `<div style="font-size:10px;color:var(--muted);line-height:1.6;padding:8px 4px">💡 停利採「知足不辱」分批：到停利一出50%、停利二出25%、剩25%續抱讓獲利奔跑。做空風險較高（虧損理論無上限），務必嚴守停損。</div>`;
 }
 
 /* ══ 區塊 F：風險強化（最大回撤 + 波動率排名）════════════════════════ */
