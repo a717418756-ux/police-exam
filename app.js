@@ -654,7 +654,8 @@ function renderFormulas(f){
   document.getElementById('formula-list').innerHTML=
     fmtCard('STI','訊號張力',f.sti.value.toFixed(1),'',f.sti)+
     fmtCard('MFD','動量流變導數',f.mfd.value.toFixed(2),'',f.mfd)+
-    fmtCard('ECO','熵能轉折',f.eco.value.toFixed(0),'%',f.eco);
+    fmtCard('ECO','熵能轉折',f.eco.value.toFixed(0),'%',f.eco)+
+    (f.psy?fmtCard('PSY','心理偏離',f.psy.value.toFixed(0),'',f.psy):'');
 }
 
 // ══════════════════════════════════════════════════════════════════════

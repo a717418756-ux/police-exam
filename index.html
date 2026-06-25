@@ -285,7 +285,7 @@
 
     <!-- ═══ 分頁一：交易日誌 ═══ -->
     <div class="modal-pane active" data-pane="journal">
-      <div id="journal-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px"></div>
+      <div id="journal-stats" style="margin-bottom:16px"></div>
       <div style="background:var(--bg);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:16px">
         <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">新增交易（只填5格，其餘自動算）</div>
         <div style="font-size:10px;color:var(--purple);margin-bottom:10px">💡 系統會自動抓K線算出最大虧損(MAE)、最高獲利(MFE)、盈虧%、是否凹單</div>
@@ -301,6 +301,10 @@
           <div><div class="field-label">進場價</div><input id="tr-entryprice" type="number" step="0.01" placeholder="105.5" class="field-input"></div>
           <div><div class="field-label">出場價</div><input id="tr-exitprice" type="number" step="0.01" placeholder="112.0" class="field-input"></div>
         </div>
+        <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px;cursor:pointer;padding:8px 10px;background:var(--bg);border:1px solid var(--bd);border-radius:8px">
+          <input type="checkbox" id="tr-sim" style="width:16px;height:16px;accent-color:var(--purple)">
+          <span style="font-size:12px;color:var(--purple)">🧪 這是模擬單（錢不夠買、測試操作用，統計可分開看）</span>
+        </label>
         <details style="margin-bottom:10px">
           <summary style="font-size:11px;color:var(--muted);cursor:pointer">▸ 進階（選填）：股數、預設停損%</summary>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">

@@ -245,13 +245,70 @@ function calcFusion(sti,mfd,eco,crash){
   return{ value:fusion, signal, label };
 }
 
+
+/* ══════════════════════════════════════════════════════════════════════
+   PSY 市場心理偏離指數（行為金融 × 統計動差）
+   數學：結合「情緒均值回歸」+「報酬分布偏度/峰度」
+   原理（2025 研究）：
+     - 恐懼貪婪在中性值附近均值回歸，極端值是反向訊號
+     - 極端情緒會改變報酬分布的偏度(skew)與峰度(kurtosis)，預示波動放大
+   心理學：抓「群眾過度樂觀/悲觀」與「追高殺低」的數學足跡
+   ══════════════════════════════════════════════════════════════════════ */
+function calcPSY(D){
+  const c=D.closes;
+  const N=Math.min(20,c.length-1);
+  if(N<10) return {value:50,signal:'hold',skew:0,kurt:0,formula:'PSY',detail:'資料不足'};
+
+  // 近 N 日報酬
+  const rets=[];
+  for(let i=c.length-N;i<c.length;i++) rets.push((c[i]-c[i-1])/c[i-1]);
+  const mean=rets.reduce((a,b)=>a+b,0)/rets.length;
+  const sd=Math.sqrt(rets.reduce((a,r)=>a+(r-mean)**2,0)/rets.length)||1e-9;
+
+  // 偏度 skewness（三階動差）：負偏=左尾風險(崩跌)，正偏=右尾(噴出)
+  const skew=rets.reduce((a,r)=>a+((r-mean)/sd)**3,0)/rets.length;
+  // 峰度 kurtosis（四階動差）：高=極端事件多(肥尾)，波動將放大
+  const kurt=rets.reduce((a,r)=>a+((r-mean)/sd)**4,0)/rets.length-3; // 超額峰度
+
+  // 心理偏離分數：用近期漲跌動能模擬「群眾情緒」，算偏離中性的程度
+  // 連漲多→貪婪(分數高)，連跌多→恐懼(分數低)
+  let up=0,down=0;
+  for(const r of rets){ if(r>0)up++; else if(r<0)down++; }
+  const emotionRaw=(up-down)/rets.length; // -1~1
+  // 乖離加成：價格離均線越遠，情緒越極端
+  const ma=c.slice(-N).reduce((a,b)=>a+b,0)/N;
+  const bias=(D.price-ma)/ma;
+  const emotion=Math.max(-1,Math.min(1,emotionRaw+bias*3));
+  // 映射 0~100（50=中性，>70貪婪，<30恐懼）
+  const psy=Math.round(50+emotion*50);
+
+  // 訊號：均值回歸邏輯（極端反向）
+  let signal='hold', desc;
+  if(psy>=75){ signal='sell'; desc=`市場過度貪婪(${psy})，均值回歸偏空`; }
+  else if(psy<=25){ signal='buy'; desc=`市場過度恐懼(${psy})，均值回歸偏多（恐慌常見底部）`; }
+  else desc=`情緒中性(${psy})`;
+
+  // 分布警示
+  let distWarn='';
+  if(skew<-0.8) distWarn='｜左尾風險高(崩跌型偏態)';
+  else if(skew>0.8) distWarn='｜右尾機會(噴出型偏態)';
+  if(kurt>2) distWarn+='｜肥尾，極端波動將至';
+
+  return {
+    value:psy, skew, kurt, signal,
+    formula:'PSY = 情緒均值回歸 + 報酬偏度/峰度',
+    detail:desc+distWarn
+  };
+}
+
 /* ── 對外主入口：一次算完全部 ────────────────────────────────────────── */
 function computeFormulas(D){
   if(!D||!D.closes||D.closes.length<20)return null;
   const sti=calcSTI(D);
   const mfd=calcMFD(D);
   const eco=calcECO(D);
+  const psy=calcPSY(D);
   const crash=calcCrashAlert(D,sti,mfd,eco);
   const fusion=calcFusion(sti,mfd,eco,crash);
-  return{ sti, mfd, eco, crash, fusion };
+  return{ sti, mfd, eco, psy, crash, fusion };
 }

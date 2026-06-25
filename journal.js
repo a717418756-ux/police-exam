@@ -33,6 +33,7 @@ async function addTradeFromForm() {
   const exitPrice  = parseFloat($('tr-exitprice').value);
   const shares = parseFloat($('tr-shares').value);          // 選填
   const plannedStop = parseFloat($('tr-plannedstop').value); // 選填
+  const isSim = $('tr-sim').checked;                          // 模擬單
   const msg = $('trade-calc-msg');
 
   if (!entryDate || !exitDate || !code || isNaN(entryPrice) || isNaN(exitPrice)) {
@@ -118,28 +119,47 @@ async function addTradeFromForm() {
     shares: isNaN(shares) ? null : shares,
     mae, mfe, plannedStop: isNaN(plannedStop) ? null : plannedStop,
     holdOn, exitReason, judgment, judgmentReason: reasons.join('、'),
-    entryFormulas   // 進場日的公式分數
+    entryFormulas,   // 進場日的公式分數
+    sim: isSim       // 模擬單標記
   });
 
   // 清空價格欄
   $('tr-entryprice').value = ''; $('tr-exitprice').value = ''; $('tr-code').value = '';
+  $('tr-sim').checked = false;
   msg.textContent = '✅ 已新增！' + autoNote; msg.style.color = 'var(--buy)';
   await refreshJournal();
   await syncWinRateToMain();
 }
 
+let _journalFilter = 'all'; // all / real / sim
+function setJournalFilter(f) { _journalFilter = f; refreshJournal(); }
+
 async function refreshJournal() {
-  const trades = await dbGetAllTrades();
+  const allTrades = await dbGetAllTrades();
+  // 篩選真實/模擬
+  const trades = _journalFilter === 'real' ? allTrades.filter(t => !t.sim)
+               : _journalFilter === 'sim' ? allTrades.filter(t => t.sim)
+               : allTrades;
+  const realCount = allTrades.filter(t => !t.sim).length;
+  const simCount = allTrades.filter(t => t.sim).length;
   const s = computeStats(trades);
+  // 篩選切換按鈕
+  const filterBtn = (val, label, n) =>
+    `<button onclick="setJournalFilter('${val}')" style="flex:1;padding:6px;font-size:11px;font-weight:600;border-radius:7px;cursor:pointer;border:1px solid ${_journalFilter===val?'var(--acc)':'var(--bd)'};background:${_journalFilter===val?'#3B82F615':'var(--bg)'};color:${_journalFilter===val?'var(--acc)':'var(--muted)'}">${label}${n!=null?` (${n})`:''}</button>`;
+  const filterBar = `<div style="display:flex;gap:6px;margin-bottom:12px">${filterBtn('all','全部',allTrades.length)}${filterBtn('real','真實',realCount)}${filterBtn('sim','🧪模擬',simCount)}</div>`;
   const box = (label, val, col) =>
     `<div style="background:var(--bg);border:1px solid var(--bd);border-radius:10px;padding:10px;text-align:center"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;margin-bottom:4px">${label}</div><div style="font-family:var(--mono);font-size:18px;font-weight:700;color:${col || 'var(--txt)'}">${val}</div></div>`;
+  $('journal-stats').style.display = 'block';
   $('journal-stats').innerHTML =
+    filterBar +
+    `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">` +
     box('交易筆數', s.count) +
     box('帳面勝率', (s.winRate * 100).toFixed(0) + '%', 'var(--warn)') +
     box('真實勝率', (s.trueWinRate * 100).toFixed(0) + '%', 'var(--buy)') +
     box('判斷錯誤', s.misjudged + ' 筆', s.misjudged > 0 ? 'var(--sell)' : 'var(--muted)') +
     box('盈虧比', s.payoff.toFixed(2), 'var(--acc)') +
-    box('總盈虧', (s.totalPnl >= 0 ? '+' : '') + fmtV(Math.round(s.totalPnl)), s.totalPnl >= 0 ? 'var(--buy)' : 'var(--sell)');
+    box('總盈虧', (s.totalPnl >= 0 ? '+' : '') + fmtV(Math.round(s.totalPnl)), s.totalPnl >= 0 ? 'var(--buy)' : 'var(--sell)') +
+    `</div>`;
 
   if (trades.length === 0) {
     $('journal-list').innerHTML = '<div style="font-size:12px;color:var(--muted);text-align:center;padding:16px">尚無交易紀錄，新增後自動計算真實勝率</div>';
@@ -150,6 +170,8 @@ async function refreshJournal() {
     const hold = t.holdDays != null ? `${t.holdDays}天` : '';
     const wrongTag = t.judgment === 'wrong'
       ? `<span style="font-size:9px;background:var(--sell-d);color:var(--sell);padding:1px 5px;border-radius:4px;margin-left:4px" title="${t.judgmentReason||''}">凹單</span>` : '';
+    const simTag = t.sim
+      ? `<span style="font-size:9px;background:#A855F725;color:var(--purple);padding:1px 5px;border-radius:4px;margin-left:4px">模擬</span>` : '';
     // MAE/MFE 小字（自動算出的）
     const maeMfe = (t.mae != null || t.mfe != null)
       ? `<div style="font-size:9px;color:var(--muted2);margin-top:2px">最深虧 ${t.mae!=null?t.mae+'%':'—'}｜最高賺 ${t.mfe!=null?'+'+t.mfe+'%':'—'}</div>` : '';
@@ -160,7 +182,7 @@ async function refreshJournal() {
         <span style="font-family:var(--mono);font-size:12px;width:44px">${t.code || '—'}</span>
         <span style="font-size:10px;color:var(--muted);width:20px">${t.direction === 'long' ? '多' : '空'}</span>
         <span style="font-size:9px;color:var(--muted2);width:32px">${hold}</span>
-        <span style="font-family:var(--mono);font-size:13px;font-weight:600;color:${win ? 'var(--buy)' : 'var(--sell)'};flex:1;text-align:right">${pnlShow}${wrongTag}</span>
+        <span style="font-family:var(--mono);font-size:13px;font-weight:600;color:${win ? 'var(--buy)' : 'var(--sell)'};flex:1;text-align:right">${pnlShow}${simTag}${wrongTag}</span>
         <button onclick="delTrade('${t.id}')" style="background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:14px">🗑️</button>
       </div>
       ${maeMfe}
