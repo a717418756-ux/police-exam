@@ -49,31 +49,125 @@ function renderRegime(r) {
   document.getElementById('regime-advice').textContent = r.advice;
 }
 
-function renderChip(chip) {
+function computeChipHealth(chip, D) {
+  let score = 50;
+  const signals = [], warnings = [];
+
+  if (chip.foreign5 > 0) {
+    score += 12;
+    if (chip.foreignStreak >= 3) { score += 8; signals.push(`外資連買 ${chip.foreignStreak} 天，資金持續流入`); }
+    else signals.push('外資近5日站買方');
+  } else if (chip.foreign5 < 0) { score -= 12; warnings.push('外資近5日賣超，最大資金撤離，留意賣壓'); }
+
+  if (chip.trust5 > 0) {
+    score += 10;
+    if (chip.trustStreak >= 3) { score += 12; signals.push(`投信連買 ${chip.trustStreak} 天（投信認養，飆股常見型態）`); }
+    else signals.push('投信近5日站買方');
+  } else if (chip.trust5 < 0) { score -= 8; warnings.push('投信賣超，留意作帳行情結束'); }
+
+  if (chip.foreign5 > 0 && chip.trust5 > 0) { score += 8; signals.push('外資投信同步買超，法人有共識（強訊號）'); }
+  if (chip.foreign5 < 0 && chip.trust5 < 0) { score -= 10; warnings.push('外資投信同步賣超，法人一致看淡'); }
+
+  const avg5 = chip.foreign5 / 5 + chip.trust5 / 5;
+  const avg20 = chip.foreign20 / 20 + chip.trust20 / 20;
+  let concentration = null;
+  if (chip.foreign20 !== 0 || chip.trust20 !== 0) {
+    if (avg5 > avg20 && avg5 > 0) { concentration = 'rising'; score += 8; signals.push('近期買超力道增強（5日>20日），主力積極吸籌'); }
+    else if (avg5 < avg20 && avg5 < 0) { concentration = 'falling'; score -= 8; warnings.push('近期賣超力道增強，籌碼鬆動'); }
+    else concentration = 'stable';
+  }
+
+  // 成交量量能（籌碼換手的直接證據）
+  let volNote = null;
+  if (D && D.volumes && D.volumes.length >= 6) {
+    const vr = D.volumes[D.volumes.length-1] / (D.volumes.slice(-6,-1).reduce((a,b)=>a+b,0)/5);
+    const priceUp = D.price > D.prevClose;
+    if (priceUp && vr > 1.5) { score += 6; signals.push(`量增價漲（${vr.toFixed(1)}倍量），資金進場推升，量價齊揚`); volNote='healthy'; }
+    else if (!priceUp && vr > 1.5) { score -= 8; warnings.push(`量增價跌（${vr.toFixed(1)}倍量），疑似主力出貨換手`); volNote='distribution'; }
+    else if (vr < 0.5) { warnings.push('窒息量，成交極度萎縮，多空觀望，留意變盤'); volNote='dead'; }
+    else if (priceUp && vr < 0.8) { warnings.push('量縮價漲，買盤接手意願低，動能不足'); volNote='weak'; }
+  }
+
+  score = Math.max(0, Math.min(100, score));
+  let verdict, vClass;
+  if (score >= 75) { verdict = '籌碼集中、主力進駐，賣壓輕、易漲難跌'; vClass = 'buy'; }
+  else if (score >= 60) { verdict = '籌碼偏多，法人站買方，可留意'; vClass = 'buy'; }
+  else if (score >= 45) { verdict = '籌碼中性，法人態度不明，觀望'; vClass = 'warn'; }
+  else if (score >= 30) { verdict = '籌碼偏空，法人站賣方，謹慎'; vClass = 'sell'; }
+  else { verdict = '籌碼鬆散、主力撤離，易跌難漲，避開'; vClass = 'sell'; }
+  return { score, verdict, vClass, signals, warnings, concentration, volNote };
+}
+
+function renderChip(chip, D) {
   const card = document.getElementById('chip-card');
   if (!chip) { card.style.display = 'none'; return; }
   card.style.display = 'block';
 
+  const health = computeChipHealth(chip, D);
   const fmtLot = n => (n >= 0 ? '+' : '') + fmtV(n) + ' 張';
-  const boxes = [];
+  const colMap = { buy: 'var(--buy)', warn: 'var(--warn)', sell: 'var(--sell)' };
 
-  // 外資
-  const fBull = chip.foreign5 > 0;
-  boxes.push({ cls: fBull ? 'good' : '', label: '🌎 外資買賣超',
-    value: fmtLot(chip.foreign5), valCls: fBull ? 'buy' : 'sell',
-    sub: `近5日｜單日 ${fmtLot(chip.foreign1)}｜20日 ${fmtLot(chip.foreign20)}` +
-         (chip.foreignStreak >= 2 ? `｜🔥連買 ${chip.foreignStreak} 天` : '') });
+  let html = `<div style="text-align:center;padding:14px;background:var(--bg);border:1px solid var(--bd);border-radius:12px;margin-bottom:14px">
+    <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">籌碼健康度</div>
+    <div style="font-family:var(--mono);font-size:34px;font-weight:800;color:${colMap[health.vClass]};line-height:1">${health.score}</div>
+    <div style="font-size:13px;font-weight:700;color:${colMap[health.vClass]};margin-top:6px">${health.verdict}</div>
+  </div>`;
 
-  // 投信
-  const tBull = chip.trust5 > 0;
-  boxes.push({ cls: tBull ? 'good' : '', label: '🏦 投信買賣超',
-    value: fmtLot(chip.trust5), valCls: tBull ? 'buy' : 'sell',
-    sub: `近5日｜單日 ${fmtLot(chip.trust1)}｜20日 ${fmtLot(chip.trust20)}` +
-         (chip.trustStreak >= 2 ? `｜🔥投信連買 ${chip.trustStreak} 天（飆股常見）` : '') });
+  const chipBox = (label, d5, d1, d20, streak, bullDesc, bearDesc) => {
+    const bull = d5 > 0;
+    return `<div class="risk-box ${bull ? 'good' : ''}">
+      <div class="rb-label">${label}</div>
+      <div class="rb-value ${bull ? 'buy' : 'sell'}">${fmtLot(d5)}<span style="font-size:10px;color:var(--muted)"> 近5日</span></div>
+      <div class="rb-sub">單日 ${fmtLot(d1)}｜20日 ${fmtLot(d20)}${streak >= 2 ? `｜🔥連買${streak}天` : ''}</div>
+      <div style="font-size:11px;color:${bull ? 'var(--buy)' : 'var(--sell)'};margin-top:6px;line-height:1.5">${bull ? bullDesc : bearDesc}</div>
+    </div>`;
+  };
+  html += '<div class="risk-grid">';
+  html += chipBox('🌎 外資（資金最大）', chip.foreign5, chip.foreign1, chip.foreign20, chip.foreignStreak,
+    '👉 外資買超，最大資金進場，權值股有撐', '👉 外資賣超，留意大盤連動與賣壓');
+  html += chipBox('🏦 投信（飆股推手）', chip.trust5, chip.trust1, chip.trust20, chip.trustStreak,
+    '👉 投信買超，常認養中小型飆股，可留意', '👉 投信賣超，作帳行情或轉弱');
+  html += '</div>';
 
-  document.getElementById('chip-grid').innerHTML = boxes.map(x =>
-    `<div class="risk-box ${x.cls}"><div class="rb-label">${x.label}</div><div class="rb-value ${x.valCls}">${x.value}</div><div class="rb-sub">${x.sub}</div></div>`
-  ).join('');
+  if (health.concentration) {
+    const concMap = {
+      rising: { t: '📈 籌碼趨向集中', d: '近5日買超力道 > 20日平均，主力積極吸籌（類似5日均線>20日線），股價較易上漲', c: 'var(--buy)' },
+      falling: { t: '📉 籌碼趨向分散', d: '近5日賣壓 > 20日平均，主力可能出貨給散戶，籌碼鬆動需警覺', c: 'var(--sell)' },
+      stable: { t: '➖ 籌碼變化平穩', d: '近期買賣力道與中期相當，無明顯集中或分散', c: 'var(--muted)' }
+    };
+    const cc = concMap[health.concentration];
+    html += `<div style="margin-top:12px;padding:12px;background:var(--bg);border:1px solid var(--bd);border-radius:10px">
+      <div style="font-size:12px;font-weight:700;color:${cc.c};margin-bottom:4px">${cc.t}</div>
+      <div style="font-size:11px;color:var(--muted);line-height:1.6">${cc.d}</div></div>`;
+  }
+
+  // 量能狀態（成交量是籌碼換手的直接證據）
+  if (health.volNote) {
+    const volMap = {
+      healthy: { t: '🔊 量增價漲', d: '成交量放大且股價上漲，資金實質進場推升，量價齊揚為健康攻擊', c: 'var(--buy)' },
+      distribution: { t: '⚠️ 量增價跌', d: '爆量但股價下跌，疑似主力趁高出貨換手給散戶，籌碼面警訊', c: 'var(--sell)' },
+      dead: { t: '😴 窒息量', d: '成交量極度萎縮，多空雙方觀望，常為變盤前兆，留意次日方向', c: 'var(--warn)' },
+      weak: { t: '🔇 量縮價漲', d: '股價漲但量能不足，買盤接手意願低，上攻動能存疑，留意假突破', c: 'var(--warn)' }
+    };
+    const vc = volMap[health.volNote];
+    html += `<div style="margin-top:10px;padding:12px;background:var(--bg);border:1px solid var(--bd);border-radius:10px">
+      <div style="font-size:12px;font-weight:700;color:${vc.c};margin-bottom:4px">${vc.t}</div>
+      <div style="font-size:11px;color:var(--muted);line-height:1.6">${vc.d}</div></div>`;
+  }
+
+  if (health.signals.length || health.warnings.length) {
+    html += '<div style="margin-top:12px">';
+    health.signals.forEach(s => { html += `<div style="display:flex;gap:8px;align-items:flex-start;padding:5px 0"><span style="color:var(--buy)">✓</span><span style="font-size:11px;color:var(--muted);line-height:1.5">${s}</span></div>`; });
+    health.warnings.forEach(w => { html += `<div style="display:flex;gap:8px;align-items:flex-start;padding:5px 0"><span style="color:var(--sell)">⚠</span><span style="font-size:11px;color:var(--muted);line-height:1.5">${w}</span></div>`; });
+    html += '</div>';
+  }
+
+  html += `<div style="margin-top:12px;padding:10px 12px;background:#F59E0B0a;border:1px solid #F59E0B30;border-radius:8px">
+    <div style="font-size:10px;color:var(--warn);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">⚠️ 籌碼判讀陷阱（務必交叉驗證）</div>
+    <div style="font-size:10px;color:var(--muted);line-height:1.7">• 法人買超 ≠ 必漲（可能避險佈局）<br>• 主力連買 ≠ 沒風險（可能誘多吸籌）<br>• 籌碼與技術背離時（主力買但K線破底）要警覺<br>• 籌碼為盤後資料，散戶成本恐落後大戶</div>
+  </div>`;
+
+  document.getElementById('chip-grid').innerHTML = html;
 }
 
 /* ══ 區塊 C：市場環境總分（含 VIX）════════════════════════════════════

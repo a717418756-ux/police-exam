@@ -37,9 +37,11 @@ function computeShiPower(D, rsRating) {
   const dmi = calcDMI(D.highs, D.lows, c, 14);
   if (dmi.adx > 25 && dmi.pdi > dmi.ndi) trendScore = Math.min(100, trendScore + 10);
 
-  // ② 籌碼分（30%）：外資/投信買賣超（台股有 chip）
+  // ② 籌碼分（30%）：外資/投信買賣超（台股有 chip），複用籌碼健康度
   let chipScore = 50;
-  if (D.chip) {
+  if (D.chip && typeof computeChipHealth === 'function') {
+    chipScore = computeChipHealth(D.chip, D).score; // 統一用籌碼健康度評分
+  } else if (D.chip) {
     chipScore = 50;
     if (D.chip.foreign5 > 0) chipScore += 12;
     if (D.chip.trust5 > 0) chipScore += 12;

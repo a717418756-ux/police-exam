@@ -463,7 +463,7 @@ async function go(){
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('市場總分',err); }
 
     // 籌碼面（外資/投信，台股才有）
-    try{ renderChip(D.chip); }
+    try{ renderChip(D.chip, D); }
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('籌碼面',err); }
 
     // 進出場劇本
