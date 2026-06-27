@@ -84,11 +84,8 @@ function calcKD(h,l,c,n=9){
 }
 // ── 其他 ───────────────────────────────────────────────────────────────
 function calcBB(c,n=20,m=2){const s=sma(c,n),last=s[s.length-1];const std=stddev(c.slice(-n));return{upper:last+m*std,mid:last,lower:last-m*std,std};}
-function calcWR(h,l,c,n=14){const i=c.length-1;const hi=Math.max(...h.slice(Math.max(0,i-n+1),i+1)),lo=Math.min(...l.slice(Math.max(0,i-n+1),i+1));return hi===lo?-50:(hi-c[i])/(hi-lo)*-100;}
-function calcCCI(h,l,c,n=20){const tp=c.map((_,i)=>(h[i]+l[i]+c[i])/3);const sl=tp.slice(-n),mean=sl.reduce((a,b)=>a+b,0)/n;const mad=sl.reduce((a,v)=>a+Math.abs(v-mean),0)/n;return mad===0?0:(tp[tp.length-1]-mean)/(0.015*mad);}
 function calcDMI(h,l,c,n=14){let pdm=0,ndm=0,tr=0;for(let i=Math.max(1,c.length-n);i<c.length;i++){const up=h[i]-h[i-1],dn=l[i-1]-l[i];pdm+=up>dn&&up>0?up:0;ndm+=dn>up&&dn>0?dn:0;tr+=Math.max(h[i]-l[i],Math.abs(h[i]-c[i-1]),Math.abs(l[i]-c[i-1]));}if(tr===0)return{adx:0,pdi:0,ndi:0};const pdi=pdm/tr*100,ndi=ndm/tr*100;return{adx:Math.abs(pdi-ndi)/(pdi+ndi)*100||0,pdi,ndi};}
 function calcROC(c,n=12){const p=c[c.length-1-n];return p?(c[c.length-1]-p)/p*100:0;}
-function calcPSY(c,n=12){let up=0;for(let i=c.length-n;i<c.length;i++)if(c[i]>c[i-1])up++;return up/n*100;}
 
 // ── RSI 背離偵測（價創新高/低，但RSI未跟上）─────────────────────────────
 function detectRSIDivergence(c,rsiSeries){
@@ -301,25 +298,10 @@ function analyzeSignals(D,atr,trend){
     dmi.adx<20?`ADX ${dmi.adx.toFixed(0)} < 20，無明顯趨勢（盤整，不利順勢單）`:
     dmi.pdi>dmi.ndi?`ADX ${dmi.adx.toFixed(0)} 趨勢明確，+DI領先 → 多方掌控`:`ADX ${dmi.adx.toFixed(0)} 趨勢明確，-DI領先 → 空方掌控`);
 
-  // W%R
-  const wr=calcWR(h,l,c);
-  add('W%R 威廉','震盪',wr.toFixed(1),-wr,0,100,wr<-80?'buy':wr>-20?'sell':'hold',
-    wr<-80?`W%R ${wr.toFixed(0)} 超賣`:wr>-20?`W%R ${wr.toFixed(0)} 超買`:`W%R ${wr.toFixed(0)} 中性`);
-
-  // CCI
-  const cci=calcCCI(h,l,c);
-  add('CCI 商品通道','震盪',cci.toFixed(1),cci,-250,250,cci<-100?'buy':cci>100?'sell':'hold',
-    cci<-100?`CCI ${cci.toFixed(0)} 超賣`:cci>100?`CCI ${cci.toFixed(0)} 超買`:`CCI ${cci.toFixed(0)} 正常`);
-
-  // ROC 動能
+  // ROC 動能（與 MACD 算法不同，保留為輔助）
   const roc=calcROC(c,12);
   add('ROC 變動率','動能',`${roc>=0?'+':''}${roc.toFixed(1)}%`,roc,-15,15,roc>4?'buy':roc<-4?'sell':'hold',
     roc>4?`12日 +${roc.toFixed(1)}% 動能強`:roc<-4?`12日 ${roc.toFixed(1)}% 弱`:`動能 ${roc.toFixed(1)}% 平淡`);
-
-  // PSY 心理線
-  const psy=calcPSY(c,12);
-  add('PSY 心理線','心理',`${psy.toFixed(0)}%`,psy,0,100,psy<25?'buy':psy>75?'sell':'hold',
-    psy<25?`PSY ${psy.toFixed(0)}% 過度悲觀 → 逆勢買`:psy>75?`PSY ${psy.toFixed(0)}% 過度樂觀 → 逆勢賣`:`PSY ${psy.toFixed(0)}% 中性`);
 
   // 200MA 趨勢（機構最愛）
   if(trend.ma200!=null){
@@ -423,7 +405,7 @@ async function go(){
   if(!raw)return;
   const btn=$('go-btn');btn.disabled=true;btn.innerHTML='<span class="spin"></span>';
   hideErr();
-  ['stock-bar','trend-banner','risk-card','psych-card','ai-card','market-card','quant-card','formula-card','mktscore-card','chip-card','playbook-card','riskmetric-card','multiperiod-card','health-card','regime-card','rs-card','beta-card','prob-card','sr-card','vpradar-card','bingfa-card','verdict-banner','smc-card'].forEach(id=>$(id).style.display='none');
+  ['stock-bar','trend-banner','risk-card','psych-card','ai-card','market-card','quant-card','formula-card','mktscore-card','chip-card','playbook-card','riskmetric-card','multiperiod-card','health-card','regime-card','rs-card','beta-card','prob-card','sr-card','vpradar-card','bingfa-card','verdict-banner','smc-card','resonance-card'].forEach(id=>$(id).style.display='none');
   $('ind-grid').style.display='none';$('ind-grid').innerHTML='';
   $('cat-row').style.display='none';$('cat-tabs').innerHTML='';
   activeCat='全部';
@@ -550,6 +532,15 @@ async function go(){
         renderBingfa(D, shi, tradeScore, exit);
         checkBingfaWarning();
         renderVerdictBanner(shi, tradeScore, formulas, marketScore);
+
+        // 多維度共振確認（彙整所有維度，最高層綜合判斷）
+        try{
+          const vwap=(typeof computeVWAP==='function')?computeVWAP(D,20):null;
+          const structure=(typeof computeStructure==='function')?computeStructure(D):null;
+          const overheat=(typeof computeOverheat==='function')?computeOverheat(D,formulas,market):null;
+          const res=computeResonance({D,trend,formulas,chip:D.chip,vwap,structure,overheat,rsRating,marketScore,shi});
+          renderResonance(res);
+        }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('共振確認',err); }
       }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('兵法系統',err); }
 
       // 大盤資料回來後重整版面（確保 RS/兵法卡歸位）
