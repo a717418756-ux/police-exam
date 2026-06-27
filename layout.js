@@ -17,7 +17,7 @@ const TABS = [
   { id:'t-trend', icon:'📈', name:'趨勢',
     cards:['trend-banner','risk-card','riskmetric-card'] },
   { id:'t-signal', icon:'🔍', name:'訊號',
-    cards:['sr-card','vpradar-card','multiperiod-card','cat-row','ind-grid'] },
+    cards:['smc-card','sr-card','vpradar-card','multiperiod-card','cat-row','ind-grid'] },
   { id:'t-mind', icon:'🧠', name:'心理AI',
     cards:['psych-card','ai-card'] },
 ];

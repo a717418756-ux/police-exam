@@ -423,7 +423,7 @@ async function go(){
   if(!raw)return;
   const btn=$('go-btn');btn.disabled=true;btn.innerHTML='<span class="spin"></span>';
   hideErr();
-  ['stock-bar','trend-banner','risk-card','psych-card','ai-card','market-card','quant-card','formula-card','mktscore-card','chip-card','playbook-card','riskmetric-card','multiperiod-card','health-card','regime-card','rs-card','beta-card','prob-card','sr-card','vpradar-card','bingfa-card','verdict-banner'].forEach(id=>$(id).style.display='none');
+  ['stock-bar','trend-banner','risk-card','psych-card','ai-card','market-card','quant-card','formula-card','mktscore-card','chip-card','playbook-card','riskmetric-card','multiperiod-card','health-card','regime-card','rs-card','beta-card','prob-card','sr-card','vpradar-card','bingfa-card','verdict-banner','smc-card'].forEach(id=>$(id).style.display='none');
   $('ind-grid').style.display='none';$('ind-grid').innerHTML='';
   $('cat-row').style.display='none';$('cat-tabs').innerHTML='';
   activeCat='全部';
@@ -525,6 +525,10 @@ async function go(){
     try{
       renderHealthReport({trend,formulas,riskMetrics:riskMetrics||{maxDD:0,annualVol:30},chip:D.chip,marketScore,signals:allSigs});
     }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('健康度',err); }
+
+    // 機構足跡：VWAP + 結構 + 過熱反指標
+    try{ if(typeof renderSMC==='function') renderSMC(D, formulas, market); }
+    catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('機構足跡',err); }
 
     // RS Rating / Beta / Alpha / 兵法系統（需大盤基準，此時 formulas 已就緒）
     fetchBenchmark(D.currency==='TWD').then(bench=>{

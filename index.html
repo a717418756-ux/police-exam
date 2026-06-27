@@ -269,6 +269,12 @@
     <div class="card"><div id="vpradar-list"></div></div>
   </div>
 
+  <!-- VWAP + 市場結構 + 過熱反指標 -->
+  <div id="smc-card" style="display:none">
+    <div class="layer-title"><span class="layer-num" style="background:#0D9488;color:#fff">SM</span>機構足跡<span class="layer-sub">VWAP成本線 · BOS/CHoCH結構 · 過熱反指標</span><button onclick="showHelp('smc')" class="help-btn" title="說明">ⓘ</button></div>
+    <div class="card"><div id="smc-content"></div></div>
+  </div>
+
   <div class="layer-title"><span class="layer-num ln4">4</span>進場訊號<span class="layer-sub">技術指標群 — 只在趨勢對的時候參考</span><button onclick="showHelp('signals')" class="help-btn" title="說明">ⓘ</button></div>
   <div id="cat-row" style="display:none"><div class="cat-tabs" id="cat-tabs"></div></div>
   <div id="ind-grid"></div>
@@ -405,6 +411,7 @@
 <script src="./formula.js"></script>
 <script src="./enhance.js"></script>
 <script src="./advanced.js"></script>
+<script src="./smc.js"></script>
 <script src="./bingfa.js"></script>
 <script src="./layout.js"></script>
 <script src="./journal.js"></script>
