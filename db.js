@@ -183,9 +183,10 @@ async function importBackup(obj) {
    後端端點：?action=sync_get（GET）/ ?action=sync_save（POST）
    ══════════════════════════════════════════════════════════════════════ */
 async function cloudSave() {
-  if (!GAS_URL || GAS_URL.indexOf('http') !== 0) throw new Error('尚未在設定頁填入 GAS 網址');
+  const backupUrl = (typeof SYNC_URL !== 'undefined' && SYNC_URL) ? SYNC_URL : GAS_URL;
+  if (!backupUrl || backupUrl.indexOf('http') !== 0) throw new Error('尚未設定備份網址（請填查詢網址或雲端備份網址）');
   const backup = await exportBackup();   // 完整備份內容（含 trades + settings + 版本 + 時間）
-  const r = await fetch(`${GAS_URL}?action=sync_save`, {
+  const r = await fetch(`${backupUrl}?action=sync_save`, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // 避免 CORS preflight
     body: JSON.stringify(backup)
@@ -196,8 +197,9 @@ async function cloudSave() {
 }
 
 async function cloudLoad() {
-  if (!GAS_URL || GAS_URL.indexOf('http') !== 0) throw new Error('尚未在設定頁填入 GAS 網址');
-  const r = await fetch(`${GAS_URL}?action=sync_get`);
+  const backupUrl = (typeof SYNC_URL !== 'undefined' && SYNC_URL) ? SYNC_URL : GAS_URL;
+  if (!backupUrl || backupUrl.indexOf('http') !== 0) throw new Error('尚未設定備份網址');
+  const r = await fetch(`${backupUrl}?action=sync_get`);
   const j = await r.json();
   if (!j.ok) throw new Error(j.error || '雲端讀取失敗');
   const data = j.data || {};

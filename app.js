@@ -692,10 +692,12 @@ async function saveSettings(){
 // ══════════════════════════════════════════════════════════════════════
 async function init(){
   try{
-    // 從 IndexedDB 載入使用者填的 GAS 網址（取代改程式碼）
+    // 從 IndexedDB 載入使用者填的查詢網址與備份網址
     const url=await dbGetSetting('gasUrl');
     if(url) GAS_URL=url;
-  }catch(e){ console.warn('載入 GAS 網址失敗',e); }
+    const surl=await dbGetSetting('syncUrl');
+    if(surl) SYNC_URL=surl;
+  }catch(e){ console.warn('載入網址失敗',e); }
   await loadSettings();
 }
 init();

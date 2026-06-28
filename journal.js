@@ -372,6 +372,8 @@ async function syncWinRateToMain() {
 async function loadGasUrlField() {
   const url = await dbGetSetting('gasUrl');
   if (url) $('set-gas-url').value = url;
+  const surl = await dbGetSetting('syncUrl');
+  if (surl && $('set-sync-url')) $('set-sync-url').value = surl;
 }
 async function saveGasUrl() {
   const url = $('set-gas-url').value.trim();
@@ -379,7 +381,17 @@ async function saveGasUrl() {
   if (url && url.indexOf('http') !== 0) { msg.textContent = '❌ 網址需以 https:// 開頭'; msg.style.color = 'var(--sell)'; return; }
   await dbSetSetting('gasUrl', url);
   GAS_URL = url;                       // 立即生效
-  msg.textContent = '✅ GAS 網址已儲存，立即生效';
+  msg.textContent = '✅ 查詢網址已儲存，立即生效';
+  msg.style.color = 'var(--buy)';
+}
+
+async function saveSyncUrl() {
+  const url = $('set-sync-url').value.trim();
+  const msg = $('settings-msg');
+  if (url && url.indexOf('http') !== 0) { msg.textContent = '❌ 網址需以 https:// 開頭'; msg.style.color = 'var(--sell)'; return; }
+  await dbSetSetting('syncUrl', url);
+  SYNC_URL = url;                      // 立即生效
+  msg.textContent = url ? '✅ 雲端備份網址已儲存（備份將用此網址）' : '✅ 已清空，備份將改用查詢網址';
   msg.style.color = 'var(--buy)';
 }
 

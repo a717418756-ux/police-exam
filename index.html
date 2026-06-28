@@ -364,14 +364,19 @@
 
     <!-- ═══ 分頁二：設定與備份 ═══ -->
     <div class="modal-pane" data-pane="settings">
-      <!-- GAS 網址設定 -->
+      <!-- 後端網址設定 -->
       <div style="background:var(--bg);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:14px">
-        <div style="font-size:11px;color:var(--acc);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">🔗 GAS 後端網址（必填）</div>
-        <input id="set-gas-url" placeholder="https://script.google.com/macros/s/.../exec" class="field-input" style="margin-bottom:8px">
-        <div style="display:flex;gap:8px">
-          <button onclick="saveGasUrl()" class="btn-block" style="background:var(--acc)">💾 儲存網址</button>
-          <button onclick="testGasConnection()" class="btn-block" style="background:var(--bg);border:1px solid var(--buy);color:var(--buy)">🔌 測試連線</button>
+        <div style="font-size:11px;color:var(--acc);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">🔗 資料查詢網址（必填）</div>
+        <div style="font-size:10px;color:var(--muted);margin-bottom:6px">股票查詢用。建議用 Cloudflare Workers（較快）或 GAS 皆可。</div>
+        <input id="set-gas-url" placeholder="https://...workers.dev 或 GAS /exec" class="field-input" style="margin-bottom:8px">
+        <div style="display:flex;gap:8px;margin-bottom:14px">
+          <button onclick="saveGasUrl()" class="btn-block" style="background:var(--acc)">💾 儲存</button>
+          <button onclick="testGasConnection()" class="btn-block" style="background:var(--bg);border:1px solid var(--buy);color:var(--buy)">🔌 測試</button>
         </div>
+        <div style="font-size:11px;color:var(--purple);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">☁️ 雲端備份網址（選填）</div>
+        <div style="font-size:10px;color:var(--muted);margin-bottom:6px">雲端備份用。可填原本的 GAS 網址（沿用舊備份）。留空則用上方查詢網址備份。</div>
+        <input id="set-sync-url" placeholder="https://script.google.com/.../exec（選填）" class="field-input" style="margin-bottom:8px">
+        <button onclick="saveSyncUrl()" class="btn-block" style="background:var(--purple)">💾 儲存備份網址</button>
       </div>
 
       <!-- 本地備份 -->
@@ -387,10 +392,14 @@
 
       <!-- 雲端備份 -->
       <div style="background:var(--bg);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:14px">
-        <div style="font-size:11px;color:var(--purple);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">☁️ 雲端備份（存到你的 GAS）</div>
+        <div style="font-size:11px;color:var(--purple);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">☁️ 雲端備份（存到你的後端）</div>
         <div style="display:flex;gap:8px">
           <button onclick="doCloudSave()" class="btn-block" style="background:linear-gradient(135deg,#A855F7,#3B82F6)">☁️ 存到雲端</button>
           <button onclick="doCloudLoad()" class="btn-block" style="background:var(--bg);border:1px solid var(--purple);color:var(--purple)">⬇️ 從雲端載入</button>
+        </div>
+        <div style="font-size:10px;color:var(--muted);line-height:1.6;margin-top:10px">
+          💡 你的交易紀錄主要存在「本機」，雲端只是備份。<br>
+          ✅ <b>建議配置</b>：查詢網址填 Workers（快），雲端備份網址填原本的 GAS（沿用舊備份）。兩邊各司其職，舊備份不受影響。
         </div>
       </div>
 
