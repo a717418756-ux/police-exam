@@ -405,7 +405,7 @@ async function go(){
   if(!raw)return;
   const btn=$('go-btn');btn.disabled=true;btn.innerHTML='<span class="spin"></span>';
   hideErr();
-  ['stock-bar','trend-banner','risk-card','psych-card','ai-card','market-card','quant-card','formula-card','mktscore-card','chip-card','playbook-card','riskmetric-card','multiperiod-card','health-card','regime-card','rs-card','beta-card','prob-card','sr-card','vpradar-card','bingfa-card','verdict-banner','smc-card','resonance-card'].forEach(id=>$(id).style.display='none');
+  ['stock-bar','trend-banner','risk-card','psych-card','ai-card','market-card','quant-card','formula-card','mktscore-card','chip-card','playbook-card','riskmetric-card','multiperiod-card','health-card','regime-card','rs-card','beta-card','prob-card','sr-card','vpradar-card','bingfa-card','verdict-banner','smc-card','resonance-card','mainforce-card','margin-card'].forEach(id=>$(id).style.display='none');
   $('ind-grid').style.display='none';$('ind-grid').innerHTML='';
   $('cat-row').style.display='none';$('cat-tabs').innerHTML='';
   activeCat='全部';
@@ -423,7 +423,7 @@ async function go(){
     $('m-open').textContent=cur+fmt(D.open);$('m-high').textContent=cur+fmt(D.high);
     $('m-low').textContent=cur+fmt(D.low);$('m-prev').textContent=cur+fmt(D.prevClose);
     $('m-atr').textContent=fmt(atr);
-    $('m-vol').textContent=fmtV(D.volume)+(D.currency==='TWD'?' 張':' 股');
+    $('m-vol').textContent=(D.currency==='TWD'?fmtV(Math.round(D.volume/1000))+' 張':fmtV(D.volume)+' 股');
     $('stock-bar').style.display='block';
     const now=new Date();const tp=$('time-pill');tp.textContent=`${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')} 更新`;tp.style.display='block';
 
@@ -512,6 +512,14 @@ async function go(){
     try{ if(typeof renderSMC==='function') renderSMC(D, formulas, market); }
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('機構足跡',err); }
 
+    // 主力行為推估（OBV偷跑/洗盤/出貨/誘多誘空）
+    try{ if(typeof renderMainForce==='function') renderMainForce(D, formulas); }
+    catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('主力行為',err); }
+
+    // 融資融券散戶心理（台股限定，非同步不擋主流程）
+    try{ if(D.currency==='TWD' && typeof loadMarginCard==='function') loadMarginCard(D); }
+    catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('融資融券',err); }
+
     // RS Rating / Beta / Alpha / 兵法系統（需大盤基準，此時 formulas 已就緒）
     fetchBenchmark(D.currency==='TWD').then(bench=>{
       let rsRating=null;
@@ -531,16 +539,17 @@ async function go(){
         const exit=computeBingfaExit(D.price);
         renderBingfa(D, shi, tradeScore, exit);
         checkBingfaWarning();
-        renderVerdictBanner(shi, tradeScore, formulas, marketScore);
 
-        // 多維度共振確認（彙整所有維度，最高層綜合判斷）
+        // 多維度共振先算 → 信心指數餵給決策橫幅（指標衝突時自動降信心）
+        let res=null;
         try{
           const vwap=(typeof computeVWAP==='function')?computeVWAP(D,20):null;
           const structure=(typeof computeStructure==='function')?computeStructure(D):null;
           const overheat=(typeof computeOverheat==='function')?computeOverheat(D,formulas,market):null;
-          const res=computeResonance({D,trend,formulas,chip:D.chip,vwap,structure,overheat,rsRating,marketScore,shi});
+          res=computeResonance({D,trend,formulas,chip:D.chip,vwap,structure,overheat,rsRating,marketScore,shi});
           renderResonance(res);
         }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('共振確認',err); }
+        renderVerdictBanner(shi, tradeScore, formulas, marketScore, res);
       }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('兵法系統',err); }
 
       // 大盤資料回來後重整版面（確保 RS/兵法卡歸位）

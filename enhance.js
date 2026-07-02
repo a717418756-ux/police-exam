@@ -289,34 +289,34 @@ function renderPlaybook(D, atr) {
   card.style.display = 'block';
   const price = D.price;
   const cur = D.currency === 'TWD' ? '' : '$';
-  const stopDist = atr * 2;
-
-  // ── 做多劇本 ──（停損在下、停利在上）
-  const longStop = price - stopDist;
-  const longTp1 = price + stopDist * 2;
-  const longTp2 = price + stopDist * 3;
-  // ── 做空劇本 ──（停損在上、停利在下）
-  const shortStop = price + stopDist;
-  const shortTp1 = price - stopDist * 2;
-  const shortTp2 = price - stopDist * 3;
-
-  const stopPct = (stopDist / price * 100).toFixed(1);
+  // 智慧停損：結構位之外+動態緩衝（防主力掃停損後反向走）
+  let smart = null;
+  try { if (typeof computeSmartStop === 'function') smart = computeSmartStop(D, atr); } catch(e) {}
+  const longStop = smart ? smart.long.stop : price - atr * 2;
+  const shortStop = smart ? smart.short.stop : price + atr * 2;
+  const distL = price - longStop, distS = shortStop - price;
+  // 停利以實際停損距離的 2R/3R 計算（風報比一致）
+  const longTp1 = price + distL * 2, longTp2 = price + distL * 3;
+  const shortTp1 = price - distS * 2, shortTp2 = price - distS * 3;
+  const stopPct = ((smart ? distL : atr*2) / price * 100).toFixed(1);
 
   const scenario = (title, color, entry, stop, tp1, tp2, stopNote) => `
     <div style="border:1px solid var(--bd);border-radius:12px;padding:12px;margin-bottom:10px">
       <div style="font-size:13px;font-weight:800;color:${color};margin-bottom:10px">${title}</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
         <div class="risk-box"><div class="rb-label">🎯 參考進場</div><div class="rb-value">${cur}${fmt(entry)}</div><div class="rb-sub">當前價</div></div>
-        <div class="risk-box"><div class="rb-label">🛑 停損</div><div class="rb-value" style="color:var(--sell)">${cur}${fmt(stop)}</div><div class="rb-sub">2×ATR｜${stopNote} ${stopPct}%</div></div>
+        <div class="risk-box"><div class="rb-label">🛑 智慧停損</div><div class="rb-value" style="color:var(--sell)">${cur}${fmt(stop)}</div><div class="rb-sub">${stopNote}</div></div>
         <div class="risk-box"><div class="rb-label">✅ 停利一（出50%）</div><div class="rb-value" style="color:var(--buy)">${cur}${fmt(tp1)}</div><div class="rb-sub">風報比 1:2</div></div>
         <div class="risk-box"><div class="rb-label">✅ 停利二（出25%）</div><div class="rb-value" style="color:var(--buy)">${cur}${fmt(tp2)}</div><div class="rb-sub">風報比 1:3，剩25%續抱</div></div>
       </div>
     </div>`;
 
+  const noteL = smart ? `${smart.long.method}${smart.long.sweepRate!=null?`｜此股假跌破收回率 ${(smart.long.sweepRate*100).toFixed(0)}%`:''}` : `2×ATR 下方 ${stopPct}%`;
+  const noteS = smart ? `${smart.short.method}${smart.short.sweepRate!=null?`｜此股假突破收回率 ${(smart.short.sweepRate*100).toFixed(0)}%`:''}` : `2×ATR 上方 ${stopPct}%`;
   document.getElementById('pb-rows').innerHTML =
-    scenario('📈 做多劇本', 'var(--buy)', price, longStop, longTp1, longTp2, '下方') +
-    scenario('📉 做空劇本', 'var(--sell)', price, shortStop, shortTp1, shortTp2, '上方') +
-    `<div style="font-size:10px;color:var(--muted);line-height:1.6;padding:8px 4px">💡 停利採「知足不辱」分批：到停利一出50%、停利二出25%、剩25%續抱讓獲利奔跑。做空風險較高（虧損理論無上限），務必嚴守停損。</div>`;
+    scenario('📈 做多劇本', 'var(--buy)', price, longStop, longTp1, longTp2, noteL) +
+    scenario('📉 做空劇本', 'var(--sell)', price, shortStop, shortTp1, shortTp2, noteS) +
+    `<div style="font-size:10px;color:var(--muted);line-height:1.6;padding:8px 4px">💡 停利採「知足不辱」分批：到停利一出50%、停利二出25%、剩25%續抱讓獲利奔跑。做空風險較高（虧損理論無上限），務必嚴守停損。<br>🛡️ 智慧停損原理：主力最愛掃「整數ATR位/結構位正下方」的停損，故本系統把停損放在<b>結構位之外＋動態緩衝</b>（該股越愛假跌破，緩衝越大），降低「剛停損就反向走」的機率。</div>`;
 }
 
 /* ══ 區塊 F：風險強化（最大回撤 + 波動率排名）════════════════════════ */

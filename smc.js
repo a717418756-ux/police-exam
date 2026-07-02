@@ -117,6 +117,15 @@ function computeOverheat(D, formulas, market) {
     if (vr > 2.5) { heat += 20; reasons.push(`爆量 ${vr.toFixed(1)} 倍（情緒亢奮）`); }
   }
 
+  // 加速趕頂（拋物線末端＝泡沫破裂前兆）：近5日漲幅為前5日的1.8倍以上
+  if (c.length >= 11) {
+    const r1 = (c[c.length-1] - c[c.length-6]) / c[c.length-6] * 100;
+    const r0 = (c[c.length-6] - c[c.length-11]) / c[c.length-11] * 100;
+    if (r0 > 1 && r1 > r0 * 1.8 && r1 > 6) {
+      heat += 20; reasons.push(`加速趕頂：近5日+${r1.toFixed(1)}% 是前5日(${r0.toFixed(1)}%)的${(r1/r0).toFixed(1)}倍（拋物線末端，泡沫破裂前常見）`);
+    }
+  }
+
   // PSY 心理偏離（若有）
   if (formulas && formulas.psy && formulas.psy.value >= 75) {
     heat += 20; reasons.push(`心理偏離指數 ${formulas.psy.value}（過度貪婪）`);

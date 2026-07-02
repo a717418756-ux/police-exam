@@ -203,6 +203,16 @@ async function addTradeFromForm() {
             crash: f.crash.score
           };
           autoNote += `｜進場日公式 FUSION ${f.fusion.value>=0?'+':''}${f.fusion.value}`;
+          // 方向一致性：實戰數據證明逆公式進場 MAE 明顯較深（順公式-1.6% vs 逆公式最深-6%）
+          const fz = f.fusion.value;
+          if ((dir==='short' && fz>=20) || (dir==='long' && fz<=-20)) {
+            entryFormulas.align = '逆公式';
+            autoNote += `｜⚠️ 逆公式進場（FUSION與方向相反），歷史上這類單套牢較深`;
+          } else if ((dir==='short' && fz<=-20) || (dir==='long' && fz>=20)) {
+            entryFormulas.align = '順公式';
+          } else {
+            entryFormulas.align = '中性';
+          }
         }
       }
     }
@@ -495,16 +505,27 @@ async function exportMarkdown() {
     const withFormula = trades.filter(t => t.entryFormulas);
     if (withFormula.length > 0) {
       md += `## 四之二、進場時公式分數 vs 實際結果（★最重要：AI 據此調整公式門檻）\n\n`;
-      md += `| 進場日 | 代碼 | 類型 | STI | MFD | ECO | PSY | FUSION | 崩跌分 | 實際盈虧% | MAE% | 判斷對錯 |\n`;
-      md += `|--------|------|------|-----|-----|-----|-----|--------|--------|-----------|------|----------|\n`;
+      md += `| 進場日 | 代碼 | 類型 | STI | MFD | ECO | PSY | FUSION | 方向一致 | 崩跌分 | 實際盈虧% | MAE% | 判斷對錯 |\n`;
+      md += `|--------|------|------|-----|-----|-----|-----|--------|----------|--------|-----------|------|----------|\n`;
       const sortedF = [...withFormula].sort((a,b)=>(a.exitDate||a.date)<(b.exitDate||b.date)?1:-1);
       for (const t of sortedF) {
         const f = t.entryFormulas;
         const psy = f.psy != null ? f.psy : '—';
         const type = t.sim ? '🧪模擬' : '真實';
-        md += `| ${t.entryDate} | ${t.code} | ${type} | ${f.sti>=0?'+':''}${f.sti} | ${f.mfd>=0?'+':''}${f.mfd} | ${f.eco} | ${psy} | ${f.fusion>=0?'+':''}${f.fusion} | ${f.crash} | ${t.pnlPct>=0?'+':''}${t.pnlPct}% | ${t.mae!=null?t.mae:'—'} | ${t.judgment==='wrong'?'❌':'✅'} |\n`;
+        md += `| ${t.entryDate} | ${t.code} | ${type} | ${f.sti>=0?'+':''}${f.sti} | ${f.mfd>=0?'+':''}${f.mfd} | ${f.eco} | ${psy} | ${f.fusion>=0?'+':''}${f.fusion} | ${f.align||'—'} | ${f.crash} | ${t.pnlPct>=0?'+':''}${t.pnlPct}% | ${t.mae!=null?t.mae:'—'} | ${t.judgment==='wrong'?'❌':'✅'} |\n`;
       }
       md += `\n`;
+      // 順公式 vs 逆公式 MAE 對照（方向一致性的量化證據）
+      const alignG = withFormula.filter(t=>t.entryFormulas.align==='順公式'&&t.mae!=null);
+      const againstG = withFormula.filter(t=>t.entryFormulas.align==='逆公式'&&t.mae!=null);
+      if (alignG.length || againstG.length) {
+        const avgMae = arr => arr.length ? (arr.reduce((a,t)=>a+Math.abs(t.mae),0)/arr.length).toFixed(2) : '—';
+        md += `**順公式 vs 逆公式（方向一致性統計）**\n\n`;
+        md += `| 類型 | 筆數 | 平均MAE深度 | 凹單數 |\n|------|------|------------|--------|\n`;
+        md += `| 順公式 | ${alignG.length} | -${avgMae(alignG)}% | ${alignG.filter(t=>t.judgment==='wrong').length} |\n`;
+        md += `| 逆公式 | ${againstG.length} | -${avgMae(againstG)}% | ${againstG.filter(t=>t.judgment==='wrong').length} |\n\n`;
+        md += `> 逆公式=進場方向與FUSION相反。若逆公式MAE明顯較深，代表應等公式同向再進場。\n\n`;
+      }
       md += `> 💡 **這張表是優化公式的核心**：請分析「進場時的公式分數」與「實際盈虧」的關聯。\n`;
       md += `> 🧪模擬單是純照系統判斷做的，最能反映公式準確度，優先分析模擬單的公式分數與結果關聯。\n`;
       md += `> 例如：FUSION 分數高的進場是否真的勝率較高？某個門檻以上才進場能否提升真實勝率？\n`;

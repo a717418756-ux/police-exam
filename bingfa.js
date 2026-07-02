@@ -70,15 +70,18 @@ function computeShiPower(D, rsRating) {
   // 加權合計
   const shi = Math.round(trendScore*0.4 + chipScore*0.3 + volScore*0.2 + industryScore*0.1);
 
-  // 分級
-  let grade, gradeColor, gradeDesc;
-  if (shi >= 80) { grade='A'; gradeColor='var(--buy)'; gradeDesc='A級標的 — 勢能強勁，優先佈局'; }
-  else if (shi >= 70) { grade='B'; gradeColor='#10B981'; gradeDesc='B級標的 — 勢能良好，可考慮'; }
-  else if (shi >= 60) { grade='C'; gradeColor='var(--warn)'; gradeDesc='C級標的 — 勢能普通，謹慎'; }
-  else { grade='D'; gradeColor='var(--sell)'; gradeDesc='未達標 — 不戰而屈人之兵，條件不足不進場'; }
+  // 分級（多空雙向：勢能極弱 = 空方強標的）
+  const shortShi = 100 - shi;  // 空方勢能（趨勢/籌碼/量能分數皆有方向性，反轉即空方強度）
+  let grade, gradeColor, gradeDesc, shortGrade = null;
+  if (shi >= 80) { grade='A'; gradeColor='var(--buy)'; gradeDesc='多方A級 — 勢能強勁，做多優先佈局'; }
+  else if (shi >= 70) { grade='B'; gradeColor='#10B981'; gradeDesc='多方B級 — 勢能良好，做多可考慮'; }
+  else if (shi >= 60) { grade='C'; gradeColor='var(--warn)'; gradeDesc='多方C級 — 勢能普通，謹慎'; }
+  else if (shortShi >= 80) { grade='空A'; shortGrade='A'; gradeColor='var(--sell)'; gradeDesc='空方A級 — 勢能極弱（趨勢/籌碼/量能同弱），做空優先標的'; }
+  else if (shortShi >= 70) { grade='空B'; shortGrade='B'; gradeColor='#F87171'; gradeDesc='空方B級 — 勢能偏弱，做空可考慮'; }
+  else { grade='D'; gradeColor='var(--muted)'; gradeDesc='多空皆不足 — 不戰而屈人之兵，觀望'; }
 
   return {
-    shi, grade, gradeColor, gradeDesc,
+    shi, shortShi, grade, shortGrade, gradeColor, gradeDesc,
     breakdown: { trend: trendScore, chip: chipScore, vol: volScore, industry: industryScore },
     ma: { ma20, ma60, ma120 },
     maAligned: price > ma20 && ma20 > ma60 && ma60 > ma120
@@ -109,8 +112,14 @@ function computeTradeScore(D, shi, formulas, riskMetrics, rsRating) {
    ──────────────────────────────────────────────────────────────── */
 function computeBingfaExit(price) {
   return {
-    tp1: { price: price * 1.20, pct: 50, label: '+20% 停利 50%（知足）' },
-    tp2: { price: price * 1.40, pct: 25, label: '+40% 再停利 25%（不辱）' },
+    long: {
+      tp1: { price: price * 1.20, pct: 50, label: '+20% 停利 50%（知足）' },
+      tp2: { price: price * 1.40, pct: 25, label: '+40% 再停利 25%（不辱）' }
+    },
+    short: {
+      tp1: { price: price * 0.80, pct: 50, label: '+20% 停利 50%（價跌20%）' },
+      tp2: { price: price * 0.60, pct: 25, label: '+40% 再停利 25%（價跌40%）' }
+    },
     runner: { pct: 25, label: '剩 25% 續抱讓獲利奔跑' }
   };
 }
@@ -156,16 +165,21 @@ function renderBingfa(D, shi, tradeScore, exit) {
   document.getElementById('bf-tradeparts').textContent =
     `趨勢${ts.trend} · 籌碼${ts.chip} · 產業${ts.industry} · 動能${ts.momentum} · 風控${ts.riskCtrl}`;
 
-  // 兵法停利策略
+  // 兵法停利策略（多空雙向：做多在上漲側、做空在下跌側）
+  const exitRow=(label,price,col)=>`<div style="display:flex;justify-content:space-between;padding:5px 10px;background:${col}15;border-radius:6px;margin-bottom:3px"><span style="font-size:11px">${label}</span><span style="font-family:var(--mono);font-size:12px;color:${col}">${fmt(price)}</span></div>`;
   document.getElementById('bf-exit').innerHTML =
-    `<div style="font-size:11px;color:var(--purple);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">知足不辱 — 分批停利</div>
-    <div style="display:flex;justify-content:space-between;padding:6px 10px;background:var(--buy-d);border-radius:6px;margin-bottom:4px"><span style="font-size:11px">${exit.tp1.label}</span><span style="font-family:var(--mono);font-size:12px;color:var(--buy)">${fmt(exit.tp1.price)}</span></div>
-    <div style="display:flex;justify-content:space-between;padding:6px 10px;background:var(--buy-d);border-radius:6px;margin-bottom:4px"><span style="font-size:11px">${exit.tp2.label}</span><span style="font-family:var(--mono);font-size:12px;color:var(--buy)">${fmt(exit.tp2.price)}</span></div>
+    `<div style="font-size:11px;color:var(--purple);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">知足不辱 — 分批停利（依你的方向看對應側）</div>
+    <div style="font-size:10px;color:var(--buy);margin-bottom:4px">📈 做多側</div>
+    ${exitRow(exit.long.tp1.label, exit.long.tp1.price, 'var(--buy)')}
+    ${exitRow(exit.long.tp2.label, exit.long.tp2.price, 'var(--buy)')}
+    <div style="font-size:10px;color:var(--sell);margin:8px 0 4px">📉 做空側</div>
+    ${exitRow(exit.short.tp1.label, exit.short.tp1.price, 'var(--sell)')}
+    ${exitRow(exit.short.tp2.label, exit.short.tp2.price, 'var(--sell)')}
     <div style="font-size:10px;color:var(--muted);padding:4px 10px">${exit.runner.label}</div>`;
 }
 
 /* ── 綜合決策橫幅（整合兵法分級+健康度+崩跌風險，一句話結論）──────── */
-function renderVerdictBanner(shi, tradeScore, formulas, marketScore) {
+function renderVerdictBanner(shi, tradeScore, formulas, marketScore, res) {
   const banner = document.getElementById('verdict-banner');
   const inner = document.getElementById('vb-inner');
   if (!banner || !inner) return;
@@ -193,10 +207,16 @@ function renderVerdictBanner(shi, tradeScore, formulas, marketScore) {
     color = 'var(--warn)'; bg = 'var(--warn-d)';
     title = '🟡 C級標的，勢能普通，謹慎';
     summary = `勢能 ${shi.shi}分。條件中等，不急進場，等更明確訊號或更好價位`;
-  } else {
+  } else if (shi.shortGrade === 'A' || shi.shortGrade === 'B') {
     color = 'var(--sell)'; bg = 'var(--sell-d)';
-    title = '⚪ 未達標，不戰而屈人之兵';
-    summary = `勢能 ${shi.shi}分未達60。孫子曰條件不足不進場，多看少做`;
+    title = `🔻 空方${shi.shortGrade}級標的，弱勢明確`;
+    const psyWarn = (formulas && formulas.psy && formulas.psy.value <= 25)
+      ? '。⚠️ 但 PSY 已入恐慌區，空單留意短線反彈（恐慌常有技術性反彈）' : '';
+    summary = `空方勢能 ${shi.shortShi}分（趨勢/籌碼/量能同弱），偏空操作可考慮。做空嚴守停損${psyWarn}`;
+  } else {
+    color = 'var(--muted)'; bg = 'var(--bg)';
+    title = '⚪ 多空皆不足，不戰而屈人之兵';
+    summary = `多方勢能 ${shi.shi}、空方勢能 ${shi.shortShi}，皆未達70。條件不足不進場，多看少做`;
   }
 
   inner.style.borderColor = color;
@@ -209,13 +229,19 @@ function renderVerdictBanner(shi, tradeScore, formulas, marketScore) {
 
   // 關鍵指標小標籤
   const chip = (label, val, c) => `<div style="background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:5px 10px;font-size:11px"><span style="color:var(--muted)">${label}</span> <span style="font-family:var(--mono);font-weight:700;color:${c}">${val}</span></div>`;
+  // 信心指數 = 共振共識度絕對值；維度分歧時在結論加註降信心
+  const confidence = res ? Math.abs(res.consensus) : null;
+  if (res && res.strength === 'weak') {
+    document.getElementById('vb-summary').textContent += '。⚠️ 各維度目前分歧，信心指數低，不強行給方向——觀望也是操作';
+  }
   const mkt = marketScore ? marketScore.score : null;
   document.getElementById('vb-metrics').innerHTML =
     chip('勢能', shi.shi, color) +
     chip('交易評分', tradeScore.score, 'var(--acc)') +
     chip('FUSION', (fusion>=0?'+':'')+fusion, fusion>=0?'var(--buy)':'var(--sell)') +
     chip('崩跌風險', crash, crash>=35?'var(--sell)':'var(--muted)') +
-    (mkt!=null ? chip('大盤', mkt, mkt>=55?'var(--buy)':mkt<=45?'var(--sell)':'var(--warn)') : '');
+    (mkt!=null ? chip('大盤', mkt, mkt>=55?'var(--buy)':mkt<=45?'var(--sell)':'var(--warn)') : '') +
+    (confidence!=null ? chip('信心', confidence, confidence>=60?'var(--buy)':confidence>=30?'var(--warn)':'var(--sell)') : '');
 }
 async function checkBingfaWarning() {
   try {

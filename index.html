@@ -274,6 +274,18 @@
     <div class="card"><div id="vpradar-list"></div></div>
   </div>
 
+  <!-- 主力行為推估 -->
+  <div id="mainforce-card" style="display:none">
+    <div class="layer-title"><span class="layer-num" style="background:#7C3AED;color:#fff">主</span>主力行為推估<span class="layer-sub">吸籌/洗盤/出貨/誘多誘空 — OBV偷跑偵測</span><button onclick="showHelp('mainforce')" class="help-btn" title="說明">ⓘ</button></div>
+    <div class="card"><div id="mainforce-content"></div></div>
+  </div>
+
+  <!-- 融資融券 散戶心理 -->
+  <div id="margin-card" style="display:none">
+    <div class="layer-title"><span class="layer-num" style="background:#DB2777;color:#fff">資</span>融資融券 · 散戶心理<span class="layer-sub">散戶槓桿 vs 主力 — 軋空偵測</span><button onclick="showHelp('margin')" class="help-btn" title="說明">ⓘ</button></div>
+    <div class="card"><div id="margin-content"></div></div>
+  </div>
+
   <!-- VWAP + 市場結構 + 過熱反指標 -->
   <div id="smc-card" style="display:none">
     <div class="layer-title"><span class="layer-num" style="background:#0D9488;color:#fff">SM</span>機構足跡<span class="layer-sub">VWAP成本線 · BOS/CHoCH結構 · 過熱反指標</span><button onclick="showHelp('smc')" class="help-btn" title="說明">ⓘ</button></div>
@@ -426,6 +438,7 @@
 <script src="./enhance.js"></script>
 <script src="./advanced.js"></script>
 <script src="./smc.js"></script>
+<script src="./mainforce.js"></script>
 <script src="./resonance.js"></script>
 <script src="./bingfa.js"></script>
 <script src="./layout.js"></script>

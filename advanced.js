@@ -79,7 +79,7 @@ function renderRSRating(rs) {
   document.getElementById('rs-desc').textContent = desc;
   document.getElementById('rs-detail').textContent =
     `近季 ${rs.r63>=0?'+':''}${rs.r63.toFixed(1)}%｜近半年 ${rs.r126>=0?'+':''}${rs.r126.toFixed(1)}%｜近年 ${rs.r252>=0?'+':''}${rs.r252.toFixed(1)}%` +
-    (rs.excess != null ? `｜超額報酬 ${rs.excess>=0?'+':''}${rs.excess.toFixed(1)}%` : '');
+    (rs.excess != null ? `｜超額報酬 ${rs.excess>=0?'+':''}${rs.excess.toFixed(1)}%` : '｜⚠️ 大盤資料未取得，此為絕對報酬近似（非相對強弱）');
 }
 
 /* ══ B. Beta / Alpha ══════════════════════════════════════════════════
@@ -137,20 +137,20 @@ function computeProbability(D) {
   const c = D.closes, h = D.highs, l = D.lows, v = D.volumes;
   const n = c.length;
   const results = [];
+  // 當前訊號只算一次（原本誤放在迴圈內，每根K棒重複計算 → 效能浪費）
+  const curSigOnce = signalsAtIndex(c, h, l, v, n-1);
+  const curBuysN = curSigOnce ? Object.values(curSigOnce).filter(s=>s==='buy').length : 0;
+  const curSellsN = curSigOnce ? Object.values(curSigOnce).filter(s=>s==='sell').length : 0;
+  const curBull = curBuysN > curSellsN;
   for (const horizon of periods) {
     let upCount = 0, total = 0;
+    if (!curSigOnce) { results.push({ horizon, prob: null, samples: 0 }); continue; }
     for (let i = 60; i < n - horizon; i++) {
       const sig = signalsAtIndex(c, h, l, v, i);
       if (!sig) continue;
       const vals = Object.values(sig);
       const buys = vals.filter(s => s === 'buy').length;
       const sells = vals.filter(s => s === 'sell').length;
-      // 當前訊號方向與歷史相似的樣本
-      const curSig = signalsAtIndex(c, h, l, v, n-1);
-      if (!curSig) continue;
-      const curBuys = Object.values(curSig).filter(s=>s==='buy').length;
-      const curSells = Object.values(curSig).filter(s=>s==='sell').length;
-      const curBull = curBuys > curSells;
       // 只統計與當前同向的歷史情境
       if ((curBull && buys > sells) || (!curBull && sells > buys)) {
         total++;
@@ -158,7 +158,7 @@ function computeProbability(D) {
         if (curBull ? fut > 0 : fut < 0) upCount++;
       }
     }
-    const prob = total >= 3 ? upCount/total : null;
+    const prob = total >= 5 ? upCount/total : null;  // 最小樣本 3→5：3筆算出的機率統計上沒意義
     results.push({ horizon, prob, samples: total });
   }
   // 當前方向
