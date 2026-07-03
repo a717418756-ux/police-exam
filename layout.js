@@ -15,7 +15,7 @@ const TABS = [
   { id:'t-chip', icon:'💰', name:'籌碼',
     cards:['mainforce-card','margin-card','chip-card','rs-card','beta-card'] },
   { id:'t-trend', icon:'📈', name:'趨勢',
-    cards:['trend-banner','risk-card','riskmetric-card'] },
+    cards:['mtf-card','trend-banner','risk-card','riskmetric-card'] },
   { id:'t-signal', icon:'🔍', name:'訊號',
     cards:['smc-card','sr-card','vpradar-card','multiperiod-card','cat-row','ind-grid'] },
   { id:'t-mind', icon:'🧠', name:'心理AI',

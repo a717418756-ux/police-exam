@@ -405,7 +405,7 @@ async function go(){
   if(!raw)return;
   const btn=$('go-btn');btn.disabled=true;btn.innerHTML='<span class="spin"></span>';
   hideErr();
-  ['stock-bar','trend-banner','risk-card','psych-card','ai-card','market-card','quant-card','formula-card','mktscore-card','chip-card','playbook-card','riskmetric-card','multiperiod-card','health-card','regime-card','rs-card','beta-card','prob-card','sr-card','vpradar-card','bingfa-card','verdict-banner','smc-card','resonance-card','mainforce-card','margin-card'].forEach(id=>$(id).style.display='none');
+  ['stock-bar','trend-banner','risk-card','psych-card','ai-card','market-card','quant-card','formula-card','mktscore-card','chip-card','playbook-card','riskmetric-card','multiperiod-card','health-card','regime-card','rs-card','beta-card','prob-card','sr-card','vpradar-card','bingfa-card','verdict-banner','smc-card','resonance-card','mainforce-card','margin-card','mtf-card'].forEach(id=>$(id).style.display='none');
   $('ind-grid').style.display='none';$('ind-grid').innerHTML='';
   $('cat-row').style.display='none';$('cat-tabs').innerHTML='';
   activeCat='全部';
@@ -512,6 +512,15 @@ async function go(){
     try{ if(typeof renderSMC==='function') renderSMC(D, formulas, market); }
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('機構足跡',err); }
 
+    // 多時間框架共振（月/週/日）
+    let mtfResult=null;
+    try{ if(typeof computeMTF==='function'){ mtfResult=computeMTF(D); renderMTF(D); } }
+    catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('MTF',err); }
+
+    // 貝氏機率整合（真機率，非燈號）
+    try{ if(typeof renderBayes==='function') renderBayes(D); }
+    catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('貝氏機率',err); }
+
     // 主力行為推估（OBV偷跑/洗盤/出貨/誘多誘空）
     try{ if(typeof renderMainForce==='function') renderMainForce(D, formulas); }
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('主力行為',err); }
@@ -546,7 +555,7 @@ async function go(){
           const vwap=(typeof computeVWAP==='function')?computeVWAP(D,20):null;
           const structure=(typeof computeStructure==='function')?computeStructure(D):null;
           const overheat=(typeof computeOverheat==='function')?computeOverheat(D,formulas,market):null;
-          res=computeResonance({D,trend,formulas,chip:D.chip,vwap,structure,overheat,rsRating,marketScore,shi});
+          res=computeResonance({D,trend,formulas,chip:D.chip,vwap,structure,overheat,rsRating,marketScore,shi,mtf:mtfResult});
           renderResonance(res);
         }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('共振確認',err); }
         renderVerdictBanner(shi, tradeScore, formulas, marketScore, res);

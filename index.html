@@ -257,6 +257,7 @@
   <div id="prob-card" style="display:none">
     <div class="layer-title"><span class="layer-num" style="background:#10B981;color:#fff">%</span>機率預測<span class="layer-sub">歷史相似情境的漲跌機率 — 比買賣燈更精準</span><button onclick="showHelp('prob')" class="help-btn" title="說明">ⓘ</button></div>
     <div class="card">
+      <div id="bayes-box"></div>
       <div id="prob-dir" style="font-size:12px;color:var(--muted);margin-bottom:10px"></div>
       <div id="prob-rows"></div>
     </div>
@@ -272,6 +273,12 @@
   <div id="vpradar-card" style="display:none">
     <div class="layer-title"><span class="layer-num" style="background:#EF4444;color:#fff">量</span>量價異常雷達<span class="layer-sub">出貨/動能不足偵測</span><button onclick="showHelp('vpradar')" class="help-btn" title="說明">ⓘ</button></div>
     <div class="card"><div id="vpradar-list"></div></div>
+  </div>
+
+  <!-- 多時間框架共振 -->
+  <div id="mtf-card" style="display:none">
+    <div class="layer-title"><span class="layer-num" style="background:linear-gradient(135deg,#0891B2,#2563EB);color:#fff">週</span>多時間框架 MTF<span class="layer-sub">月30% · 週40% · 日30% — 大週期定方向</span><button onclick="showHelp('mtf')" class="help-btn" title="說明">ⓘ</button></div>
+    <div class="card"><div id="mtf-content"></div></div>
   </div>
 
   <!-- 主力行為推估 -->
@@ -439,6 +446,7 @@
 <script src="./advanced.js"></script>
 <script src="./smc.js"></script>
 <script src="./mainforce.js"></script>
+<script src="./mtf.js"></script>
 <script src="./resonance.js"></script>
 <script src="./bingfa.js"></script>
 <script src="./layout.js"></script>

@@ -17,26 +17,41 @@
    ADX>25 趨勢明確→用趨勢指標；ADX<20 盤整→用震盪指標或觀望
    ════════════════════════════════════════════════════════════════════ */
 function computeRegime(D) {
-  // 複用 app.js 的 DMI 計算（已存在 calcDMI）
   const dmi = calcDMI(D.highs, D.lows, D.closes, 14);
+  const c = D.closes, n = c.length;
+  // 波動百分位（近10日日均振幅 vs 近120日分布）
+  const rangePct = (i) => (D.highs[i] - D.lows[i]) / c[i] * 100;
+  let recent = 0; for (let i = n - 10; i < n; i++) recent += rangePct(i);
+  recent /= 10;
+  const hist = [];
+  for (let i = Math.max(20, n - 120); i < n - 10; i++) hist.push(rangePct(i));
+  const volPct = hist.length ? Math.round(hist.filter(x => x <= recent).length / hist.length * 100) : 50;
+  // 近20日回撤
+  const peak20 = Math.max(...c.slice(-20));
+  const dd20 = (c[n-1] - peak20) / peak20 * 100;
+
   let regime, advice, cls, icon;
-  if (dmi.adx >= 25) {
-    regime = '趨勢盤';
-    icon = '📈';
-    cls = dmi.pdi > dmi.ndi ? 'bull' : 'bear';
-    advice = `ADX ${dmi.adx.toFixed(0)} 趨勢明確（${dmi.pdi > dmi.ndi ? '多方' : '空方'}主導）→ 適合「順勢策略」：跟均線、突破、MACD。此時 RSI 超買超賣易失效（強勢可一直超買）。`;
+  if (volPct >= 88 && dd20 < -6) {
+    regime = '高波動危險'; icon = '🌪️'; cls = 'bear';
+    advice = `波動位於近半年前 ${100-volPct}% 極端區且20日回撤 ${dd20.toFixed(1)}% → 恐慌/劇烈換手狀態。此狀態下所有技術指標可靠度大降，首要任務是「降部位保本金」，不是找進場點。歷史上多數大虧發生在硬要在這種盤操作。`;
+  } else if (dmi.adx >= 25 && dmi.pdi > dmi.ndi) {
+    regime = '多頭趨勢'; icon = '📈'; cls = 'bull';
+    advice = `ADX ${dmi.adx.toFixed(0)} 多方主導 → 信「順勢工具」：均線、突破、MACD、MTF。RSI超買會鈍化（強勢股一直超買），別逆勢摸頭放空。`;
+  } else if (dmi.adx >= 25 && dmi.ndi >= dmi.pdi) {
+    regime = '空頭趨勢'; icon = '📉'; cls = 'bear';
+    advice = `ADX ${dmi.adx.toFixed(0)} 空方主導 → 反彈是出場/進空點而非買點。RSI超賣會鈍化（弱勢股一直超賣），別逆勢接刀。做空順勢但注意軋空風險。`;
   } else if (dmi.adx < 20) {
-    regime = '盤整盤';
-    icon = '🔄';
-    cls = 'neutral';
-    advice = `ADX ${dmi.adx.toFixed(0)} 無明顯趨勢 → 適合「震盪策略」：RSI/KD 超買超賣來回操作，或乾脆觀望。此時追突破易被巴。`;
+    regime = '盤整'; icon = '🔄'; cls = 'neutral';
+    advice = `ADX ${dmi.adx.toFixed(0)} 無趨勢 → 信「震盪工具」：RSI/KD高賣低買、支撐壓力區間操作。追突破易被巴。搭配下方壓縮指數：極度壓縮時準備迎接變盤。`;
   } else {
-    regime = '過渡帶';
-    icon = '⚖️';
-    cls = 'neutral';
-    advice = `ADX ${dmi.adx.toFixed(0)} 介於 20~25，趨勢醞釀中。建議減少部位，等方向明確再加碼。`;
+    regime = '過渡帶'; icon = '⚖️'; cls = 'neutral';
+    advice = `ADX ${dmi.adx.toFixed(0)} 趨勢醞釀中，減少部位等方向確認。`;
   }
-  return { adx: dmi.adx, pdi: dmi.pdi, ndi: dmi.ndi, regime, advice, cls, icon };
+  // 壓縮指數（大變盤前兆）
+  let compression = null;
+  try { if (typeof computeCompression === 'function') compression = computeCompression(D); } catch(e) {}
+  if (compression && compression.level !== 'normal') advice += `｜🔋 ${compression.desc}`;
+  return { adx: dmi.adx, pdi: dmi.pdi, ndi: dmi.ndi, regime, advice, cls, icon, volPct, compression };
 }
 
 function renderRegime(r) {

@@ -54,6 +54,12 @@ function computeResonance(ctx) {
       note: ed === -1 ? '過熱(反指標偏空)' : '情緒正常' });
   }
 
+  // ⑦ 多時間框架維度（週線月線定方向）
+  if (ctx.mtf) {
+    dims.push({ name: '週期MTF', dir: ctx.mtf.dir, score: ctx.mtf.total,
+      note: ctx.mtf.dir === 1 ? '大週期偏多' : ctx.mtf.dir === -1 ? '大週期偏空' : '框架衝突' });
+  }
+
   // ⑥ 相對強弱維度（RS）
   if (ctx.rsRating != null) {
     dims.push({ name: '相對強弱', dir: ctx.rsRating >= 70 ? 1 : ctx.rsRating <= 40 ? -1 : 0,
