@@ -252,6 +252,8 @@ async function loadMarginCard(D) {
     html += `<div style="margin-top:10px;font-size:11px;color:var(--warn)">⚠️ 券資比 ${m.shortRatio.toFixed(0)}% 偏高，空單留意軋空風險</div>`;
   }
   document.getElementById('margin-content').innerHTML = html;
+  // 融資資料到位後補繪反明牌雷達（納入散戶真實部位證據）
+  try { if (typeof renderCrowding === 'function' && window._lastD) renderCrowding(window._lastD, window._lastFormulas); } catch (e) {}
 }
 
 /* ══ D. 智慧停損（防「停損完就反向走」）══════════════════════════════
@@ -303,4 +305,114 @@ function computeSmartStop(D, atr) {
     long: { stop: stopL, method: methodL, sweepRate: sweepRateL },
     short: { stop: stopS, method: methodS, sweepRate: sweepRateS }
   };
+}
+
+/* ══ E. 反明牌雷達（散戶擁擠度偵測）══════════════════════════════════
+   量化「這個訊號有多教科書」——AI散戶工具都吐同樣結論（RSI超賣買、
+   MACD金叉買、突破追、跌破殺）。明牌訊號越擁擠，越可能是主力的獵場：
+   擁擠 + 主力反向（OBV/法人）= 明牌陷阱；擁擠 = 停損聚集 = 先被掃
+   ════════════════════════════════════════════════════════════════════ */
+function computeCrowding(D, formulas) {
+  const c = D.closes, h = D.highs, l = D.lows, v = D.volumes, n = c.length;
+  const price = D.price;
+  let buyVotes = 0, sellVotes = 0;
+  const seen = [];
+
+  // 教科書訊號盤點（每個AI散戶工具都會報的那幾條）
+  const rsi = _btRSI(c, 14);
+  if (rsi <= 32) { buyVotes++; seen.push(`RSI ${rsi.toFixed(0)} 超賣（AI教科書：買）`); }
+  else if (rsi >= 68) { sellVotes++; seen.push(`RSI ${rsi.toFixed(0)} 超買（AI教科書：賣）`); }
+
+  const kd = _btKD(h, l, c, 9);
+  if (kd.k <= 22) { buyVotes++; seen.push(`KD ${kd.k.toFixed(0)} 低檔（教科書：買）`); }
+  else if (kd.k >= 78) { sellVotes++; seen.push(`KD ${kd.k.toFixed(0)} 高檔（教科書：賣）`); }
+
+  const macd = _btMACD(c);
+  if (macd.hist > 0) { buyVotes++; seen.push('MACD 柱體翻紅（教科書：買）'); }
+  else if (macd.hist < 0) { sellVotes++; seen.push('MACD 柱體翻綠（教科書：賣）'); }
+
+  const ma20 = _btSMA(c, 20), ma60 = _btSMA(c, 60);
+  if (price > ma20 && ma20 > ma60) { buyVotes++; seen.push('均線多頭排列（教科書：買）'); }
+  else if (price < ma20 && ma20 < ma60) { sellVotes++; seen.push('均線空頭排列（教科書：賣）'); }
+
+  // 追突破/殺跌破（散戶最愛）
+  const high20 = Math.max(...h.slice(-21, -1)), low20 = Math.min(...l.slice(-21, -1));
+  if (price > high20) { buyVotes++; seen.push('突破20日高（散戶追突破點）'); }
+  else if (price < low20) { sellVotes++; seen.push('跌破20日低（散戶恐慌停損點）'); }
+
+  // 連漲連跌（追價/殺跌情緒）
+  let streak = 0;
+  for (let i = n - 1; i > 0; i--) { if (c[i] > c[i-1]) { if (streak >= 0) streak++; else break; } else if (c[i] < c[i-1]) { if (streak <= 0) streak--; else break; } else break; }
+  if (streak >= 3) { buyVotes++; seen.push(`連漲${streak}天（FOMO追價環境）`); }
+  else if (streak <= -3) { sellVotes++; seen.push(`連跌${Math.abs(streak)}天（恐慌殺跌環境）`); }
+
+  // 擁擠方向與擁擠度
+  const crowdDir = buyVotes - sellVotes >= 2 ? 1 : sellVotes - buyVotes >= 2 ? -1 : 0;
+  const maxV = Math.max(buyVotes, sellVotes);
+  let crowding = Math.round(maxV / 6 * 60);
+  // 乖離放大擁擠（追到離均線很遠=晚進場的散戶多）
+  const bias = (price - ma20) / ma20 * 100;
+  if (Math.abs(bias) > 8) crowding += 20;
+  else if (Math.abs(bias) > 5) crowding += 10;
+  // 融資同向加成（散戶真金白銀進場的證據，若已載入）
+  let marginNote = null;
+  const mc = _marginCache[D.code];
+  if (mc && mc.d) {
+    if (crowdDir === 1 && mc.d.marginChg5 > 4) { crowding += 20; marginNote = `融資5日+${mc.d.marginChg5.toFixed(1)}%——散戶不只看到明牌，還真的用槓桿進場了`; }
+    if (crowdDir === -1 && mc.d.shortRatio >= 20) { crowding += 15; marginNote = `券資比 ${mc.d.shortRatio.toFixed(0)}%——散戶空單也擁擠，殺跌明牌+軋空燃料並存`; }
+  }
+  crowding = Math.min(100, crowding);
+
+  // 主力是否站在明牌反面（陷阱偵測）
+  let trap = null;
+  try {
+    const { oSlope } = computeOBV(D);
+    const instNet = D.chip ? (D.chip.foreign5 + D.chip.trust5) : null;
+    if (crowdDir === 1 && crowding >= 55 && (oSlope < -0.25 || (instNet != null && instNet < 0))) {
+      trap = { type: 'bull', text: `明牌多頭陷阱風險：教科書訊號全亮多（${buyVotes}條）、散戶看得到也追得進，但${oSlope < -0.25 ? 'OBV量能潮下降（主力邊拉邊出）' : '法人站賣方'}——散戶照AI教科書買，主力照單全收` };
+    } else if (crowdDir === -1 && crowding >= 55 && (oSlope > 0.25 || (instNet != null && instNet > 0))) {
+      trap = { type: 'bear', text: `明牌空頭陷阱風險（誘空）：教科書訊號全亮空（${sellVotes}條）、殺跌明牌人盡皆知，但${oSlope > 0.25 ? 'OBV量能潮上升（主力默默吃貨）' : '法人站買方'}——此時進空單=跟散戶擠同一邊，小心被軋` };
+    }
+  } catch (e) { /* OBV 失敗略過 */ }
+
+  return { crowdDir, crowding, buyVotes, sellVotes, seen, trap, bias, marginNote };
+}
+
+function renderCrowding(D, formulas) {
+  const card = document.getElementById('crowd-card');
+  if (!card) return;
+  card.style.display = 'block';
+  const cw = computeCrowding(D, formulas);
+
+  const dirTxt = cw.crowdDir === 1 ? '散戶擁擠在「多方」' : cw.crowdDir === -1 ? '散戶擁擠在「空方」' : '無明顯擁擠方向';
+  const col = cw.crowding >= 70 ? 'var(--sell)' : cw.crowding >= 45 ? 'var(--warn)' : 'var(--buy)';
+
+  let html = `<div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+    <div style="text-align:center;min-width:78px">
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">明牌擁擠度</div>
+      <div style="font-family:var(--mono);font-size:34px;font-weight:800;color:${col};line-height:1">${cw.crowding}</div>
+    </div>
+    <div style="flex:1">
+      <div style="font-size:13px;font-weight:700;color:${col}">${dirTxt}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px;line-height:1.5">${cw.crowding >= 70 ? '極度擁擠——這個結論每個用AI的散戶都看得到，明牌的預期報酬已被稀釋，且停損位高度聚集' : cw.crowding >= 45 ? '中度擁擠——教科書訊號偏一致，留意先掃停損再走的劇本' : '不擁擠——目前不是人盡皆知的明牌，訊號含金量相對高'}</div>
+    </div>
+  </div>`;
+
+  if (cw.trap) {
+    html += `<div style="padding:11px 13px;background:var(--sell-d);border:1px solid var(--sell);border-radius:9px;margin-bottom:10px">
+      <div style="font-size:12px;font-weight:700;color:var(--sell);margin-bottom:3px">🪤 ${cw.trap.type === 'bull' ? '多頭明牌陷阱' : '空頭明牌陷阱（誘空）'}</div>
+      <div style="font-size:11px;color:var(--muted);line-height:1.6">${cw.trap.text}</div>
+    </div>`;
+  }
+  if (cw.marginNote) {
+    html += `<div style="font-size:11px;color:var(--warn);margin-bottom:10px;line-height:1.5">💳 ${cw.marginNote}</div>`;
+  }
+  if (cw.seen.length) {
+    html += '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">目前亮著的教科書訊號（AI散戶都看得到的）</div>';
+    cw.seen.forEach(s => {
+      html += `<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px solid var(--bd)"><span style="color:var(--muted2)">▸</span><span style="font-size:11px;color:var(--muted)">${s}</span></div>`;
+    });
+  }
+  html += `<div style="font-size:10px;color:var(--muted2);margin-top:10px;line-height:1.6">💡 反明牌邏輯：擁擠度高≠必反轉，但「擁擠+主力反向（OBV/法人）」= 高風險陷阱。停損位在擁擠訊號下常先被掃——本系統智慧停損已放結構外緩衝區。真正的優勢不在看到訊號，在知道多少人跟你看到同一個。</div>`;
+  document.getElementById('crowd-content').innerHTML = html;
 }

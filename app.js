@@ -405,7 +405,7 @@ async function go(){
   if(!raw)return;
   const btn=$('go-btn');btn.disabled=true;btn.innerHTML='<span class="spin"></span>';
   hideErr();
-  ['stock-bar','trend-banner','risk-card','psych-card','ai-card','market-card','quant-card','formula-card','mktscore-card','chip-card','playbook-card','riskmetric-card','multiperiod-card','health-card','regime-card','rs-card','beta-card','prob-card','sr-card','vpradar-card','bingfa-card','verdict-banner','smc-card','resonance-card','mainforce-card','margin-card','mtf-card'].forEach(id=>$(id).style.display='none');
+  ['stock-bar','trend-banner','risk-card','psych-card','ai-card','market-card','quant-card','formula-card','mktscore-card','chip-card','playbook-card','riskmetric-card','multiperiod-card','health-card','regime-card','rs-card','beta-card','prob-card','sr-card','vpradar-card','bingfa-card','verdict-banner','smc-card','resonance-card','mainforce-card','margin-card','mtf-card','crowd-card'].forEach(id=>$(id).style.display='none');
   $('ind-grid').style.display='none';$('ind-grid').innerHTML='';
   $('cat-row').style.display='none';$('cat-tabs').innerHTML='';
   activeCat='全部';
@@ -524,6 +524,10 @@ async function go(){
     // 主力行為推估（OBV偷跑/洗盤/出貨/誘多誘空）
     try{ if(typeof renderMainForce==='function') renderMainForce(D, formulas); }
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('主力行為',err); }
+
+    // 散戶擁擠度反指標（反AI散戶引擎）
+    try{ if(typeof renderCrowding==='function') renderCrowding(D, formulas); }
+    catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('擁擠度',err); }
 
     // 融資融券散戶心理（台股限定，非同步不擋主流程）
     try{ if(D.currency==='TWD' && typeof loadMarginCard==='function') loadMarginCard(D); }

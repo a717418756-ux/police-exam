@@ -19,7 +19,7 @@ const TABS = [
   { id:'t-signal', icon:'🔍', name:'訊號',
     cards:['smc-card','sr-card','vpradar-card','multiperiod-card','cat-row','ind-grid'] },
   { id:'t-mind', icon:'🧠', name:'心理AI',
-    cards:['psych-card','ai-card'] },
+    cards:['crowd-card','psych-card','ai-card'] },
 ];
 
 let _layoutBuilt = false;
