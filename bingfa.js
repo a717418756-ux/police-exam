@@ -269,3 +269,116 @@ async function checkBingfaWarning() {
     }
   } catch (e) { /* 略過 */ }
 }
+
+/* ══ 出手紀律門（Pre-Trade Gate）═════════════════════════════════════
+   專業機構和散戶的最大差別：機構有「一關不過就不出手」的檢查清單。
+   把全站分析濃縮成多/空兩個裁決：🟢出手 / 🟡謹慎 / 🔴禁止 + 犯規清單。
+   反其道核心：散戶看到訊號就進場；獵人等散戶停損被掃完才進場。
+   ════════════════════════════════════════════════════════════════════ */
+function computeTradeGate(ctx) {
+  // ctx: { D, regime, mtf, res, formulas, shi }
+  const { D, regime, mtf, res, formulas } = ctx;
+  const fusion = formulas && formulas.fusion ? formulas.fusion.value : 0;
+  const psy = formulas && formulas.psy ? formulas.psy.value : 50;
+  const margin = (typeof _marginCache !== 'undefined' && _marginCache[D.code]) ? _marginCache[D.code].d : null;
+  let crowd = null;
+  try { if (typeof computeCrowding === 'function') crowd = computeCrowding(D, formulas); } catch (e) {}
+  let mf = null;
+  try { if (typeof computeMainForce === 'function') mf = computeMainForce(D, formulas); } catch (e) {}
+
+  const judge = (dir) => { // dir: 1=多, -1=空
+    const pass = [], fail = [], warn = [];
+    // R1 市場環境（總開關）
+    if (regime) {
+      if (regime.regime === '高波動危險') fail.push('高波動危險態：保本金優先，此狀態禁止進場');
+      else if (regime.regime === '盤整') warn.push('盤整態：波段勝率低，僅限區間短打、小部位');
+      else if ((regime.regime === '多頭趨勢' && dir === 1) || (regime.regime === '空頭趨勢' && dir === -1)) pass.push(`環境順風（${regime.regime}）`);
+      else if (regime.regime === '多頭趨勢' || regime.regime === '空頭趨勢') fail.push(`環境逆風（${regime.regime}）：逆環境操作是散戶最常見的死法`);
+    }
+    // R2 大週期 MTF
+    if (mtf) {
+      if (mtf.dir === dir) pass.push('週期MTF同向（大週期順風）');
+      else if (mtf.dir === -dir) fail.push('週期MTF反向：逆大週期只是搶反彈，不是波段');
+      else warn.push('MTF框架衝突：大小週期不一致，勝率打折');
+    }
+    // R3 多維共振
+    if (res) {
+      const c = res.consensus;
+      if ((dir === 1 && c >= 25) || (dir === -1 && c <= -25)) pass.push(`共振同向（共識度 ${c}）`);
+      else if ((dir === 1 && c <= -25) || (dir === -1 && c >= 25)) fail.push(`共振反向（共識度 ${c}）：多數維度不站你這邊`);
+      else warn.push('共振中性：維度分歧，等更明確');
+    }
+    // R4 順公式（你的實戰數據教訓）
+    if ((dir === 1 && fusion >= 20) || (dir === -1 && fusion <= -20)) pass.push(`順公式（FUSION ${fusion >= 0 ? '+' : ''}${fusion}）`);
+    else if ((dir === 1 && fusion <= -20) || (dir === -1 && fusion >= 20)) fail.push(`逆公式（FUSION ${fusion >= 0 ? '+' : ''}${fusion}）：你的實戰統計顯示逆公式進場 MAE 深 2~4 倍`);
+    else warn.push('公式中性：FUSION 未同向確認');
+    // R5 反明牌（別站人多的一邊）
+    if (crowd) {
+      if (crowd.trap && ((crowd.trap.type === 'bull' && dir === 1) || (crowd.trap.type === 'bear' && dir === -1))) fail.push('明牌陷阱警報：教科書訊號與你同向但主力反向，你正要跟散戶擠同一邊');
+      else if (crowd.crowdDir === dir && crowd.crowding >= 70) fail.push(`明牌極度擁擠（${crowd.crowding}）：這個結論所有AI散戶都看到了`);
+      else if (crowd.crowdDir === dir && crowd.crowding >= 50) warn.push(`明牌偏擁擠（${crowd.crowding}）：預期先掃停損再走，進場點要選在掃盪後`);
+      else pass.push('非擁擠明牌（人少的一邊，訊號含金量高）');
+    }
+    // R6 方向限定風險
+    if (dir === -1) {
+      if (margin && margin.shortRatio >= 30) fail.push(`券資比 ${margin.shortRatio.toFixed(0)}%：空單擁擠，軋空風險高`);
+      else if (margin && margin.shortRatio >= 20) warn.push(`券資比 ${margin.shortRatio.toFixed(0)}% 偏高，空單控制部位`);
+      if (psy <= 25) warn.push(`PSY ${psy} 恐慌區：空單防技術性反彈（你 2313 的教訓）`);
+    } else {
+      if (margin && margin.marginChg5 > 4 && D.closes.length >= 6 && D.price < D.closes[D.closes.length - 6]) fail.push('融資增+價跌（散戶接刀象限）：別跟散戶一起接');
+      if (psy >= 80) warn.push(`PSY ${psy} 貪婪區：多單防均值回歸`);
+    }
+
+    // 裁決：任一 fail = 禁止；warn≥2 = 謹慎；pass≥3 且 warn≤1 = 出手
+    let verdict, vClass;
+    if (fail.length) { verdict = '禁止出手'; vClass = 'no'; }
+    else if (pass.length >= 3 && warn.length <= 1) { verdict = '可出手'; vClass = 'go'; }
+    else { verdict = '謹慎／等待'; vClass = 'caution'; }
+    return { verdict, vClass, pass, fail, warn };
+  };
+
+  // 進場時機（反其道核心：等掃盪，不追訊號）
+  let timing = null;
+  if (mf) {
+    if (mf.behavior === '洗盤') timing = { good: true, text: '🎯 剛出現掃停損洗盤——散戶停損被收割完的位置正是主力進貨完成點。順大方向者，此刻進場優於追價（你買在散戶的血上，而不是把血獻出去）' };
+    else if (mf.behavior === '誘多') timing = { good: false, text: '🪤 誘多型態進行中——突破未帶量，追高=進主力的口袋，等回測確認' };
+    else if (mf.behavior === '恐慌殺盤') timing = { good: false, text: '⏳ 恐慌殺盤中——刀還在落，接刀與追空都危險，等止穩訊號' };
+  }
+  return { long: judge(1), short: judge(-1), timing };
+}
+
+function renderTradeGate(ctx) {
+  const card = document.getElementById('gate-card');
+  if (!card) return;
+  card.style.display = 'block';
+  const g = computeTradeGate(ctx);
+
+  const colMap = { go: 'var(--buy)', caution: 'var(--warn)', no: 'var(--sell)' };
+  const iconMap = { go: '🟢', caution: '🟡', no: '🔴' };
+  const side = (label, r) => {
+    const col = colMap[r.vClass];
+    let h = `<div style="flex:1;min-width:0;border:1px solid ${col}50;border-radius:10px;padding:10px;background:${col}0a">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-size:12px;font-weight:700">${label}</span>
+        <span style="font-size:12px;font-weight:800;color:${col}">${iconMap[r.vClass]} ${r.verdict}</span>
+      </div>`;
+    r.fail.forEach(x => h += `<div style="font-size:10px;color:var(--sell);line-height:1.5;padding:2px 0">✗ ${x}</div>`);
+    r.warn.forEach(x => h += `<div style="font-size:10px;color:var(--warn);line-height:1.5;padding:2px 0">⚠ ${x}</div>`);
+    r.pass.forEach(x => h += `<div style="font-size:10px;color:var(--buy);line-height:1.5;padding:2px 0">✓ ${x}</div>`);
+    return h + '</div>';
+  };
+
+  let html = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">${side('📈 做多', g.long)}${side('📉 做空', g.short)}</div>`;
+  if (g.timing) {
+    const tc = g.timing.good ? 'var(--buy)' : 'var(--warn)';
+    html += `<div style="padding:10px 12px;background:${tc}10;border:1px solid ${tc}50;border-radius:9px;font-size:11px;color:var(--muted);line-height:1.7;margin-bottom:10px">${g.timing.text}</div>`;
+  }
+  html += `<div style="font-size:10px;color:var(--muted2);line-height:1.8;padding-top:8px;border-top:1px solid var(--bd)">
+    <b style="color:var(--muted)">⚔️ 獵人四律（反其道心法）</b><br>
+    一、只在紀律門全綠時出手——沒有交易也是一種部位<br>
+    二、進場點選在散戶停損被掃之後，不在訊號剛亮時（訊號亮=散戶進場=主力的貨源）<br>
+    三、出場出給追價的人——擁擠度/過熱升高時分批獲利了結，把股票賣給看到明牌的散戶<br>
+    四、沒有必勝法，只有正期望值：贏在「不出手的紀律」+「順公式的統計優勢」+「停損放在掃不到的地方」
+  </div>`;
+  document.getElementById('gate-content').innerHTML = html;
+}

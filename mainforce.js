@@ -254,6 +254,7 @@ async function loadMarginCard(D) {
   document.getElementById('margin-content').innerHTML = html;
   // 融資資料到位後補繪反明牌雷達（納入散戶真實部位證據）
   try { if (typeof renderCrowding === 'function' && window._lastD) renderCrowding(window._lastD, window._lastFormulas); } catch (e) {}
+  try { if (typeof renderTradeGate === 'function' && window._gateCtx) renderTradeGate(window._gateCtx); } catch (e) {}
 }
 
 /* ══ D. 智慧停損（防「停損完就反向走」）══════════════════════════════

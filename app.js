@@ -405,7 +405,7 @@ async function go(){
   if(!raw)return;
   const btn=$('go-btn');btn.disabled=true;btn.innerHTML='<span class="spin"></span>';
   hideErr();
-  ['stock-bar','trend-banner','risk-card','psych-card','ai-card','market-card','quant-card','formula-card','mktscore-card','chip-card','playbook-card','riskmetric-card','multiperiod-card','health-card','regime-card','rs-card','beta-card','prob-card','sr-card','vpradar-card','bingfa-card','verdict-banner','smc-card','resonance-card','mainforce-card','margin-card','mtf-card','crowd-card'].forEach(id=>$(id).style.display='none');
+  ['stock-bar','trend-banner','risk-card','psych-card','ai-card','market-card','quant-card','formula-card','mktscore-card','chip-card','playbook-card','riskmetric-card','multiperiod-card','health-card','regime-card','rs-card','beta-card','prob-card','sr-card','vpradar-card','bingfa-card','verdict-banner','smc-card','resonance-card','mainforce-card','margin-card','mtf-card','crowd-card','gate-card'].forEach(id=>$(id).style.display='none');
   $('ind-grid').style.display='none';$('ind-grid').innerHTML='';
   $('cat-row').style.display='none';$('cat-tabs').innerHTML='';
   activeCat='全部';
@@ -563,6 +563,13 @@ async function go(){
           renderResonance(res);
         }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('共振確認',err); }
         renderVerdictBanner(shi, tradeScore, formulas, marketScore, res);
+
+        // 出手紀律門（濃縮全站分析為出手/禁止裁決）
+        try{
+          const gateCtx={D, regime:(typeof computeRegime==='function'?computeRegime(D):null), mtf:mtfResult, res, formulas, shi};
+          window._gateCtx=gateCtx;  // 供融資載入後補繪
+          renderTradeGate(gateCtx);
+        }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('紀律門',err); }
       }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('兵法系統',err); }
 
       // 大盤資料回來後重整版面（確保 RS/兵法卡歸位）
