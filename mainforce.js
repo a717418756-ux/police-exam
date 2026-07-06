@@ -110,15 +110,32 @@ function computeMainForce(D, formulas) {
     }
   }
 
-  // ── 影線形態（以前收近似開盤，近似法）──
+  // ── 影線形態（優先用真實開盤價；後端未更新時以前收近似）──
+  const op = D.opens && D.opens.length === n ? D.opens : null;
   let lowerShadowDays = 0;
   for (let i = Math.max(1, n - 10); i < n; i++) {
-    const openApprox = c[i-1];
-    const bodyLow = Math.min(openApprox, c[i]);
+    const openV = op ? op[i] : c[i-1];
+    const bodyLow = Math.min(openV, c[i]);
     const range = h[i] - l[i] || 1;
     if ((bodyLow - l[i]) / range > 0.45) lowerShadowDays++;
   }
   if (lowerShadowDays >= 3 && pSlope <= 0.03) add('吸籌', 15, `近10日 ${lowerShadowDays} 根長下影（低檔有承接手）`);
+
+  // ── KBAR 淨強度（機構級特徵，Qlib Alpha158 KBAR 系）──
+  // (收-開)/(高-低) 的20日均：持續為負=收盤常弱於開盤（拉高出貨痕跡）
+  let kbar = null;
+  if (op) {
+    let s = 0, m = 0;
+    for (let i = n - Math.min(20, n); i < n; i++) {
+      const r = h[i] - l[i];
+      if (r > 0) { s += (c[i] - op[i]) / r; m++; }
+    }
+    if (m >= 10) {
+      kbar = s / m;
+      if (kbar <= -0.15 && pSlope >= 0.02) add('出貨', 15, `KBAR淨強度 ${kbar.toFixed(2)}：價漲但收盤持續弱於開盤（開高走低，拉高出貨痕跡）`);
+      if (kbar >= 0.15 && pSlope <= 0.02) add('吸籌', 15, `KBAR淨強度 +${kbar.toFixed(2)}：價平但收盤持續強於開盤（尾盤有人默默買）`);
+    }
+  }
 
   // ── PSY 情緒環境 ──
   if (formulas && formulas.psy) {
@@ -133,7 +150,7 @@ function computeMainForce(D, formulas) {
   const secondScore = sorted[1][1];
   if (topScore < 25) {
     return { behavior: '無明顯主力行為', confidence: 0, evidence: [], all: scores,
-      desc: '目前量價籌碼未出現典型的主力行為特徵，屬正常交易狀態', obvSlope: oSlope, mfi };
+      desc: '目前量價籌碼未出現典型的主力行為特徵，屬正常交易狀態', obvSlope: oSlope, mfi, kbar };
   }
   // 信心：領先幅度 + 絕對強度
   const confidence = Math.min(95, Math.round(topScore * 0.7 + (topScore - secondScore) * 0.8));
@@ -146,7 +163,7 @@ function computeMainForce(D, formulas) {
     恐慌殺盤: '散戶恐慌不計價殺出。極端恐慌常離底不遠，但不要接刀，等止穩訊號'
   };
   return { behavior: topName, confidence, evidence: evidence[topName], all: scores,
-    desc: descMap[topName], obvSlope: oSlope, mfi };
+    desc: descMap[topName], obvSlope: oSlope, mfi, kbar };
 }
 
 function renderMainForce(D, formulas) {
@@ -179,8 +196,9 @@ function renderMainForce(D, formulas) {
   html += `<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
     <div style="background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:5px 10px;font-size:11px"><span style="color:var(--muted)">OBV</span> <span style="font-family:var(--mono);font-weight:700;color:${mf.obvSlope>0.3?'var(--buy)':mf.obvSlope<-0.3?'var(--sell)':'var(--muted)'}">${obvTxt}</span></div>
     <div style="background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:5px 10px;font-size:11px"><span style="color:var(--muted)">MFI資金流</span> <span style="font-family:var(--mono);font-weight:700;color:${mf.mfi>=80?'var(--sell)':mf.mfi<=20?'var(--buy)':'var(--txt)'}">${mf.mfi.toFixed(0)}</span></div>
+    ${mf.kbar!=null?`<div style="background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:5px 10px;font-size:11px"><span style="color:var(--muted)">KBAR強度</span> <span style="font-family:var(--mono);font-weight:700;color:${mf.kbar>=0.1?'var(--buy)':mf.kbar<=-0.1?'var(--sell)':'var(--txt)'}">${mf.kbar>=0?'+':''}${mf.kbar.toFixed(2)}</span></div>`:''}
   </div>
-  <div style="font-size:10px;color:var(--muted2);margin-top:10px;line-height:1.5">💡 主力行為屬「推估」而非事實，需與籌碼/共振交叉驗證。影線分析以前收近似開盤。</div>`;
+  <div style="font-size:10px;color:var(--muted2);margin-top:10px;line-height:1.5">💡 主力行為屬「推估」而非事實，需與籌碼/共振交叉驗證。影線以真實開盤價計算（後端未更新時以前收近似）。KBAR淨強度為機構級特徵（Qlib Alpha158系）。</div>`;
 
   document.getElementById('mainforce-content').innerHTML = html;
 }
