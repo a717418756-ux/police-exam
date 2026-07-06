@@ -192,9 +192,18 @@ async function addTradeFromForm() {
       const hr = await fetch(`${GAS_URL}?action=histuntil&code=${encodeURIComponent(code)}&until=${entryDate}`);
       const hj = await hr.json();
       if (hj.ok && hj.closes) {
+        // 機率校正迴路：進場當下的貝氏預測（之後對照真實結果檢驗校準度）
+        let probWin = null;
+        try {
+          if (typeof computeBayesProb === 'function' && hj.highs && hj.lows && hj.volumes) {
+            const bp = computeBayesProb(hj, 5);
+            if (bp) probWin = Math.round((dir === 'long' ? bp.prob : 1 - bp.prob) * 100);
+          }
+        } catch (e2) { /* 略過 */ }
         const f = computeFormulas(hj);
         if (f) {
           entryFormulas = {
+            probWin,
             sti: Math.round(f.sti.value * 10) / 10,
             mfd: Math.round(f.mfd.value * 100) / 100,
             eco: Math.round(f.eco.value),
@@ -519,14 +528,14 @@ async function exportMarkdown() {
     const withFormula = trades.filter(t => t.entryFormulas);
     if (withFormula.length > 0) {
       md += `## 四之二、進場時公式分數 vs 實際結果（★最重要：AI 據此調整公式門檻）\n\n`;
-      md += `| 進場日 | 代碼 | 類型 | STI | MFD | ECO | PSY | FUSION | 方向一致 | 崩跌分 | 實際盈虧% | MAE% | 判斷對錯 |\n`;
-      md += `|--------|------|------|-----|-----|-----|-----|--------|----------|--------|-----------|------|----------|\n`;
+      md += `| 進場日 | 代碼 | 類型 | STI | MFD | ECO | PSY | FUSION | 方向一致 | 預測勝率 | 崩跌分 | 實際盈虧% | MAE% | 判斷對錯 |\n`;
+      md += `|--------|------|------|-----|-----|-----|-----|--------|----------|----------|--------|-----------|------|----------|\n`;
       const sortedF = [...withFormula].sort((a,b)=>(a.exitDate||a.date)<(b.exitDate||b.date)?1:-1);
       for (const t of sortedF) {
         const f = t.entryFormulas;
         const psy = f.psy != null ? f.psy : '—';
         const type = t.sim ? '🧪模擬' : '真實';
-        md += `| ${t.entryDate} | ${t.code} | ${type} | ${f.sti>=0?'+':''}${f.sti} | ${f.mfd>=0?'+':''}${f.mfd} | ${f.eco} | ${psy} | ${f.fusion>=0?'+':''}${f.fusion} | ${f.align||'—'} | ${f.crash} | ${t.pnlPct>=0?'+':''}${t.pnlPct}% | ${t.mae!=null?t.mae:'—'} | ${t.judgment==='wrong'?'❌':'✅'} |\n`;
+        md += `| ${t.entryDate} | ${t.code} | ${type} | ${f.sti>=0?'+':''}${f.sti} | ${f.mfd>=0?'+':''}${f.mfd} | ${f.eco} | ${psy} | ${f.fusion>=0?'+':''}${f.fusion} | ${f.align||'—'} | ${f.probWin!=null?f.probWin+'%':'—'} | ${f.crash} | ${t.pnlPct>=0?'+':''}${t.pnlPct}% | ${t.mae!=null?t.mae:'—'} | ${t.judgment==='wrong'?'❌':'✅'} |\n`;
       }
       md += `\n`;
       // 順公式 vs 逆公式 MAE 對照（方向一致性的量化證據）
@@ -539,6 +548,17 @@ async function exportMarkdown() {
         md += `| 順公式 | ${alignG.length} | -${avgMae(alignG)}% | ${alignG.filter(t=>t.judgment==='wrong').length} |\n`;
         md += `| 逆公式 | ${againstG.length} | -${avgMae(againstG)}% | ${againstG.filter(t=>t.judgment==='wrong').length} |\n\n`;
         md += `> 逆公式=進場方向與FUSION相反。若逆公式MAE明顯較深，代表應等公式同向再進場。\n\n`;
+      }
+
+      // 機率校準度（預測 vs 現實——避免假高分）
+      const withProb = withFormula.filter(t => t.entryFormulas.probWin != null);
+      if (withProb.length >= 3) {
+        const avgPred = withProb.reduce((a, t) => a + t.entryFormulas.probWin, 0) / withProb.length;
+        const actualWin = withProb.filter(t => t.result === 'win').length / withProb.length * 100;
+        md += `**機率校準度（Calibration）**\n\n`;
+        md += `| 進場時平均預測勝率 | 實際勝率 | 校準偏差 |\n|------|------|------|\n`;
+        md += `| ${avgPred.toFixed(0)}% | ${actualWin.toFixed(0)}% | ${Math.abs(avgPred-actualWin).toFixed(0)} 個百分點 |\n\n`;
+        md += `> 偏差<10=模型誠實可信；預測遠高於實際=假高分（過度自信），該調降信任；實際遠高於預測=模型保守，你的選股加了模型沒看到的優勢。\n\n`;
       }
       md += `> 💡 **這張表是優化公式的核心**：請分析「進場時的公式分數」與「實際盈虧」的關聯。\n`;
       md += `> 🧪模擬單是純照系統判斷做的，最能反映公式準確度，優先分析模擬單的公式分數與結果關聯。\n`;

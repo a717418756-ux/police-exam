@@ -59,6 +59,25 @@ function renderMarket(m) {
   usItem('那斯達克', '💻', us.nasdaq, '對台股科技股連動');
   usItem('標普 500', '📊', us.sp500, '美股大盤氣氛');
 
+  // 總體因子：美元指數 + 美債殖利率（外資匯出壓力偵測）
+  if (us.dxy && us.dxy.price != null) {
+    const dUp = us.dxy.changePct >= 0;
+    boxes.push({ label: '💵 美元指數 DXY', cls: dUp ? 'bad' : 'good',
+      value: `${dUp?'+':''}${us.dxy.changePct.toFixed(2)}%`, valCls: dUp ? 'sell' : 'buy',
+      sub: `收 ${fmt(us.dxy.price)}｜強美元=外資匯出台股壓力` });
+  }
+  if (us.tnx && us.tnx.price != null) {
+    const tUp = us.tnx.changePct >= 0;
+    boxes.push({ label: '🏛️ 美債10Y殖利率', cls: tUp ? 'bad' : 'good',
+      value: `${(us.tnx.price/10).toFixed(2)}%`, valCls: tUp ? 'sell' : 'buy',
+      sub: `${tUp?'升':'降'}｜殖利率升=資金離開風險資產` });
+  }
+  // 雙壓判讀：美元+殖利率同步走強 = 外資賣壓環境
+  if (us.dxy && us.tnx && us.dxy.changePct > 0.3 && us.tnx.changePct > 0.8) {
+    boxes.push({ label: '⚠️ 總體逆風', cls: 'bad', value: '外資賣壓環境', valCls: 'sell',
+      sub: '美元與美債殖利率同步走強——外資傾向匯出，台股技術面此時易失效，多單保守、空單順風' });
+  }
+
   if (boxes.length === 0) { $('market-card').style.display = 'none'; return; }
   $('market-grid').innerHTML = boxes.map(x =>
     `<div class="risk-box ${x.cls}"><div class="rb-label">${x.label}</div><div class="rb-value ${x.valCls}">${x.value}</div><div class="rb-sub">${x.sub}</div></div>`

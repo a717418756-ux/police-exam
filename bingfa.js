@@ -429,10 +429,10 @@ function renderTradeGate(ctx) {
       const cur = D.currency === 'TWD' ? '' : '$';
       let sizeTxt;
       if (D.currency === 'TWD') {
-        const lots = Math.floor(riskAmt / (dist * 1000));
+        const lots = dist > 0 ? Math.floor(riskAmt / (dist * 1000)) : 0;
         sizeTxt = lots >= 1 ? lots + ' 張' : '不足1張（風險額太小或停損太遠）';
       } else {
-        const sh = Math.floor(riskAmt / dist);
+        const sh = dist > 0 ? Math.floor(riskAmt / dist) : 0;
         sizeTxt = sh >= 1 ? sh + ' 股' : '不足1股';
       }
       const pc = planSide === 'long' ? 'var(--buy)' : 'var(--sell)';
@@ -444,7 +444,20 @@ function renderTradeGate(ctx) {
           <div class="risk-box"><div class="rb-label">🛑 停損</div><div class="rb-value" style="color:var(--sell)">${cur}${fmt(stop)}</div><div class="rb-sub">${smart?smart[planSide].method:'2×ATR'}</div></div>
           <div class="risk-box"><div class="rb-label">✅ 停利 2R/3R</div><div class="rb-value" style="color:var(--buy)">${cur}${fmt(tp1)} / ${fmt(tp2)}</div><div class="rb-sub">出50%/25%，剩25%續抱</div></div>
         </div>
-        <div style="font-size:10px;color:var(--muted);margin-top:8px">⏱️ 時間停損：3~5日未朝預期發展即全撤，不等價格停損。</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:8px">⏱️ 時間停損：3~5日未朝預期發展即全撤，不等價格停損。${(function(){
+          try{
+            const cc=D.closes,nn=cc.length;if(nn<40)return '';
+            let s2=0,m2=0;const rets=[];
+            for(let i=nn-40;i<nn;i++){rets.push((cc[i]-cc[i-1])/cc[i-1]);}
+            const mean=rets.reduce((a,b)=>a+b,0)/rets.length;
+            const sd=Math.sqrt(rets.reduce((a,x)=>a+(x-mean)**2,0)/rets.length);
+            const lots2=(D.currency==='TWD'&&dist>0)?Math.floor(riskAmt/(dist*1000)):0;
+            const posVal=D.currency==='TWD'?lots2*1000*entry:Math.floor(dist>0?riskAmt/dist:0)*entry;
+            if(!posVal)return '';
+            const varAmt=Math.round(1.65*sd*posVal);
+            return ' 此部位單日95%VaR≈'+(D.currency==='TWD'?'':'$')+varAmt.toLocaleString()+'（正常日95%機率虧損不超過此數，超過=異常日快跑）';
+          }catch(e){return '';}
+        })()}</div>
       </div>`;
     }
   } catch (e) { /* 執行計畫失敗不影響裁決顯示 */ }

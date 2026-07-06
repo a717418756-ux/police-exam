@@ -190,7 +190,7 @@ function _btRSI(c,n){
   if(c.length<n+1)return 50;
   let ag=0,al=0;
   for(let i=c.length-n;i<c.length;i++){const d=c[i]-c[i-1];if(d>0)ag+=d;else al-=d;}
-  ag/=n;al/=n;return al===0?100:100-100/(1+ag/al);
+  ag/=n;al/=n;return al===0?(ag===0?50:100):100-100/(1+ag/al);
 }
 function _btKD(h,l,c,n){
   const len=c.length;const start=Math.max(n,len-30);

@@ -74,7 +74,23 @@ function computeResonance(ctx) {
 
   // 共振分數：多方維度比例 - 空方維度比例
   const netDir = bullDims.length - bearDims.length;
-  const consensus = total > 0 ? Math.round((bullDims.length - bearDims.length) / total * 100) : 0;
+
+  // ── Regime 動態權重（不同市場狀態，該信的維度不同）──
+  // 趨勢態：趨勢/動能/週期加權、情緒反指標降權（強勢股一直超買）
+  // 盤整態：情緒/結構加權、趨勢/週期降權（盤整追突破易被巴）
+  // 高波動危險：全面降權（此狀態所有訊號可靠度大降）
+  const regimeName = ctx.regime ? ctx.regime.regime : null;
+  const W = { 趨勢: 1, 動能: 1, 籌碼: 1, 結構: 1, 情緒: 1, 相對強弱: 1, 週期MTF: 1 };
+  if (regimeName === '多頭趨勢' || regimeName === '空頭趨勢') {
+    W.趨勢 = 1.3; W.動能 = 1.2; W.週期MTF = 1.3; W.情緒 = 0.7;
+  } else if (regimeName === '盤整') {
+    W.趨勢 = 0.6; W.週期MTF = 0.7; W.動能 = 0.8; W.情緒 = 1.3; W.結構 = 1.2;
+  } else if (regimeName === '高波動危險') {
+    for (const k in W) W[k] = 0.5;
+  }
+  let wSum = 0, wNet = 0;
+  dims.forEach(d => { const w = W[d.name] != null ? W[d.name] : 1; wSum += w; wNet += d.dir * w; });
+  const consensus = wSum > 0 ? Math.round(wNet / wSum * 100) : 0;
 
   // 結論
   let verdict, vClass, strength;
@@ -92,7 +108,7 @@ function computeResonance(ctx) {
   }
 
   return { dims, bullCount: bullDims.length, bearCount: bearDims.length, neutralCount: neutralDims.length,
-    total, consensus, verdict, vClass, strength };
+    total, consensus, verdict, vClass, strength, regimeName, weights: W };
 }
 
 function renderResonance(res) {
@@ -125,7 +141,7 @@ function renderResonance(res) {
 
   // 共振提示
   html += `<div style="margin-top:12px;padding:10px 12px;background:var(--bg);border:1px solid var(--bd);border-radius:8px;font-size:11px;color:var(--muted);line-height:1.6">
-    💡 多個獨立維度同方向 = 高勝率訊號。${res.strength==='strong'?'目前多維度強共振，是難得的明確訊號。':res.strength==='medium'?'目前有共振傾向，可參考。':'目前維度分歧，建議觀望等待共振。'}單一維度強不代表可靠，共振才是關鍵。
+    💡 多個獨立維度同方向 = 高勝率訊號。${res.strength==='strong'?'目前多維度強共振，是難得的明確訊號。':res.strength==='medium'?'目前有共振傾向，可參考。':'目前維度分歧，建議觀望等待共振。'}單一維度強不代表可靠，共振才是關鍵。${res.regimeName?`目前為「${res.regimeName}」態，共識度已依狀態動態加權（非固定權重）。`:''}
   </div>`;
 
   document.getElementById('resonance-content').innerHTML = html;

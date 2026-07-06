@@ -90,6 +90,36 @@ function computeStructure(D) {
   };
 }
 
+/* ══ B2. EQH/EQL 流動性池（停損聚集地圖）═══════════════════════════
+   多個 swing 高點擠在 0.4% 內 = EQH（上方流動性池：多單停損+突破買單堆積）
+   價格像磁鐵一樣會被吸去掃這些池子——掃完常反轉（Liquidity Sweep）
+   ════════════════════════════════════════════════════════════════════ */
+function computeLiquidityPools(D) {
+  const h = D.highs, l = D.lows, c = D.closes, n = c.length;
+  const N = Math.min(80, n);
+  const hs = h.slice(-N), ls = l.slice(-N);
+  const swH = [], swL = [];
+  for (let i = 2; i < N - 2; i++) {
+    if (hs[i] > hs[i-1] && hs[i] > hs[i-2] && hs[i] > hs[i+1] && hs[i] > hs[i+2]) swH.push(hs[i]);
+    if (ls[i] < ls[i-1] && ls[i] < ls[i-2] && ls[i] < ls[i+1] && ls[i] < ls[i+2]) swL.push(ls[i]);
+  }
+  const cluster = (arr) => {
+    const sorted = [...arr].sort((a, b) => a - b);
+    const out = [];
+    let grp = [];
+    for (const v of sorted) {
+      if (!grp.length || (v - grp[0]) / grp[0] <= 0.004) grp.push(v);
+      else { if (grp.length >= 2) out.push({ price: grp.reduce((a, b) => a + b, 0) / grp.length, touches: grp.length }); grp = [v]; }
+    }
+    if (grp.length >= 2) out.push({ price: grp.reduce((a, b) => a + b, 0) / grp.length, touches: grp.length });
+    return out;
+  };
+  const price = D.price;
+  const eqh = cluster(swH).filter(x => x.price > price).sort((a, b) => a.price - b.price)[0] || null;
+  const eql = cluster(swL).filter(x => x.price < price).sort((a, b) => b.price - a.price)[0] || null;
+  return { eqh, eql };
+}
+
 /* ══ C. 過熱反指標（用硬數據抓「新聞狂熱」效果）════════════════════════
    新聞狂熱必反映在數據：爆量+連漲+乖離大+融資暴增+PCR極端
    用這些抓「群眾過熱」，比抓不可靠的新聞情緒準
@@ -176,6 +206,18 @@ function renderSMC(D, formulas, market) {
     html += `<div style="font-size:11px;color:var(--muted)">前高 ${struct.lastHigh?cur+fmt(struct.lastHigh):'—'}　前低 ${struct.lastLow?cur+fmt(struct.lastLow):'—'}　目前在區間內</div>`;
   }
   html += `</div>`;
+
+  // 流動性池（停損聚集地圖）
+  try {
+    const lp = computeLiquidityPools(D);
+    if (lp.eqh || lp.eql) {
+      html += `<div style="padding:12px;background:var(--bg);border:1px solid var(--bd);border-radius:10px;margin-bottom:10px">
+        <div style="font-size:12px;font-weight:700;margin-bottom:6px">🧲 流動性池（停損聚集區）</div>`;
+      if (lp.eqh) html += `<div style="font-size:11px;color:var(--muted);line-height:1.6">上方 EQH <b style="color:var(--sell);font-family:var(--mono)">${cur}${fmt(lp.eqh.price)}</b>（${lp.eqh.touches}次等高）——空單停損+突破追單堆積處，價格易被磁吸去掃一把再走。<b>空單停損別掛在這，掛在其上方緩衝區外</b></div>`;
+      if (lp.eql) html += `<div style="font-size:11px;color:var(--muted);line-height:1.6;margin-top:4px">下方 EQL <b style="color:var(--buy);font-family:var(--mono)">${cur}${fmt(lp.eql.price)}</b>（${lp.eql.touches}次等低）——多單停損堆積處，假跌破掃完常反彈（洗盤位）</div>`;
+      html += `</div>`;
+    }
+  } catch (e) { /* 略過 */ }
 
   // 過熱反指標
   const ohCol = overheat.level==='high'?'var(--sell)':overheat.level==='mid'?'var(--warn)':'var(--muted)';

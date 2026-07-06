@@ -59,7 +59,7 @@ function calcRSISeries(c,n=14){
   for(let i=1;i<c.length;i++){const d=c[i]-c[i-1];g.push(d>0?d:0);l.push(d<0?-d:0);}
   let ag=g.slice(0,n).reduce((a,b)=>a+b,0)/n,al=l.slice(0,n).reduce((a,b)=>a+b,0)/n;
   const out=[...Array(n+1).fill(null)];
-  out[n]=al===0?100:100-100/(1+ag/al);
+  out[n]=al===0?(ag===0?50:100):100-100/(1+ag/al);
   for(let i=n;i<g.length;i++){ag=(ag*(n-1)+g[i])/n;al=(al*(n-1)+l[i])/n;out.push(al===0?100:100-100/(1+ag/al));}
   return out;
 }
@@ -285,7 +285,7 @@ function analyzeSignals(D,atr,trend){
   // 布林 Squeeze（核心：通道收窄→大波動）
   const bb=calcBB(c);
   const bw=(bb.upper-bb.lower)/bb.mid*100;
-  const bbP=(price-bb.lower)/(bb.upper-bb.lower)*100;
+  const bbP=(price-bb.lower)/((bb.upper-bb.lower)||1)*100;
   add('布林 Squeeze ⭐','核心',`頻寬 ${bw.toFixed(1)}%`,bw,0,20,
     bw<3?'buy':'hold',
     bw<3?`通道極度收窄 ${bw.toFixed(1)}%！量化系統最愛訊號：即將出現大波動，留意突破方向`:
@@ -435,7 +435,8 @@ async function go(){
 
     renderTrend(trend);
     // ADX 市場狀態（該用趨勢還是震盪策略）
-    try{ renderRegime(computeRegime(D)); }
+    let regimeResult=null;
+    try{ regimeResult=computeRegime(D); renderRegime(regimeResult); }
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('市場狀態',err); }
     renderRisk(risk);
     renderPsych(psych);
@@ -572,7 +573,7 @@ async function go(){
           const vwap=(typeof computeVWAP==='function')?computeVWAP(D,20):null;
           const structure=(typeof computeStructure==='function')?computeStructure(D):null;
           const overheat=(typeof computeOverheat==='function')?computeOverheat(D,formulas,market):null;
-          res=computeResonance({D,trend,formulas,chip:D.chip,vwap,structure,overheat,rsRating,marketScore,shi,mtf:mtfResult});
+          res=computeResonance({D,trend,formulas,chip:D.chip,vwap,structure,overheat,rsRating,marketScore,shi,mtf:mtfResult,regime:regimeResult});
           renderResonance(res);
         }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('共振確認',err); }
         renderVerdictBanner(shi, tradeScore, formulas, marketScore, res);
