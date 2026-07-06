@@ -13,7 +13,7 @@ const TABS = [
   { id:'t-market', icon:'🌐', name:'大盤',
     cards:['mktscore-card','market-card','regime-card'] },
   { id:'t-chip', icon:'💰', name:'籌碼',
-    cards:['mainforce-card','margin-card','chip-card','fundamental-card','rs-card','beta-card'] },
+    cards:['mainforce-card','margin-card','deepchip-card','chip-card','fundamental-card','rs-card','beta-card'] },
   { id:'t-trend', icon:'📈', name:'趨勢',
     cards:['mtf-card','trend-banner','risk-card','riskmetric-card'] },
   { id:'t-signal', icon:'🔍', name:'訊號',

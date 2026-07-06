@@ -102,9 +102,18 @@ function computeStats(trades) {
   const trueWinRate = trades.length ? trueWins / trades.length : 0;
   const misjudged = trades.filter(t => t.judgment === 'wrong').length; // 判斷錯誤總數（含假贏單）
 
+  // ── 成本後真相（散戶「回測賺實單賠」第一死因：忘了成本）──
+  const cost = (typeof TRADE_COST_PCT !== 'undefined') ? TRADE_COST_PCT : 0.585;
+  const pcts = trades.filter(t => t.pnlPct != null);
+  const avgPnlPct = pcts.length ? pcts.reduce((a, t) => a + t.pnlPct, 0) / pcts.length : 0;
+  const netAvgPnlPct = avgPnlPct - cost;
+  const netWins = pcts.filter(t => t.pnlPct > cost).length;
+  const netWinRate = pcts.length ? netWins / pcts.length : 0;
+
   return { count: trades.length, wins: wins.length, losses: losses.length, winRate, avgWin, avgLoss, payoff, expectancy,
     totalPnl: trades.reduce((a, t) => a + (t.pnl || 0), 0),
-    trueWinRate, trueWins, misjudged };
+    trueWinRate, trueWins, misjudged,
+    avgPnlPct, netAvgPnlPct, netWinRate, costPct: cost };
 }
 
 /* ── 進階統計（給 Markdown 匯出用）──────────────────────────────────── */

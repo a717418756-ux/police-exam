@@ -435,3 +435,84 @@ function renderCrowding(D, formulas) {
   html += `<div style="font-size:10px;color:var(--muted2);margin-top:10px;line-height:1.6">💡 反明牌邏輯：擁擠度高≠必反轉，但「擁擠+主力反向（OBV/法人）」= 高風險陷阱。停損位在擁擠訊號下常先被掃——本系統智慧停損已放結構外緩衝區。真正的優勢不在看到訊號，在知道多少人跟你看到同一個。</div>`;
   document.getElementById('crowd-content').innerHTML = html;
 }
+
+/* ══ F. 主力縱深（FinMind：千張大戶 / 法人借券空單 / 分點）═══════════
+   免費API拿不到的深層籌碼。核心判讀：
+   ①剪刀差：大戶增+散戶減=籌碼流向大戶；反向=大戶倒貨
+   ②部位背離（統計優勢）：法人借券(聰明錢空單) vs 散戶融券(笨錢空單)
+     背離時站聰明錢那邊——這是誠實版的「套利」
+   ════════════════════════════════════════════════════════════════════ */
+const _deepCache = {};
+async function loadDeepChipCard(D) {
+  const card = document.getElementById('deepchip-card');
+  if (!card) return;
+  if (D.currency !== 'TWD' || typeof FINMIND_TOKEN === 'undefined' || !FINMIND_TOKEN) { card.style.display = 'none'; return; }
+  let dc = null;
+  const hit = _deepCache[D.code];
+  if (hit && Date.now() - hit.t < 600000) dc = hit.d;
+  else {
+    try {
+      const r = await fetch(`${GAS_URL}?action=deepchip&code=${encodeURIComponent(D.code)}&token=${encodeURIComponent(FINMIND_TOKEN)}`);
+      const j = await r.json();
+      if (j.ok) { dc = j; _deepCache[D.code] = { d: j, t: Date.now() }; }
+    } catch (e) { if (typeof ErrorLog !== 'undefined') ErrorLog.push('主力縱深', e); }
+  }
+  if (!dc) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+
+  let html = '';
+
+  // ── ① 千張大戶剪刀差 ──
+  if (dc.big) {
+    const b = dc.big;
+    let verdict, vCol;
+    if (b.bigChg > 0.3 && b.smallChg < -0.2) { verdict = '💪 籌碼流向大戶（大戶吸、散戶吐）——結構偏多，空單逆結構要快進快出'; vCol = 'var(--buy)'; }
+    else if (b.bigChg < -0.3 && b.smallChg > 0.2) { verdict = '🚨 大戶倒貨給散戶（大戶減、散戶接）——空單的結構順風，這是「散戶賠大戶賺」的原型'; vCol = 'var(--sell)'; }
+    else { verdict = '➖ 大戶散戶結構無明顯變化'; vCol = 'var(--muted)'; }
+    html += `<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">🐘 千張大戶剪刀差（近${b.weeks}週）</div>
+    <div class="risk-grid" style="margin-bottom:8px">
+      <div class="risk-box"><div class="rb-label">千張以上持股</div><div class="rb-value">${b.bigPct}%</div><div class="rb-sub" style="color:${b.bigChg>=0?'var(--buy)':'var(--sell)'}">${b.bigChg>=0?'+':''}${b.bigChg}%（期間變化）</div></div>
+      <div class="risk-box"><div class="rb-label">50張以下散戶</div><div class="rb-value">${b.smallPct}%</div><div class="rb-sub" style="color:${b.smallChg<=0?'var(--buy)':'var(--sell)'}">${b.smallChg>=0?'+':''}${b.smallChg}%（期間變化）</div></div>
+    </div>
+    <div style="padding:9px 12px;background:${vCol}10;border:1px solid ${vCol}50;border-radius:8px;font-size:11px;color:var(--muted);line-height:1.6;margin-bottom:12px">${verdict}</div>`;
+  }
+
+  // ── ② 部位背離：法人借券 vs 散戶融券 ──
+  if (dc.lend) {
+    const L = dc.lend;
+    const m = _marginCache[D.code] ? _marginCache[D.code].d : null;
+    let verdict, vCol;
+    const instShortUp = L.chg5 >= 8, instShortDown = L.chg5 <= -8;
+    const retailShortUp = m && m.shortRatio >= 15;
+    if (instShortUp && !retailShortUp) { verdict = '🎯 法人借券空單增、散戶未跟——聰明錢在放空且不擁擠，你的空單有機構隊友（部位優勢站你這邊）'; vCol = 'var(--sell)'; }
+    else if (!instShortUp && retailShortUp) { verdict = '⚡ 散戶融券擁擠但法人借券不增——笨錢獨自看空=軋空燃料。此時進空單=跟散戶擠同邊，站到聰明錢對面了'; vCol = 'var(--warn)'; }
+    else if (instShortUp && retailShortUp) { verdict = '⚠️ 法人散戶同步看空——方向或許對，但空單全面擁擠，任何利多都可能連環軋空，部位務必縮小'; vCol = 'var(--warn)'; }
+    else if (instShortDown) { verdict = '📈 法人借券空單回補中——機構空方撤退，空單失去隊友，考慮跟著獲利了結'; vCol = 'var(--buy)'; }
+    else { verdict = '➖ 法人空單無明顯異動'; vCol = 'var(--muted)'; }
+    html += `<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">⚔️ 部位背離（聰明錢 vs 笨錢空單）</div>
+    <div class="risk-box" style="margin-bottom:8px"><div class="rb-label">法人借券賣出餘額</div><div class="rb-value">${fmtV(L.bal)} 張</div><div class="rb-sub" style="color:${L.chg5>=0?'var(--sell)':'var(--buy)'}">5日 ${L.chg5>=0?'+':''}${L.chg5}%（外資放空主要管道）</div></div>
+    <div style="padding:9px 12px;background:${vCol}10;border:1px solid ${vCol}50;border-radius:8px;font-size:11px;color:var(--muted);line-height:1.6;margin-bottom:12px">${verdict}</div>`;
+  }
+
+  // ── ③ 分點主力動向 ──
+  if (dc.brokers && dc.brokers.length) {
+    const dir3 = dc.brokers.map(b => b.mainNet > 0 ? 1 : b.mainNet < 0 ? -1 : 0);
+    const allBuy = dir3.every(d => d === 1), allSell = dir3.every(d => d === -1);
+    html += `<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">📍 分點主力動向（前15大分點淨額）</div>`;
+    dc.brokers.forEach(b => {
+      const c2 = b.mainNet > 0 ? 'var(--buy)' : b.mainNet < 0 ? 'var(--sell)' : 'var(--muted)';
+      html += `<div style="display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid var(--bd)">
+        <span style="font-size:11px;color:var(--muted);width:80px">${b.date.slice(5)}</span>
+        <span style="font-family:var(--mono);font-size:12px;font-weight:700;color:${c2};flex:1">${b.mainNet>0?'+':''}${fmtV(b.mainNet)} 張</span>
+        <span style="font-size:10px;color:var(--muted2)">集中度 ${b.conc}%</span>
+      </div>`;
+    });
+    if (allBuy || allSell) {
+      const c3 = allBuy ? 'var(--buy)' : 'var(--sell)';
+      html += `<div style="margin-top:8px;font-size:11px;color:${c3};font-weight:600">${allBuy ? '📈 主力分點連續3日淨買——有人持續收貨' : '📉 主力分點連續3日淨賣——有人持續出貨'}</div>`;
+    }
+  }
+
+  html += `<div style="font-size:10px;color:var(--muted2);margin-top:10px;line-height:1.6">💡 部位背離是「統計優勢」不是無風險套利（零售層級不存在套利）。持股分級為週資料。資料來源：FinMind。</div>`;
+  document.getElementById('deepchip-content').innerHTML = html;
+}

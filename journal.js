@@ -384,6 +384,17 @@ async function loadGasUrlField() {
   if (url) $('set-gas-url').value = url;
   const surl = await dbGetSetting('syncUrl');
   if (surl && $('set-sync-url')) $('set-sync-url').value = surl;
+  const ftk = await dbGetSetting('finmindToken');
+  if (ftk && $('set-finmind-token')) $('set-finmind-token').value = ftk;
+}
+
+async function saveFinmindToken() {
+  const tk = $('set-finmind-token').value.trim();
+  const msg = $('settings-msg');
+  await dbSetSetting('finmindToken', tk);
+  FINMIND_TOKEN = tk;
+  msg.textContent = tk ? '✅ FinMind Token 已儲存，主力縱深已啟用' : '✅ 已清空，主力縱深停用';
+  msg.style.color = 'var(--buy)';
 }
 async function saveGasUrl() {
   const url = $('set-gas-url').value.trim();
@@ -456,6 +467,9 @@ async function exportMarkdown() {
     md += `| 判斷錯誤筆數（凹單/MAE超停損） | ${s.misjudged} |\n`;
     md += `| 盈虧比（平均賺/平均賠） | ${s.payoff.toFixed(2)} |\n`;
     md += `| 期望值/筆 | ${cur(s.expectancy)} |\n`;
+    md += `| 平均報酬/筆（毛） | ${s.avgPnlPct>=0?'+':''}${s.avgPnlPct.toFixed(2)}% |\n`;
+    md += `| **成本後報酬/筆** | **${s.netAvgPnlPct>=0?'+':''}${s.netAvgPnlPct.toFixed(2)}%**（扣來回成本 ${s.costPct}%） |\n`;
+    md += `| 成本後勝率 | ${(s.netWinRate*100).toFixed(1)}%（賺贏成本才算贏） |\n`;
     md += `| 總盈虧 | ${cur(s.totalPnl)} |\n`;
     md += `| 平均獲利 | ${cur(s.avgWin)} |\n`;
     md += `| 平均虧損 | ${cur(s.avgLoss)} |\n`;
@@ -560,6 +574,18 @@ async function exportMarkdown() {
         });
       }
       md += `\n> 💡 重點：你是否常常太早把整批賣掉、錯過後段大漲？還是賣在相對高點？這驗證你的停利紀律。\n\n`;
+    }
+
+    // 四之五、時間維度（時間停損驗證）
+    const withHold = trades.filter(t => t.holdDays != null);
+    if (withHold.length >= 3) {
+      const avgH = arr => arr.length ? (arr.reduce((a,t)=>a+t.holdDays,0)/arr.length).toFixed(1) : '—';
+      const wH = withHold.filter(t=>t.result==='win'), lH = withHold.filter(t=>t.result==='loss');
+      md += `## 四之五、時間停損驗證（抱倉天數 vs 結果）\n\n`;
+      md += `| 類型 | 筆數 | 平均抱倉天數 |\n|------|------|-------------|\n`;
+      md += `| 勝單 | ${wH.length} | ${avgH(wH)} 天 |\n`;
+      md += `| 敗單 | ${lH.length} | ${avgH(lH)} 天 |\n\n`;
+      md += `> 💡 蒸餾經驗：短線單「不快贏的單通常不會贏」，做空尤甚（恐慌跑得比貪婪快）。若敗單平均抱倉明顯長於勝單，代表你需要「時間停損」：進場 3~5 日未朝預期發展即離場，別等價格停損被打到。\n\n`;
     }
 
     md += `## 五、目前系統使用的自創公式\n\n`;

@@ -317,6 +317,12 @@
     <div class="card"><div id="margin-content"></div></div>
   </div>
 
+  <!-- 主力縱深（FinMind） -->
+  <div id="deepchip-card" style="display:none">
+    <div class="layer-title"><span class="layer-num" style="background:linear-gradient(135deg,#0891B2,#7C3AED);color:#fff">深</span>主力縱深<span class="layer-sub">千張大戶 · 法人借券空單 · 分點 — FinMind</span><button onclick="showHelp('deepchip')" class="help-btn" title="說明">ⓘ</button></div>
+    <div class="card"><div id="deepchip-content"></div></div>
+  </div>
+
   <!-- VWAP + 市場結構 + 過熱反指標 -->
   <div id="smc-card" style="display:none">
     <div class="layer-title"><span class="layer-num" style="background:#0D9488;color:#fff">SM</span>機構足跡<span class="layer-sub">VWAP成本線 · BOS/CHoCH結構 · 過熱反指標</span><button onclick="showHelp('smc')" class="help-btn" title="說明">ⓘ</button></div>
@@ -420,6 +426,10 @@
         <div style="font-size:10px;color:var(--muted);margin-bottom:6px">雲端備份用。可填原本的 GAS 網址（沿用舊備份）。留空則用上方查詢網址備份。</div>
         <input id="set-sync-url" placeholder="https://script.google.com/.../exec（選填）" class="field-input" style="margin-bottom:8px">
         <button onclick="saveSyncUrl()" class="btn-block" style="background:var(--purple)">💾 儲存備份網址</button>
+        <div style="font-size:11px;color:#0891B2;text-transform:uppercase;letter-spacing:.5px;margin:14px 0 8px">🏦 FinMind Token（選填）</div>
+        <div style="font-size:10px;color:var(--muted);margin-bottom:6px">填入後啟用「主力縱深」：千張大戶趨勢、法人借券空單、分點主力。至 finmindtrade.com 免費註冊取得。</div>
+        <input id="set-finmind-token" placeholder="eyJ...（FinMind API token）" class="field-input" style="margin-bottom:8px">
+        <button onclick="saveFinmindToken()" class="btn-block" style="background:#0891B2">💾 儲存 Token</button>
       </div>
 
       <!-- 本地備份 -->

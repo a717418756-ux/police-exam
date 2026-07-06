@@ -405,7 +405,7 @@ async function go(){
   if(!raw)return;
   const btn=$('go-btn');btn.disabled=true;btn.innerHTML='<span class="spin"></span>';
   hideErr();
-  ['stock-bar','trend-banner','risk-card','psych-card','ai-card','market-card','quant-card','formula-card','mktscore-card','chip-card','playbook-card','riskmetric-card','multiperiod-card','health-card','regime-card','rs-card','beta-card','prob-card','sr-card','vpradar-card','bingfa-card','verdict-banner','smc-card','resonance-card','mainforce-card','margin-card','mtf-card','crowd-card','gate-card','oos-card','fundamental-card'].forEach(id=>$(id).style.display='none');
+  ['stock-bar','trend-banner','risk-card','psych-card','ai-card','market-card','quant-card','formula-card','mktscore-card','chip-card','playbook-card','riskmetric-card','multiperiod-card','health-card','regime-card','rs-card','beta-card','prob-card','sr-card','vpradar-card','bingfa-card','verdict-banner','smc-card','resonance-card','mainforce-card','margin-card','mtf-card','crowd-card','gate-card','oos-card','fundamental-card','deepchip-card'].forEach(id=>$(id).style.display='none');
   $('ind-grid').style.display='none';$('ind-grid').innerHTML='';
   $('cat-row').style.display='none';$('cat-tabs').innerHTML='';
   activeCat='全部';
@@ -532,6 +532,10 @@ async function go(){
     // 基本面體檢（台股，非同步不擋主流程）
     try{ if(typeof loadFundamentalCard==='function') loadFundamentalCard(D); }
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('基本面',err); }
+
+    // 主力縱深（FinMind，token 選填，非同步不擋主流程）
+    try{ if(typeof loadDeepChipCard==='function') loadDeepChipCard(D); }
+    catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('主力縱深',err); }
 
     window._lastD=D; window._lastFormulas=formulas;  // 供融資載入後補繪反明牌雷達
     // 散戶擁擠度反指標（反AI散戶引擎）
@@ -735,6 +739,8 @@ async function init(){
     if(url) GAS_URL=url;
     const surl=await dbGetSetting('syncUrl');
     if(surl) SYNC_URL=surl;
+    const ftk=await dbGetSetting('finmindToken');
+    if(ftk) FINMIND_TOKEN=ftk;
   }catch(e){ console.warn('載入網址失敗',e); }
   await loadSettings();
 }
