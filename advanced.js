@@ -270,3 +270,121 @@ function renderVolPriceRadar(alerts) {
     `<div class="psych-alert ${a.type==='good'?'ok':'fire'}"><span class="pa-icon">${a.icon}</span><div class="pa-body"><div class="pa-title ${a.type==='good'?'ok':'fire'}">${a.title}</div><div class="pa-desc">${a.desc}</div></div></div>`
   ).join('');
 }
+
+/* ══ 樣本外驗證（Out-of-Sample Validation）══════════════════════════
+   回答「這檔股票的訊號準確率可不可信」的誠實方法：
+   前70%歷史當「訓練段」、後30%當「測試段」（模型沒看過的資料）。
+   訓練段命中率高但測試段掉很多 = 過擬合（歷史內漂亮、未來失效）。
+   這是量化機構與散戶曲線擬合者的分水嶺。
+   ════════════════════════════════════════════════════════════════════ */
+function computeOOSValidation(D, horizon = 5) {
+  const c = D.closes, h = D.highs, l = D.lows, v = D.volumes, n = c.length;
+  if (n < 250) return null;  // 2年資料才夠切
+  const split = Math.floor(n * 0.7);
+
+  const evalRange = (from, to) => {
+    let hit = 0, tot = 0;
+    for (let i = from; i < to - horizon; i++) {
+      const sig = signalsAtIndex(c, h, l, v, i);
+      if (!sig) continue;
+      const vals = Object.values(sig);
+      const buys = vals.filter(s => s === 'buy').length;
+      const sells = vals.filter(s => s === 'sell').length;
+      if (buys === sells) continue;  // 無方向不計
+      const dir = buys > sells ? 1 : -1;
+      tot++;
+      const fut = c[i + horizon] - c[i];
+      if ((dir === 1 && fut > 0) || (dir === -1 && fut < 0)) hit++;
+    }
+    return { rate: tot ? hit / tot : null, n: tot };
+  };
+
+  const train = evalRange(60, split);
+  const test = evalRange(split, n);
+  if (train.rate == null || test.rate == null) return null;
+
+  const drop = (train.rate - test.rate) * 100;
+  let verdict, vClass;
+  if (test.n < 20) { verdict = '測試樣本不足，無法下結論'; vClass = 'warn'; }
+  else if (test.rate >= 0.55 && drop <= 10) { verdict = '樣本外仍有效——此股的技術訊號有實際參考價值'; vClass = 'buy'; }
+  else if (drop > 12) { verdict = '過擬合警訊——歷史內漂亮但沒看過的資料上失效，此股技術訊號別重壓'; vClass = 'sell'; }
+  else if (test.rate >= 0.45 && test.rate < 0.55) { verdict = '樣本外接近擲硬幣——此股技術訊號參考價值低，決策改倚重籌碼/主力/融資維度'; vClass = 'warn'; }
+  else if (test.rate < 0.45) { verdict = '樣本外反向——此股訊號甚至略帶反指標性質，多空判斷需極度保守'; vClass = 'sell'; }
+  else { verdict = '樣本外普通——訊號可參考但需其他維度共振確認'; vClass = 'warn'; }
+
+  return { train, test, drop, verdict, vClass, horizon };
+}
+
+function renderOOS(D) {
+  const card = document.getElementById('oos-card');
+  if (!card) return;
+  const o = computeOOSValidation(D);
+  if (!o) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+  const colMap = { buy: 'var(--buy)', warn: 'var(--warn)', sell: 'var(--sell)' };
+  const col = colMap[o.vClass];
+  const bar = (label, r, c2) => `
+    <div style="display:flex;align-items:center;gap:10px;padding:6px 0">
+      <span style="font-size:11px;width:110px;color:var(--muted)">${label}</span>
+      <div style="flex:1;height:8px;background:var(--bd);border-radius:99px;overflow:hidden"><div style="height:100%;width:${(r.rate*100).toFixed(0)}%;background:${c2}"></div></div>
+      <span style="font-family:var(--mono);font-size:13px;font-weight:700;color:${c2};width:46px;text-align:right">${(r.rate*100).toFixed(1)}%</span>
+      <span style="font-size:9px;color:var(--muted2);width:52px;text-align:right">${r.n}樣本</span>
+    </div>`;
+  document.getElementById('oos-content').innerHTML = `
+    ${bar('訓練段（前70%歷史）', o.train, 'var(--acc)')}
+    ${bar('測試段（後30%未見過）', o.test, col)}
+    <div style="margin-top:10px;padding:10px 12px;background:${col}10;border:1px solid ${col}50;border-radius:9px;font-size:12px;font-weight:600;color:${col};line-height:1.6">${o.verdict}</div>
+    <div style="font-size:10px;color:var(--muted2);margin-top:8px;line-height:1.6">💡 訓練段=用來「學」的歷史；測試段=模型沒看過的近期資料，最接近「未來」。兩段差距小且測試段>55% 才代表訊號真的有預測力（${o.horizon}日方向命中率，含各50%的隨機基準）。這是誠實的準確率，不是樣本內的漂亮數字。</div>`;
+}
+
+/* ══ 基本面體檢（台股：估值 + 月營收）════════════════════════════════
+   定位：背景濾網，不是進出場訊號。波段層級的用途：
+   ①營收連續衰退 = 空單的基本面順風 ②估值極端 = 泡沫語境
+   ③殖利率 = 空單除息成本提醒
+   ════════════════════════════════════════════════════════════════════ */
+const _fundCache = {};
+async function loadFundamentalCard(D) {
+  const card = document.getElementById('fundamental-card');
+  if (!card) return;
+  if (D.currency !== 'TWD') { card.style.display = 'none'; return; }
+  let f = null;
+  const hit = _fundCache[D.code];
+  if (hit && Date.now() - hit.t < 600000) f = hit.d;
+  else {
+    try {
+      const r = await fetch(`${GAS_URL}?action=fundamental&code=${encodeURIComponent(D.code)}`);
+      const j = await r.json();
+      if (j.ok) { f = j; _fundCache[D.code] = { d: j, t: Date.now() }; }
+    } catch (e) { if (typeof ErrorLog !== 'undefined') ErrorLog.push('基本面', e); }
+  }
+  if (!f) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+
+  // 判讀（空方交易者視角）
+  const notes = [];
+  if (f.revYoY != null) {
+    if (f.revYoY <= -10) notes.push({ c: 'var(--sell)', t: `營收年減 ${f.revYoY.toFixed(1)}%——基本面偏空順風：空單有基本面支持，反彈是空點不是買點` });
+    else if (f.revYoY >= 20) notes.push({ c: 'var(--buy)', t: `營收年增 +${f.revYoY.toFixed(1)}%——成長強勁：做空=逆基本面，技術翻空也要快進快出別戀戰` });
+  }
+  if (f.pe != null && f.pe > 0) {
+    if (f.pe >= 40) notes.push({ c: 'var(--warn)', t: `本益比 ${f.pe.toFixed(1)} 偏高——估值進入泡沫語境，若同時過熱/擁擠，大跌燃料充足` });
+    else if (f.pe <= 10) notes.push({ c: 'var(--muted)', t: `本益比 ${f.pe.toFixed(1)} 偏低——便宜不是買進理由（可能是價值陷阱），但重挫後支撐較實` });
+  } else if (f.pe === 0) {
+    notes.push({ c: 'var(--sell)', t: '本益比無法計算（虧損中）——虧損股是空方的基本面獵物，但也最容易暴力軋空，嚴設停損' });
+  }
+  if (f.dividendYield != null && f.dividendYield >= 5) {
+    notes.push({ c: 'var(--warn)', t: `殖利率 ${f.dividendYield.toFixed(1)}%——空單跨除息日要付股息（成本），留意除息時程` });
+  }
+
+  const box = (label, val, sub) => `<div class="risk-box"><div class="rb-label">${label}</div><div class="rb-value">${val}</div><div class="rb-sub">${sub}</div></div>`;
+  let html = `<div class="risk-grid">
+    ${box('📈 月營收 YoY', f.revYoY != null ? (f.revYoY >= 0 ? '+' : '') + f.revYoY.toFixed(1) + '%' : '—', f.revMonth ? '資料月份 ' + f.revMonth : '去年同月比')}
+    ${box('📊 月營收 MoM', f.revMoM != null ? (f.revMoM >= 0 ? '+' : '') + f.revMoM.toFixed(1) + '%' : '—', '上月比較')}
+    ${box('💰 本益比', f.pe != null && f.pe > 0 ? f.pe.toFixed(1) : (f.pe === 0 ? '虧損' : '—'), 'PE')}
+    ${box('🏦 股價淨值比', f.pb != null && f.pb > 0 ? f.pb.toFixed(2) : '—', 'PB')}
+  </div>`;
+  if (f.dividendYield != null && f.dividendYield > 0) html += `<div style="font-size:11px;color:var(--muted);margin-top:8px">殖利率 ${f.dividendYield.toFixed(2)}%</div>`;
+  notes.forEach(x => { html += `<div style="margin-top:8px;padding:9px 12px;background:${x.c}10;border:1px solid ${x.c}50;border-radius:8px;font-size:11px;color:var(--muted);line-height:1.6">${x.t}</div>`; });
+  html += `<div style="font-size:10px;color:var(--muted2);margin-top:10px;line-height:1.6">💡 基本面在波段層級是「背景濾網」不是進出場訊號：避免逆重大基本面做單、放大泡沫判斷。台股月營收每月10日前公布，常是行情引爆點。資料：證交所 BWIBBU / 月營收彙總。</div>`;
+  document.getElementById('fundamental-content').innerHTML = html;
+}
