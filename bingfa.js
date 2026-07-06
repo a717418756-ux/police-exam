@@ -329,6 +329,27 @@ function computeTradeGate(ctx) {
       if (psy >= 80) warn.push(`PSY ${psy} 貪婪區：多單防均值回歸`);
     }
 
+    // R7 大戶與法人（配合聰明錢，絕不對作——資料未載入時自動略過）
+    if (mf && mf.confidence >= 50) {
+      if (dir === 1 && (mf.behavior === '出貨' || mf.behavior === '誘多')) fail.push(`主力行為=${mf.behavior}（信心${mf.confidence}）：做多是接主力的貨`);
+      if (dir === -1 && mf.behavior === '吸籌') fail.push(`主力吸籌中（信心${mf.confidence}）：你在空主力正在收的貨，逆大戶做空是散戶死法`);
+      if (dir === -1 && (mf.behavior === '誘空' || mf.behavior === '洗盤')) warn.push(`${mf.behavior}型態進行中：空單易被掃後軋`);
+      if (dir === 1 && mf.behavior === '吸籌') pass.push(`主力吸籌同向（信心${mf.confidence}）`);
+      if (dir === -1 && mf.behavior === '出貨') pass.push(`主力出貨同向（空單與主力同邊，信心${mf.confidence}）`);
+    }
+    const deep = (typeof _deepCache !== 'undefined' && _deepCache[D.code]) ? _deepCache[D.code].d : null;
+    if (deep && deep.big) {
+      const b = deep.big;
+      if (dir === -1 && b.bigChg > 0.3 && b.smallChg < -0.2) fail.push(`千張大戶吸籌中（+${b.bigChg}%）：逆大戶結構做空`);
+      if (dir === 1 && b.bigChg < -0.3 && b.smallChg > 0.2) fail.push(`大戶倒貨給散戶（${b.bigChg}%）：別當接貨的散戶`);
+      if (dir === -1 && b.bigChg < -0.3 && b.smallChg > 0.2) pass.push(`大戶倒貨結構（空單結構順風）`);
+      if (dir === 1 && b.bigChg > 0.3 && b.smallChg < -0.2) pass.push(`籌碼流向大戶（多單結構順風）`);
+    }
+    if (deep && deep.lend) {
+      if (dir === -1 && deep.lend.chg5 >= 8) pass.push(`法人借券空單增 +${deep.lend.chg5}%（機構隊友）`);
+      if (dir === -1 && deep.lend.chg5 <= -8) warn.push(`法人借券回補中（${deep.lend.chg5}%）：空方主力撤退，別戀戰`);
+    }
+
     // 裁決：任一 fail = 禁止；warn≥2 = 謹慎；pass≥3 且 warn≤1 = 出手
     let verdict, vClass;
     if (fail.length) { verdict = '禁止出手'; vClass = 'no'; }
@@ -345,6 +366,14 @@ function computeTradeGate(ctx) {
     else if (mf.behavior === '恐慌殺盤') timing = { good: false, text: '⏳ 恐慌殺盤中——刀還在落，接刀與追空都危險，等止穩訊號' };
   }
   return { long: judge(1), short: judge(-1), timing };
+}
+
+function _gateATR(D) {
+  const h = D.highs, l = D.lows, c = D.closes, n = c.length;
+  const m = Math.min(14, n - 1);
+  let s = 0;
+  for (let i = n - m; i < n; i++) s += Math.max(h[i] - l[i], Math.abs(h[i] - c[i-1]), Math.abs(l[i] - c[i-1]));
+  return s / m;
 }
 
 function renderTradeGate(ctx) {
@@ -373,6 +402,53 @@ function renderTradeGate(ctx) {
     const tc = g.timing.good ? 'var(--buy)' : 'var(--warn)';
     html += `<div style="padding:10px 12px;background:${tc}10;border:1px solid ${tc}50;border-radius:9px;font-size:11px;color:var(--muted);line-height:1.7;margin-bottom:10px">${g.timing.text}</div>`;
   }
+  // ── 🎯 執行計畫（化繁為簡：做哪邊/幾張/停損/停利/時間停損）──
+  try {
+    const D = ctx.D;
+    let planSide = null, half = false;
+    if (g.long.vClass === 'go') planSide = 'long';
+    else if (g.short.vClass === 'go') planSide = 'short';
+    else if (g.long.vClass === 'caution' && g.short.vClass === 'no') { planSide = 'long'; half = true; }
+    else if (g.short.vClass === 'caution' && g.long.vClass === 'no') { planSide = 'short'; half = true; }
+
+    if (!planSide) {
+      html += `<div style="padding:12px;text-align:center;background:var(--bg);border:1px dashed var(--bd);border-radius:10px;margin-bottom:10px;font-size:13px;font-weight:700;color:var(--muted)">⛔ 今日此標的無戰事<div style="font-size:11px;font-weight:400;color:var(--muted2);margin-top:3px">不出手，就是最精準的打擊</div></div>`;
+    } else {
+      const capital = parseFloat(document.getElementById('in-capital')?.value) || 1000000;
+      const riskPct = parseFloat(document.getElementById('in-risk')?.value) || 1;
+      const atr = _gateATR(D);
+      let smart = null;
+      try { if (typeof computeSmartStop === 'function') smart = computeSmartStop(D, atr); } catch (e) {}
+      const entry = D.price;
+      const stop = smart ? smart[planSide].stop : (planSide === 'long' ? entry - 2 * atr : entry + 2 * atr);
+      const dist = Math.abs(entry - stop);
+      const sgn = planSide === 'long' ? 1 : -1;
+      const tp1 = entry + sgn * 2 * dist, tp2 = entry + sgn * 3 * dist;
+      let riskAmt = capital * riskPct / 100;
+      if (half) riskAmt = riskAmt / 2;
+      const cur = D.currency === 'TWD' ? '' : '$';
+      let sizeTxt;
+      if (D.currency === 'TWD') {
+        const lots = Math.floor(riskAmt / (dist * 1000));
+        sizeTxt = lots >= 1 ? lots + ' 張' : '不足1張（風險額太小或停損太遠）';
+      } else {
+        const sh = Math.floor(riskAmt / dist);
+        sizeTxt = sh >= 1 ? sh + ' 股' : '不足1股';
+      }
+      const pc = planSide === 'long' ? 'var(--buy)' : 'var(--sell)';
+      html += `<div style="border:2px solid ${pc};border-radius:12px;padding:12px;margin-bottom:10px;background:${pc}0a">
+        <div style="font-size:13px;font-weight:800;color:${pc};margin-bottom:8px">🎯 執行計畫 — ${planSide==='long'?'做多':'做空'}${half?'（黃燈半量試單）':''}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+          <div class="risk-box"><div class="rb-label">部位</div><div class="rb-value">${sizeTxt}</div><div class="rb-sub">資金${(capital/10000).toFixed(0)}萬×風險${riskPct}%${half?'÷2':''}</div></div>
+          <div class="risk-box"><div class="rb-label">進場</div><div class="rb-value">${cur}${fmt(entry)}</div><div class="rb-sub">現價（可等${planSide==='long'?'回踩':'反彈'}）</div></div>
+          <div class="risk-box"><div class="rb-label">🛑 停損</div><div class="rb-value" style="color:var(--sell)">${cur}${fmt(stop)}</div><div class="rb-sub">${smart?smart[planSide].method:'2×ATR'}</div></div>
+          <div class="risk-box"><div class="rb-label">✅ 停利 2R/3R</div><div class="rb-value" style="color:var(--buy)">${cur}${fmt(tp1)} / ${fmt(tp2)}</div><div class="rb-sub">出50%/25%，剩25%續抱</div></div>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:8px">⏱️ 時間停損：3~5日未朝預期發展即全撤，不等價格停損。</div>
+      </div>`;
+    }
+  } catch (e) { /* 執行計畫失敗不影響裁決顯示 */ }
+
   html += `<div style="font-size:10px;color:var(--muted2);line-height:1.8;padding-top:8px;border-top:1px solid var(--bd)">
     <b style="color:var(--muted)">⚔️ 獵人四律（反其道心法）</b><br>
     一、只在紀律門全綠時出手——沒有交易也是一種部位<br>

@@ -515,4 +515,6 @@ async function loadDeepChipCard(D) {
 
   html += `<div style="font-size:10px;color:var(--muted2);margin-top:10px;line-height:1.6">💡 部位背離是「統計優勢」不是無風險套利（零售層級不存在套利）。持股分級為週資料。資料來源：FinMind。</div>`;
   document.getElementById('deepchip-content').innerHTML = html;
+  // 主力縱深到位後補判紀律門（R7 大戶法人關卡需要此資料）
+  try { if (typeof renderTradeGate === 'function' && window._gateCtx) renderTradeGate(window._gateCtx); } catch (e) {}
 }
