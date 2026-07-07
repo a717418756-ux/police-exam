@@ -164,6 +164,7 @@ async function addTradeFromForm() {
         mae = Math.round(mae * 100) / 100;
         mfe = Math.round(mfe * 100) / 100;
         autoNote = `自動計算：區間最深虧 ${mae}%、最高賺 ${mfe}%`;
+        if (j.hasDividend) autoNote += `｜⚠️ 此持倉區間含除權息：MAE/MFE 已用原始市價對齊你的進場價（正確），但做空跨除息須另計股息成本`;
       } else {
         autoNote = '⚠️ K線抓取失敗，MAE 留空（不影響記錄）';
       }
