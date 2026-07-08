@@ -153,7 +153,9 @@ function analyzeTrend(D){
 // 第②層：風險管理
 // ══════════════════════════════════════════════════════════════════════
 function analyzeRisk(D,atr){
-  const price=D.price;
+  // 停損/停利/部位是實際下單參考價，用未還原市價（與智慧停損/劇本/紀律門執行計畫基準一致）
+  const price=D.rawCloses?D.rawCloses[D.rawCloses.length-1]:D.price;
+  const rawH=D.rawHighs||D.highs;
   const capital=parseFloat($('in-capital').value)||1000000;
   const riskPct=parseFloat($('in-risk').value)||1;
   const winRate=Math.min(95,Math.max(5,parseFloat($('in-winrate').value)||50))/100;
@@ -165,7 +167,7 @@ function analyzeRisk(D,atr){
   const stopPct=stopDist/price*100;
 
   // Chandelier Exit（最高價 - ATR×3）移動停利
-  const recentHigh=Math.max(...D.highs.slice(-22));
+  const recentHigh=Math.max(...rawH.slice(-22));
   const chandelier=recentHigh-atr*3;
 
   // 風報比 1:2 與 1:3 對應的停利價
@@ -414,7 +416,9 @@ async function go(){
     const queryCode=raw.toUpperCase();
     window._activeCode=queryCode;  // 立即登記，任何比這更早查詢的舊請求回來時會被丟棄（防async競爭張冠李戴）
     const D=await fetchStock(queryCode);
-    const atr=calcATR(D.highs,D.lows,D.closes,14);
+    // ATR 用未還原市價序列算（下游停損/劇本/紀律門都用原始價，ATR基準需一致，
+    // 否則「還原ATR」套用在「原始價±N×ATR」公式上會算出錯誤的停損距離）
+    const atr=calcATR(D.rawHighs||D.highs, D.rawLows||D.lows, D.rawCloses||D.closes, 14);
 
     // stock bar
     const chg=D.price-D.prevClose,chgP=D.prevClose?chg/D.prevClose*100:0;
@@ -566,7 +570,7 @@ async function go(){
       try{
         const shi=computeShiPower(D, rsRating);
         const tradeScore=computeTradeScore(D, shi, formulas, riskMetrics, rsRating);
-        const exit=computeBingfaExit(D.price);
+        const exit=computeBingfaExit(D.rawCloses ? D.rawCloses[D.rawCloses.length-1] : D.price);
         renderBingfa(D, shi, tradeScore, exit);
         checkBingfaWarning();
 
