@@ -268,6 +268,3 @@ function showHelp(key) {
 }
 
 // 產生 ⓘ 按鈕的 HTML（放在卡片標題列右上）
-function helpBtn(key) {
-  return `<button onclick="showHelp('${key}')" class="help-btn" title="說明">ⓘ</button>`;
-}

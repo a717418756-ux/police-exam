@@ -225,6 +225,7 @@ async function loadMarginCard(D) {
   const card = document.getElementById('margin-card');
   if (!card) return;
   const m = await fetchMarginData(D.code);
+  if (window._activeCode && window._activeCode !== D.code) return;  // 已換股，丟棄這次遲到的結果
   if (!m) { card.style.display = 'none'; return; }
   card.style.display = 'block';
 
@@ -270,9 +271,11 @@ async function loadMarginCard(D) {
     html += `<div style="margin-top:10px;font-size:11px;color:var(--warn)">⚠️ 券資比 ${m.shortRatio.toFixed(0)}% 偏高，空單留意軋空風險</div>`;
   }
   document.getElementById('margin-content').innerHTML = html;
-  // 融資資料到位後補繪反明牌雷達（納入散戶真實部位證據）
-  try { if (typeof renderCrowding === 'function' && window._lastD) renderCrowding(window._lastD, window._lastFormulas); } catch (e) {}
-  try { if (typeof renderTradeGate === 'function' && window._gateCtx) renderTradeGate(window._gateCtx); } catch (e) {}
+  // 補繪前校驗：確認使用者還在看同一檔（防快速換股的 async 競爭導致張冠李戴）
+  if (window._activeCode === D.code) {
+    try { if (typeof renderCrowding === 'function' && window._lastD && window._lastD.code === D.code) renderCrowding(window._lastD, window._lastFormulas); } catch (e) {}
+    try { if (typeof renderTradeGate === 'function' && window._gateCtx && window._gateCtx.D && window._gateCtx.D.code === D.code) renderTradeGate(window._gateCtx); } catch (e) {}
+  }
 }
 
 /* ══ D. 智慧停損（防「停損完就反向走」）══════════════════════════════
@@ -457,6 +460,7 @@ async function loadDeepChipCard(D) {
       if (j.ok) { dc = j; _deepCache[D.code] = { d: j, t: Date.now() }; }
     } catch (e) { if (typeof ErrorLog !== 'undefined') ErrorLog.push('主力縱深', e); }
   }
+  if (window._activeCode && window._activeCode !== D.code) return;  // 已換股，丟棄遲到結果
   if (!dc) { card.style.display = 'none'; return; }
   card.style.display = 'block';
 
@@ -515,6 +519,8 @@ async function loadDeepChipCard(D) {
 
   html += `<div style="font-size:10px;color:var(--muted2);margin-top:10px;line-height:1.6">💡 部位背離是「統計優勢」不是無風險套利（零售層級不存在套利）。持股分級為週資料。資料來源：FinMind。</div>`;
   document.getElementById('deepchip-content').innerHTML = html;
-  // 主力縱深到位後補判紀律門（R7 大戶法人關卡需要此資料）
-  try { if (typeof renderTradeGate === 'function' && window._gateCtx) renderTradeGate(window._gateCtx); } catch (e) {}
+  // 補繪前校驗代碼一致（防 async 競爭）
+  if (window._activeCode === D.code) {
+    try { if (typeof renderTradeGate === 'function' && window._gateCtx && window._gateCtx.D && window._gateCtx.D.code === D.code) renderTradeGate(window._gateCtx); } catch (e) {}
+  }
 }

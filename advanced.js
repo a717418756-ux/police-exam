@@ -357,6 +357,7 @@ async function loadFundamentalCard(D) {
       if (j.ok) { f = j; _fundCache[D.code] = { d: j, t: Date.now() }; }
     } catch (e) { if (typeof ErrorLog !== 'undefined') ErrorLog.push('基本面', e); }
   }
+  if (window._activeCode && window._activeCode !== D.code) return;  // 已換股，丟棄遲到結果
   if (!f) { card.style.display = 'none'; return; }
   card.style.display = 'block';
 

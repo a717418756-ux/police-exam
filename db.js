@@ -73,15 +73,6 @@ async function dbGetAllTrades() {
     r.onerror = () => rej(r.error);
   });
 }
-async function dbClearTrades() {
-  const db = await openDB();
-  return new Promise((res, rej) => {
-    const tx = db.transaction('trades', 'readwrite');
-    tx.objectStore('trades').clear();
-    tx.oncomplete = () => res(true);
-    tx.onerror = () => rej(tx.error);
-  });
-}
 
 /* ── 由交易紀錄計算真實統計 ──────────────────────────────────────────── */
 function computeStats(trades) {

@@ -411,7 +411,9 @@ async function go(){
   activeCat='全部';
 
   try{
-    const D=await fetchStock(raw.toUpperCase());
+    const queryCode=raw.toUpperCase();
+    window._activeCode=queryCode;  // 立即登記，任何比這更早查詢的舊請求回來時會被丟棄（防async競爭張冠李戴）
+    const D=await fetchStock(queryCode);
     const atr=calcATR(D.highs,D.lows,D.closes,14);
 
     // stock bar
@@ -538,7 +540,7 @@ async function go(){
     try{ if(typeof loadDeepChipCard==='function') loadDeepChipCard(D); }
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('主力縱深',err); }
 
-    window._lastD=D; window._lastFormulas=formulas;  // 供融資載入後補繪反明牌雷達
+    window._lastD=D; window._lastFormulas=formulas;  // 供補繪反明牌/紀律門/主力縱深/基本面（_activeCode 已於函式開頭登記）
     // 散戶擁擠度反指標（反AI散戶引擎）
     try{ if(typeof renderCrowding==='function') renderCrowding(D, formulas); }
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('擁擠度',err); }
@@ -549,6 +551,7 @@ async function go(){
 
     // RS Rating / Beta / Alpha / 兵法系統（需大盤基準，此時 formulas 已就緒）
     fetchBenchmark(D.currency==='TWD').then(bench=>{
+      if(window._activeCode && window._activeCode!==D.code) return;  // 已換股，丟棄遲到基準，避免用舊D重畫決策層
       let rsRating=null;
       try{
         const benchRet = bench && bench.length>252 ? (bench[bench.length-1]-bench[bench.length-253])/bench[bench.length-253] : null;
