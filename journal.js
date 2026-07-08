@@ -472,8 +472,8 @@ async function exportMarkdown() {
     md += `## 一、整體績效（含真實+模擬）\n\n`;
     md += `| 指標 | 數值 |\n|------|------|\n`;
     md += `| 總交易筆數 | ${s.count} |\n`;
-    md += `| **帳面勝率**（含凹單僥倖） | ${(s.winRate*100).toFixed(1)}% |\n`;
-    md += `| **真實勝率**（扣除判斷錯誤） | ${(s.trueWinRate*100).toFixed(1)}% |\n`;
+    md += `| **帳面勝率**（含凹單僥倖） | ${(s.winRate*100).toFixed(1)}%${s.ci95?` （95% CI: ${(s.ci95.low*100).toFixed(0)}~${(s.ci95.high*100).toFixed(0)}%）`:''} |\n`;
+    md += `| **真實勝率**（扣除判斷錯誤） | ${(s.trueWinRate*100).toFixed(1)}%${s.trueCi95?` （95% CI: ${(s.trueCi95.low*100).toFixed(0)}~${(s.trueCi95.high*100).toFixed(0)}%）`:''} |\n`;
     md += `| 判斷錯誤筆數（凹單/MAE超停損） | ${s.misjudged} |\n`;
     md += `| 盈虧比（平均賺/平均賠） | ${s.payoff.toFixed(2)} |\n`;
     md += `| 期望值/筆 | ${cur(s.expectancy)} |\n`;
@@ -487,6 +487,27 @@ async function exportMarkdown() {
     md += `| 最大連敗 | ${s.maxLossStreak} 筆 |\n`;
     md += `| 平均抱倉天數 | ${s.avgHoldDays.toFixed(1)} 天 |\n`;
     md += `| 最大回撤 | ${cur(s.maxDrawdown)} |\n\n`;
+
+    // 期望值盲測對照（隨機進出場基準，證明系統是否為真Alpha）
+    const holdArr = trades.filter(t => t.holdDays != null && t.pnlPct != null);
+    if (holdArr.length >= 5) {
+      // 用你自己的「盈虧%分布」重新隨機配對，模擬「隨機挑時間點進出」的基準
+      // （不連網、不重抓K線；用已知的盈虧%集合隨機重排，等同蒙地卡羅重抽樣）
+      const pool = holdArr.map(t => t.pnlPct);
+      let sumRand = 0, winRand = 0, N = 1000;
+      for (let i = 0; i < N; i++) {
+        const pick = pool[Math.floor(Math.random() * pool.length)];
+        sumRand += pick; if (pick > 0) winRand++;
+      }
+      const randAvg = sumRand / N, randWinRate = winRand / N * 100;
+      const yourAvg = s.avgPnlPct, yourWinRate = s.winRate * 100;
+      const beatRandom = yourAvg > randAvg && yourWinRate > randWinRate;
+      md += `## 一之二、期望值盲測對照（隨機重抽樣 vs 你的系統）\\n\\n`;
+      md += `| 對照組 | 平均報酬/筆 | 勝率 |\\n|------|------|------|\\n`;
+      md += `| 🎲 隨機重抽樣（1000次基準） | ${randAvg>=0?'+':''}${randAvg.toFixed(2)}% | ${randWinRate.toFixed(0)}% |\\n`;
+      md += `| 📈 你的系統 | ${yourAvg>=0?'+':''}${yourAvg.toFixed(2)}% | ${yourWinRate.toFixed(0)}% |\\n\\n`;
+      md += `> ${beatRandom ? '✅ 你的系統顯著優於隨機重抽樣基準——初步證據支持系統判斷帶來真實優勢（而非單純運氣或多頭Beta）。' : '⚠️ 你的系統尚未明顯優於隨機重抽樣——樣本數少時常見，需更多交易數據才能下結論，也可能代表目前訊號未帶來額外優勢。'}此對照為簡化版重抽樣，非完整蒙地卡羅路徑模擬，僅供方向性參考。\\n\\n`;
+    }
 
     // 重要提示給 AI
     if (s.misjudged > 0) {

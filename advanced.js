@@ -191,8 +191,9 @@ function renderProbability(p) {
    用近期轉折高低點 + 成交密集區，找出支撐壓力位
    ════════════════════════════════════════════════════════════════════ */
 function computeSupportResistance(D) {
-  const c = D.closes, h = D.highs, l = D.lows;
-  const price = D.price;
+  // 支撐壓力是「人類記憶的關卡」，用未還原市價（若後端未更新則fallback還原價，不報錯）
+  const c = D.rawCloses || D.closes, h = D.rawHighs || D.highs, l = D.rawLows || D.lows;
+  const price = (D.rawCloses ? D.rawCloses[D.rawCloses.length - 1] : D.price);
   const N = Math.min(120, c.length);
   const hs = h.slice(-N), ls = l.slice(-N);
 
@@ -312,7 +313,27 @@ function computeOOSValidation(D, horizon = 5) {
   else if (test.rate < 0.45) { verdict = '樣本外反向——此股訊號甚至略帶反指標性質，多空判斷需極度保守'; vClass = 'sell'; }
   else { verdict = '樣本外普通——訊號可參考但需其他維度共振確認'; vClass = 'warn'; }
 
-  return { train, test, drop, verdict, vClass, horizon };
+  // Walk-Forward：3個滾動窗（比單一70/30切分更嚴謹，避免「切點剛好落在好時機」的偶然性）
+  // 2年資料切成4段，依序 [60%訓練→接續20%測試] 滾動3次
+  let wf = null;
+  if (n >= 400) {
+    const segLen = Math.floor((n - 60) / 4);
+    const windows = [];
+    for (let w = 0; w < 3; w++) {
+      const trainFrom = 60 + w * segLen, trainTo = trainFrom + segLen * 2;
+      const testTo = trainTo + segLen;
+      if (testTo > n) break;
+      const tr = evalRange(trainFrom, trainTo), te = evalRange(trainTo, testTo);
+      if (tr.rate != null && te.rate != null && te.n >= 5) windows.push({ train: tr.rate, test: te.rate, n: te.n });
+    }
+    if (windows.length >= 2) {
+      const avgTest = windows.reduce((a, x) => a + x.test, 0) / windows.length;
+      const consistent = windows.every(x => x.test >= 0.40);  // 沒有任何一段崩到反指標區
+      wf = { windows, avgTest, consistent };
+    }
+  }
+
+  return { train, test, drop, verdict, vClass, horizon, wf };
 }
 
 function renderOOS(D) {
@@ -334,6 +355,11 @@ function renderOOS(D) {
     ${bar('訓練段（前70%歷史）', o.train, 'var(--acc)')}
     ${bar('測試段（後30%未見過）', o.test, col)}
     <div style="margin-top:10px;padding:10px 12px;background:${col}10;border:1px solid ${col}50;border-radius:9px;font-size:12px;font-weight:600;color:${col};line-height:1.6">${o.verdict}</div>
+    ${o.wf ? `
+    <div style="margin-top:12px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Walk-Forward 滾動驗證（${o.wf.windows.length}個時段，比單一切分更嚴謹）</div>
+    ${o.wf.windows.map((w,i)=>`<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:11px;color:var(--muted)"><span style="width:50px">時段${i+1}</span><span style="font-family:var(--mono);color:${w.test>=0.5?'var(--buy)':'var(--sell)'}">${(w.test*100).toFixed(0)}%</span><span style="color:var(--muted2)">(${w.n}樣本)</span></div>`).join('')}
+    <div style="font-size:11px;color:${o.wf.consistent?'var(--buy)':'var(--warn)'};margin-top:4px">${o.wf.consistent?'✓ 各時段皆未崩至反指標區間，訊號較穩健':'⚠️ 部分時段測試命中率過低，訊號穩健度不足'}（平均 ${(o.wf.avgTest*100).toFixed(1)}%）</div>
+    ` : ''}
     <div style="font-size:10px;color:var(--muted2);margin-top:8px;line-height:1.6">💡 訓練段=用來「學」的歷史；測試段=模型沒看過的近期資料，最接近「未來」。兩段差距小且測試段>55% 才代表訊號真的有預測力（${o.horizon}日方向命中率，含各50%的隨機基準）。這是誠實的準確率，不是樣本內的漂亮數字。</div>`;
 }
 

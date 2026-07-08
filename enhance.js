@@ -104,22 +104,13 @@ function computeChipHealth(chip, D) {
   }
 
   score = Math.max(0, Math.min(100, score));
-
-  // 自營商（僅供參考，不列入評分：常含造市/選擇權避險倉位，方向雜訊大，非法人主動看多空的乾淨訊號）
-  let dealerNote = null;
-  if (chip.dealer5 != null && chip.dealer5 !== 0) {
-    const instDir = chip.foreign5 + chip.trust5;
-    const conflict = instDir !== 0 && (chip.dealer5 > 0) !== (instDir > 0);
-    dealerNote = { dealer5: chip.dealer5, conflict };
-  }
-
   let verdict, vClass;
   if (score >= 75) { verdict = '籌碼集中、主力進駐，賣壓輕、易漲難跌'; vClass = 'buy'; }
   else if (score >= 60) { verdict = '籌碼偏多，法人站買方，可留意'; vClass = 'buy'; }
   else if (score >= 45) { verdict = '籌碼中性，法人態度不明，觀望'; vClass = 'warn'; }
   else if (score >= 30) { verdict = '籌碼偏空，法人站賣方，謹慎'; vClass = 'sell'; }
   else { verdict = '籌碼鬆散、主力撤離，易跌難漲，避開'; vClass = 'sell'; }
-  return { score, verdict, vClass, signals, warnings, concentration, volNote, dealerNote };
+  return { score, verdict, vClass, signals, warnings, concentration, volNote };
 }
 
 function renderChip(chip, D) {
@@ -177,17 +168,6 @@ function renderChip(chip, D) {
     html += `<div style="margin-top:10px;padding:12px;background:var(--bg);border:1px solid var(--bd);border-radius:10px">
       <div style="font-size:12px;font-weight:700;color:${vc.c};margin-bottom:4px">${vc.t}</div>
       <div style="font-size:11px;color:var(--muted);line-height:1.6">${vc.d}</div></div>`;
-  }
-
-  if (health.dealerNote) {
-    const dn = health.dealerNote;
-    const dirTxt = dn.dealer5 > 0 ? '買超' : '賣超';
-    const noteTxt = dn.conflict
-      ? `自營商${dirTxt} ${fmtLot(dn.dealer5)}，方向與外資投信相反——常見於選擇權/可轉債避險或造市倉位，不代表主動看多空，僅供參考`
-      : `自營商${dirTxt} ${fmtLot(dn.dealer5)}，方向與外資投信一致，僅供參考`;
-    html += `<div style="margin-top:10px;padding:10px 12px;background:var(--bg);border:1px dashed var(--bd);border-radius:8px">
-      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">🏛️ 自營商動向（不計分，僅供參考）</div>
-      <div style="font-size:11px;color:var(--muted);line-height:1.6">${noteTxt}</div></div>`;
   }
 
   if (health.signals.length || health.warnings.length) {
@@ -322,7 +302,7 @@ function renderMultiPeriod(results) {
 function renderPlaybook(D, atr) {
   const card = document.getElementById('playbook-card');
   card.style.display = 'block';
-  const price = D.price;
+  const price = D.rawCloses ? D.rawCloses[D.rawCloses.length - 1] : D.price;
   const cur = D.currency === 'TWD' ? '' : '$';
   // 智慧停損：結構位之外+動態緩衝（防主力掃停損後反向走）
   let smart = null;

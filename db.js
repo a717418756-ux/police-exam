@@ -76,7 +76,17 @@ async function dbGetAllTrades() {
 
 /* ── 由交易紀錄計算真實統計 ──────────────────────────────────────────── */
 function computeStats(trades) {
-  if (!trades.length) return { count:0,wins:0,losses:0,winRate:0,avgWin:0,avgLoss:0,payoff:0,expectancy:0,totalPnl:0,trueWinRate:0,trueWins:0,misjudged:0 };
+  if (!trades.length) return { count:0,wins:0,losses:0,winRate:0,avgWin:0,avgLoss:0,payoff:0,expectancy:0,totalPnl:0,trueWinRate:0,trueWins:0,misjudged:0,ci95:null };
+
+  // Wilson score 信賴區間：樣本越少，區間越寬（誠實揭露「這個勝率有多可信」）
+  function wilsonCI(wins, n) {
+    if (!n) return null;
+    const z = 1.96, p = wins / n;
+    const denom = 1 + z * z / n;
+    const center = p + z * z / (2 * n);
+    const margin = z * Math.sqrt(p * (1 - p) / n + z * z / (4 * n * n));
+    return { low: Math.max(0, (center - margin) / denom), high: Math.min(1, (center + margin) / denom) };
+  }
   const wins   = trades.filter(t => t.result === 'win');
   const losses = trades.filter(t => t.result === 'loss');
   const sumWin  = wins.reduce((a, t) => a + Math.abs(t.pnl || 0), 0);
@@ -101,10 +111,14 @@ function computeStats(trades) {
   const netWins = pcts.filter(t => t.pnlPct > cost).length;
   const netWinRate = pcts.length ? netWins / pcts.length : 0;
 
+  const ci95 = wilsonCI(wins.length, trades.length);
+  const trueCi95 = wilsonCI(trueWins, trades.length);
+
   return { count: trades.length, wins: wins.length, losses: losses.length, winRate, avgWin, avgLoss, payoff, expectancy,
     totalPnl: trades.reduce((a, t) => a + (t.pnl || 0), 0),
     trueWinRate, trueWins, misjudged,
-    avgPnlPct, netAvgPnlPct, netWinRate, costPct: cost };
+    avgPnlPct, netAvgPnlPct, netWinRate, costPct: cost,
+    ci95, trueCi95 };
 }
 
 /* ── 進階統計（給 Markdown 匯出用）──────────────────────────────────── */

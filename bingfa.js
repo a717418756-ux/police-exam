@@ -419,7 +419,7 @@ function renderTradeGate(ctx) {
       const atr = _gateATR(D);
       let smart = null;
       try { if (typeof computeSmartStop === 'function') smart = computeSmartStop(D, atr); } catch (e) {}
-      const entry = D.price;
+      const entry = D.rawCloses ? D.rawCloses[D.rawCloses.length - 1] : D.price;
       const stop = smart ? smart[planSide].stop : (planSide === 'long' ? entry - 2 * atr : entry + 2 * atr);
       const dist = Math.abs(entry - stop);
       const sgn = planSide === 'long' ? 1 : -1;

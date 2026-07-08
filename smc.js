@@ -37,7 +37,8 @@ function computeVWAP(D, period) {
    CHoCH(Change of Character)：逆勢突破 → 趨勢可能反轉
    ════════════════════════════════════════════════════════════════════ */
 function computeStructure(D) {
-  const h = D.highs, l = D.lows, c = D.closes;
+  // BOS/CHoCH是「散戶與主力都在看的心理關卡」，用未還原市價（fallback還原價，向下相容）
+  const h = D.rawHighs || D.highs, l = D.rawLows || D.lows, c = D.rawCloses || D.closes;
   const n = c.length;
   const N = Math.min(60, n);
   const hs = h.slice(-N), ls = l.slice(-N), cs = c.slice(-N);
@@ -48,7 +49,7 @@ function computeStructure(D) {
     if (hs[i] > hs[i-1] && hs[i] > hs[i-2] && hs[i] > hs[i+1] && hs[i] > hs[i+2]) swingHighs.push({ i, price: hs[i] });
     if (ls[i] < ls[i-1] && ls[i] < ls[i-2] && ls[i] < ls[i+1] && ls[i] < ls[i+2]) swingLows.push({ i, price: ls[i] });
   }
-  const price = D.price;
+  const price = D.rawCloses ? D.rawCloses[D.rawCloses.length - 1] : D.price;
   const lastHigh = swingHighs.length ? swingHighs[swingHighs.length-1] : null;
   const lastLow = swingLows.length ? swingLows[swingLows.length-1] : null;
 
@@ -95,7 +96,8 @@ function computeStructure(D) {
    價格像磁鐵一樣會被吸去掃這些池子——掃完常反轉（Liquidity Sweep）
    ════════════════════════════════════════════════════════════════════ */
 function computeLiquidityPools(D) {
-  const h = D.highs, l = D.lows, c = D.closes, n = c.length;
+  // 停損聚集區是散戶/主力都盯著的原始價位，不用還原價
+  const h = D.rawHighs || D.highs, l = D.rawLows || D.lows, c = D.rawCloses || D.closes, n = c.length;
   const N = Math.min(80, n);
   const hs = h.slice(-N), ls = l.slice(-N);
   const swH = [], swL = [];
@@ -114,7 +116,7 @@ function computeLiquidityPools(D) {
     if (grp.length >= 2) out.push({ price: grp.reduce((a, b) => a + b, 0) / grp.length, touches: grp.length });
     return out;
   };
-  const price = D.price;
+  const price = D.rawCloses ? D.rawCloses[D.rawCloses.length - 1] : D.price;
   const eqh = cluster(swH).filter(x => x.price > price).sort((a, b) => a.price - b.price)[0] || null;
   const eql = cluster(swL).filter(x => x.price < price).sort((a, b) => b.price - a.price)[0] || null;
   return { eqh, eql };

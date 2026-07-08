@@ -283,8 +283,9 @@ async function loadMarginCard(D) {
    並統計該股歷史「假跌破後收回率」——收回率越高，越要把停損放遠離結構位
    ════════════════════════════════════════════════════════════════════ */
 function computeSmartStop(D, atr) {
-  const c = D.closes, h = D.highs, l = D.lows, n = c.length;
-  const price = D.price;
+  // 停損是實際下單價位，全部改用未還原市價，避免與 computeStructure 的原始價結構混用基準
+  const c = D.rawCloses || D.closes, h = D.rawHighs || D.highs, l = D.rawLows || D.lows, n = c.length;
+  const price = D.rawCloses ? D.rawCloses[D.rawCloses.length - 1] : D.price;
   const st = (typeof computeStructure === 'function') ? computeStructure(D) : null;
 
   // 歷史假跌破/假突破收回率（近120日，20日滾動支撐/壓力）
