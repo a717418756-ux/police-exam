@@ -219,8 +219,8 @@ function computeAnchoring(D) {
 
   const notes = [];
   if (nearRound) notes.push(`貼近整數關卡 ${nearestRound}（距離${roundDist.toFixed(1)}%）——散戶與法人常在此掛單，易有心理性支撐/壓力`);
-  if (nearHigh52) notes.push(`貼近52週高點 ${h.slice(-lookback).length===lookback?'':'（資料未滿一年，近似）'}${high52.toFixed(1)}——歷史高點是最強心理錨點，突破常需要更大量能確認，反之則易獲利了結賣壓`);
-  if (nearLow52) notes.push(`貼近52週低點 ${low52.toFixed(1)}——留意「這裡曾經很便宜」的定錨心理，可能引發搶反彈或恐慌加碼摸底`);
+  if (nearHigh52) notes.push(`貼近52週高點 ${n < 252 ? '（資料未滿一年，近似）' : ''}${high52.toFixed(1)}——歷史高點是最強心理錨點，突破常需要更大量能確認，反之則易獲利了結賣壓`);
+  if (nearLow52) notes.push(`貼近52週低點 ${n < 252 ? '（資料未滿一年，近似）' : ''}${low52.toFixed(1)}——留意「這裡曾經很便宜」的定錨心理，可能引發搶反彈或恐慌加碼摸底`);
 
   if (!notes.length) return null;
   return { nearRound, nearestRound, roundDist, nearHigh52, nearLow52, high52, low52, distFromHigh, distFromLow, notes };
@@ -248,7 +248,7 @@ function computeSupportResistance(D) {
   return { res, sup, price };
 }
 
-function renderSupportResistance(sr) {
+function renderSupportResistance(sr, D) {
   const card = document.getElementById('sr-card');
   card.style.display = 'block';
   const cur = '';
@@ -267,8 +267,8 @@ function renderSupportResistance(sr) {
 
   // 定錨效應（心理關卡，與上方技術支撐壓力互補顯示）
   try {
-    if (typeof computeAnchoring === 'function' && window._lastD) {
-      const anchor = computeAnchoring(window._lastD);
+    if (typeof computeAnchoring === 'function' && D) {
+      const anchor = computeAnchoring(D);
       if (anchor && anchor.notes.length) {
         let html2 = `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd)">
           <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">🧠 定錨效應（心理關卡，非技術轉折點）</div>`;

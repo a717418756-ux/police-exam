@@ -531,10 +531,14 @@ function checkETFRebalanceWindow() {
   const capMonths = [3, 6, 9, 12];
   // 高股息ETF：通常在6月與12月前後審核（半年制，實際日期各投信略有差異，此為概估窗口）
   const divMonths = [6, 12];
+  // 用「所在年」與「前一年」各自算12月目標日取最小距離，修正跨年邊界（1月上旬時，
+  // 去年12月的窗口若只用當年12月當基準會變成11個月後的未來，永遠判斷不到）
   const inWindow = (month, daysBefore, daysAfter) => {
-    const target = new Date(y, month - 1, 15); // 該月中旬概估
-    const diffDays = (today - target) / 86400000;
-    return diffDays >= -daysBefore && diffDays <= daysAfter;
+    const candidates = [new Date(y, month - 1, 15), new Date(y - 1, month - 1, 15), new Date(y + 1, month - 1, 15)];
+    return candidates.some(target => {
+      const diffDays = (today - target) / 86400000;
+      return diffDays >= -daysBefore && diffDays <= daysAfter;
+    });
   };
   const capActive = capMonths.some(m => inWindow(m, 5, 20));
   const divActive = divMonths.some(m => inWindow(m, 10, 25));

@@ -531,7 +531,7 @@ async function go(){
 
     // ── 進階分析（法人等級）──
     // 支撐壓力、量價雷達、機率預測（不需大盤資料，先做）
-    try{ renderSupportResistance(computeSupportResistance(D)); }
+    try{ renderSupportResistance(computeSupportResistance(D), D); }
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('支撐壓力',err); }
     try{ renderVolPriceRadar(computeVolPriceRadar(D)); }
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('量價雷達',err); }
