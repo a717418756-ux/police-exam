@@ -10,9 +10,9 @@ const APP_VERSION = 50;
 // GAS 後端網址：改由「設定頁」輸入並存入 IndexedDB，不必改程式碼
 // 啟動時 app.js 會從 DB 讀出覆寫此變數
 let GAS_URL = '';
-let SYNC_URL = '';
-let FINMIND_TOKEN = '';
-const TRADE_COST_PCT = 0.585;  // 台股波段來回成本%：證交稅0.3 + 手續費0.1425×2（當沖稅減半約0.44；美股另計）  // FinMind API token（選填，啟用主力縱深：千張/借券/分點）  // 雲端備份專用網址（選填，留空則用 GAS_URL）
+let SYNC_URL = '';           // 雲端備份專用網址（選填，留空則用 GAS_URL）
+let FINMIND_TOKEN = '';      // FinMind API token（選填，啟用主力縱深：千張/借券/分點）
+const TRADE_COST_PCT = 0.585;  // 台股波段來回成本%：證交稅0.3 + 手續費0.1425×2（當沖稅減半約0.44；美股另計）
 
 /* ── 錯誤記錄（手機看不到 F12 時，於設定頁查看）────────────────────── */
 const ErrorLog = {
