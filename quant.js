@@ -187,10 +187,18 @@ function _avg(a){return a.reduce((x,y)=>x+y,0)/a.length;}
 function _btSMA(a,n){if(a.length<n)return a[a.length-1];return _avg(a.slice(-n));}
 function _btEMAseries(a,n){const k=2/(n+1);let e=null;return a.map(v=>{e=e===null?v:v*k+e*(1-k);return e;});}
 function _btRSI(c,n){
+  // 修正：原版只用「最近n天簡單平均」，跟即時顯示的 calcRSISeries()（Wilder遞迴平滑）
+  // 對同一批資料會算出不同數值——回測驗證的訊號跟畫面上看到的訊號會對不起來。
+  // 這裡改成從切片起點做真正的 Wilder 遞迴平滑，兩者演算法完全一致。
   if(c.length<n+1)return 50;
   let ag=0,al=0;
-  for(let i=c.length-n;i<c.length;i++){const d=c[i]-c[i-1];if(d>0)ag+=d;else al-=d;}
-  ag/=n;al/=n;return al===0?(ag===0?50:100):100-100/(1+ag/al);
+  for(let i=1;i<=n;i++){const d=c[i]-c[i-1];if(d>0)ag+=d;else al-=d;}
+  ag/=n;al/=n;
+  for(let i=n+1;i<c.length;i++){
+    const d=c[i]-c[i-1], g=d>0?d:0, l=d<0?-d:0;
+    ag=(ag*(n-1)+g)/n; al=(al*(n-1)+l)/n;
+  }
+  return al===0?(ag===0?50:100):100-100/(1+ag/al);
 }
 function _btKD(h,l,c,n){
   const len=c.length;const start=Math.max(n,len-30);

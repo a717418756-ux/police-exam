@@ -33,7 +33,8 @@ async function fetchBenchmark(isTW) {
 }
 
 /* ══ A. RS Rating 相對強弱 ════════════════════════════════════════════
-   O'Neil 法：個股近250日報酬 vs 市場，換算成 1~99 評級
+   參考 O'Neil 加權概念：個股近期報酬（近季×2+近半年+近年）vs 大盤超額報酬，
+   用 tanh 壓縮映射至 1~99。⚠️ 非 IBD 官方跨全市場百分位排名，是單股相對強弱的近似分數
    需大盤資料（從 market 帶入 benchmark 報酬）
    ════════════════════════════════════════════════════════════════════ */
 function computeRSRating(D, benchReturn) {
@@ -72,10 +73,12 @@ function renderRSRating(rs) {
   document.getElementById('rs-val').textContent = rs.rating;
   document.getElementById('rs-val').style.color = col;
   let desc;
-  if (rs.rating >= 90) desc = `強於市場 ${rs.rating}% 的股票，超強勢，法人選股常要求 RS>80`;
-  else if (rs.rating >= 70) desc = `強於市場 ${rs.rating}% 的股票，相對強勢`;
+  // 用詞澄清：這是「個股超額報酬強度」換算的分數（tanh壓縮至1-99），
+  // 不是 IBD 官方那種跨全市場所有股票做百分位排名的 RS Rating，避免「RS=90」被誤解成「贏過90%股票」
+  if (rs.rating >= 90) desc = `超額報酬強度 ${rs.rating} 分，超強勢，法人選股常要求 RS>80`;
+  else if (rs.rating >= 70) desc = `超額報酬強度 ${rs.rating} 分，相對強勢`;
   else if (rs.rating >= 50) desc = `中等強度，與大盤同步`;
-  else desc = `弱於市場，RS ${rs.rating}，相對弱勢，留意`;
+  else desc = `超額報酬強度 ${rs.rating} 分，相對弱勢，留意`;
   document.getElementById('rs-desc').textContent = desc;
   document.getElementById('rs-detail').textContent =
     `近季 ${rs.r63>=0?'+':''}${rs.r63.toFixed(1)}%｜近半年 ${rs.r126>=0?'+':''}${rs.r126.toFixed(1)}%｜近年 ${rs.r252>=0?'+':''}${rs.r252.toFixed(1)}%` +
@@ -414,8 +417,4 @@ async function loadFundamentalCard(D) {
   notes.forEach(x => { html += `<div style="margin-top:8px;padding:9px 12px;background:${x.c}10;border:1px solid ${x.c}50;border-radius:8px;font-size:11px;color:var(--muted);line-height:1.6">${x.t}</div>`; });
   html += `<div style="font-size:10px;color:var(--muted2);margin-top:10px;line-height:1.6">💡 基本面在波段層級是「背景濾網」不是進出場訊號：避免逆重大基本面做單、放大泡沫判斷。台股月營收每月10日前公布，常是行情引爆點。資料：證交所 BWIBBU / 月營收彙總。</div>`;
   document.getElementById('fundamental-content').innerHTML = html;
-  // 補繪前校驗代碼一致（防 async 競爭）：基本面常比其他資料慢到，補繪讓 gate 反映最新基本面
-  if (window._activeCode === D.code) {
-    try { if (typeof renderTradeGate === 'function' && window._gateCtx && window._gateCtx.D && window._gateCtx.D.code === D.code) renderTradeGate(window._gateCtx); } catch (e) {}
-  }
 }

@@ -10,22 +10,13 @@ const $=id=>document.getElementById(id);
 const fmt=(n,d=2)=>n==null||isNaN(n)?'—':Number(n).toLocaleString('zh-TW',{minimumFractionDigits:d,maximumFractionDigits:d});
 const fmtV=v=>v==null?'—':v>=1e8?(v/1e8).toFixed(2)+'億':v>=1e4?(v/1e4).toFixed(1)+'萬':Number(v).toLocaleString();
 
-// 「資料查詢網址」可填 Cloudflare Workers 或 GAS 任一種，依網址內容判斷實際後端類型，
-// 讓錯誤訊息正確反映使用者實際填的是哪個後端（避免舊命名 GAS_URL 把訊息寫死成「GAS」造成誤導）
-function backendLabel(url){
-  if(!url || url.indexOf('http')!==0) return '尚未設定';
-  if(url.indexOf('workers.dev')>=0) return 'Cloudflare Workers';
-  if(url.indexOf('script.google.com')>=0) return 'GAS';
-  return '自訂後端';
-}
-
 function showErr(m){$('err-box').style.display='block';$('err-box').innerHTML=`<p style="color:var(--sell);font-weight:600;margin-bottom:6px">❌ ${m}</p><p style="color:var(--muted);font-size:12px">台股輸入4位數字（如 2330），美股輸入英文代碼（如 AAPL）。若確認正確仍失敗，可能為後端限流，稍後再試。</p>`;}
 function hideErr(){$('err-box').style.display='none';}
 
-// ── 抓資料（透過查詢網址：Cloudflare Workers 或 GAS）───────────────────
+// ── 抓資料（透過 GAS） ─────────────────────────────────────────────────
 const _stockCache = {};  // 個股資料快取（5分鐘，重查同股秒回）
 async function fetchStock(code){
-  if(GAS_URL.indexOf('http')!==0) throw new Error('尚未設定查詢網址，請先到設定頁「🔗 資料查詢網址」填入 Workers 或 GAS 網址');
+  if(GAS_URL.indexOf('http')!==0) throw new Error('尚未設定 GAS 網址，請先部署 Code.gs 並把 URL 填入設定');
   // 快取命中（5分鐘內）
   const cached=_stockCache[code];
   if(cached && (Date.now()-cached.time<300000)){
@@ -33,7 +24,7 @@ async function fetchStock(code){
   }
   let r;
   try{ r=await fetch(`${GAS_URL}?code=${encodeURIComponent(code)}`); }
-  catch(e){ if(typeof ErrorLog!=='undefined')ErrorLog.push('fetchStock連線',e); throw new Error(`無法連線到後端（目前設定為 ${backendLabel(GAS_URL)}）。請到右下 📒 → 設定，確認查詢網址正確並按「🔌 測試」`); }
+  catch(e){ if(typeof ErrorLog!=='undefined')ErrorLog.push('fetchStock連線',e); throw new Error('無法連線到 GAS 後端。請到右下 📒 → 設定，確認已填入 GAS 網址並按「測試連線」'); }
   if(!r.ok) throw new Error(`後端回應錯誤（${r.status}）`);
   const j=await r.json();
   if(!j.ok) throw new Error(j.error||'後端無法取得資料');
@@ -93,7 +84,61 @@ function calcKD(h,l,c,n=9){
 }
 // ── 其他 ───────────────────────────────────────────────────────────────
 function calcBB(c,n=20,m=2){const s=sma(c,n),last=s[s.length-1];const std=stddev(c.slice(-n));return{upper:last+m*std,mid:last,lower:last-m*std,std};}
-function calcDMI(h,l,c,n=14){let pdm=0,ndm=0,tr=0;for(let i=Math.max(1,c.length-n);i<c.length;i++){const up=h[i]-h[i-1],dn=l[i-1]-l[i];pdm+=up>dn&&up>0?up:0;ndm+=dn>up&&dn>0?dn:0;tr+=Math.max(h[i]-l[i],Math.abs(h[i]-c[i-1]),Math.abs(l[i]-c[i-1]));}if(tr===0)return{adx:0,pdi:0,ndi:0};const pdi=pdm/tr*100,ndi=ndm/tr*100;return{adx:Math.abs(pdi-ndi)/(pdi+ndi)*100||0,pdi,ndi};}
+function calcDMI(h,l,c,n=14){
+  // 標準 Wilder ADX：+DI/-DI 先各自做 n 期 Wilder 平滑，再算 DX 序列，
+  // 最後對 DX 序列再做一次 n 期 Wilder 平滑才是 ADX（單日DX雜訊很大，這層平滑才是「>25=趨勢明確」門檻站得住的原因）
+  const len = c.length;
+  if (len < n * 2 + 1) {
+    // 資料不足以做完整雙重平滑，退回單期估計但不冒充標準ADX刻度（供極短資料的向下相容）
+    let pdm=0,ndm=0,tr=0;
+    for(let i=Math.max(1,len-n);i<len;i++){
+      const up=h[i]-h[i-1],dn=l[i-1]-l[i];
+      pdm+=up>dn&&up>0?up:0; ndm+=dn>up&&dn>0?dn:0;
+      tr+=Math.max(h[i]-l[i],Math.abs(h[i]-c[i-1]),Math.abs(l[i]-c[i-1]));
+    }
+    if(tr===0)return{adx:0,pdi:0,ndi:0};
+    const pdi=pdm/tr*100,ndi=ndm/tr*100;
+    return{adx:Math.abs(pdi-ndi)/(pdi+ndi)*100||0,pdi,ndi};
+  }
+
+  // 逐日算 +DM/-DM/TR，Wilder 平滑後得到逐日 +DI/-DI，再逐日算 DX
+  const dxSeries = [];
+  let smPDM=0, smNDM=0, smTR=0, pdiLast=0, ndiLast=0;
+  const start = len - (n * 2 + 1);
+  for (let i = start + 1; i < len; i++) {
+    const up=h[i]-h[i-1], dn=l[i-1]-l[i];
+    const pdm = up>dn&&up>0?up:0, ndm = dn>up&&dn>0?dn:0;
+    const tr = Math.max(h[i]-l[i],Math.abs(h[i]-c[i-1]),Math.abs(l[i]-c[i-1]));
+    const idxInWindow = i - start;
+    if (idxInWindow <= n) {
+      // 前n期：累加，第n期時轉換成初始平滑值
+      smPDM += pdm; smNDM += ndm; smTR += tr;
+      if (idxInWindow === n) {
+        pdiLast = smTR ? smPDM/smTR*100 : 0;
+        ndiLast = smTR ? smNDM/smTR*100 : 0;
+        const dx = (pdiLast+ndiLast) ? Math.abs(pdiLast-ndiLast)/(pdiLast+ndiLast)*100 : 0;
+        dxSeries.push(dx);
+      }
+    } else {
+      // Wilder 平滑遞迴：新值 = 舊值 - 舊值/n + 當期值
+      smPDM = smPDM - smPDM/n + pdm;
+      smNDM = smNDM - smNDM/n + ndm;
+      smTR  = smTR  - smTR/n  + tr;
+      pdiLast = smTR ? smPDM/smTR*100 : 0;
+      ndiLast = smTR ? smNDM/smTR*100 : 0;
+      const dx = (pdiLast+ndiLast) ? Math.abs(pdiLast-ndiLast)/(pdiLast+ndiLast)*100 : 0;
+      dxSeries.push(dx);
+    }
+  }
+  if (!dxSeries.length) return { adx: 0, pdi: pdiLast, ndi: ndiLast };
+
+  // 對 DX 序列做第二層 Wilder 平滑 → 這才是真正的 ADX
+  let adx = dxSeries.slice(0, Math.min(n, dxSeries.length)).reduce((a,b)=>a+b,0) / Math.min(n, dxSeries.length);
+  for (let i = n; i < dxSeries.length; i++) {
+    adx = (adx * (n-1) + dxSeries[i]) / n;
+  }
+  return { adx, pdi: pdiLast, ndi: ndiLast };
+}
 function calcROC(c,n=12){const p=c[c.length-1-n];return p?(c[c.length-1]-p)/p*100:0;}
 
 // ── RSI 背離偵測（價創新高/低，但RSI未跟上）─────────────────────────────
@@ -596,9 +641,7 @@ async function go(){
 
         // 出手紀律門（濃縮全站分析為出手/禁止裁決）
         try{
-          let oosResult=null;
-          try{ if(typeof computeOOSValidation==='function') oosResult=computeOOSValidation(D); }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('OOS(gate用)',err); }
-          const gateCtx={D, regime:(typeof computeRegime==='function'?computeRegime(D):null), mtf:mtfResult, res, formulas, shi, oos:oosResult};
+          const gateCtx={D, regime:(typeof computeRegime==='function'?computeRegime(D):null), mtf:mtfResult, res, formulas, shi};
           window._gateCtx=gateCtx;  // 供融資載入後補繪
           renderTradeGate(gateCtx);
         }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('紀律門',err); }
