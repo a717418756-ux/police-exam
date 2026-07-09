@@ -166,6 +166,104 @@ function computeMainForce(D, formulas) {
     desc: descMap[topName], obvSlope: oSlope, mfi, kbar };
 }
 
+/* ══ B2. 主力意圖研判引擎（洗盤 vs 出貨 vs 進貨的關鍵分岔）════════════
+   解決「下跌到底是洗散戶、還是真出貨」的核心問題。
+   多維證據交叉，輸出方向傾向 + 白話劇本，不再只給「弱勢」這種無用結論。
+   ════════════════════════════════════════════════════════════════════ */
+function computeIntentAnalysis(D, formulas, mainForce) {
+  const c = D.closes, h = D.highs, l = D.lows, v = D.volumes, n = c.length;
+  if (n < 25) return null;
+  const price = D.price;
+
+  // 基礎量價
+  const ma20 = c.slice(-20).reduce((a,b)=>a+b,0)/20;
+  const biasPct = (price - ma20) / ma20 * 100;           // 乖離
+  const drop5 = n>=6 ? (c[n-1]-c[n-6])/c[n-6]*100 : 0;    // 近5日漲跌
+  const vol5 = v.slice(-5).reduce((a,b)=>a+b,0)/5;
+  const vol20 = v.slice(-20).reduce((a,b)=>a+b,0)/20;
+  const volRatio = vol20 ? vol5/vol20 : 1;                // 近5日相對20日量比
+  const psyV = (formulas && formulas.psy) ? formulas.psy.value : 50;
+  const obvSlope = mainForce ? mainForce.obvSlope : 0;
+  const kbar = mainForce ? mainForce.kbar : null;
+  const instNet = D.chip ? ((D.chip.foreign5||0)+(D.chip.trust5||0)) : null;
+
+  // 下影線/實體收位（近5日）：跌時有沒有人接
+  let lowerShadow = 0, closeStrong = 0;
+  for (let i=n-5; i<n; i++) {
+    if (i<1) continue;
+    const range = h[i]-l[i] || 1;
+    const body = Math.min(c[i], c[i-1]);
+    if ((body - l[i])/range > 0.4) lowerShadow++;         // 長下影=低檔有承接
+    if ((c[i]-l[i])/range > 0.6) closeStrong++;           // 收在當日高檔
+  }
+
+  // ── 三方證據計分 ──
+  let washScore = 0, distScore = 0, accScore = 0;         // 洗盤 / 出貨 / 進貨
+  const ev = { wash: [], dist: [], acc: [] };
+
+  // 是否處於下跌情境（意圖研判主要針對跌勢，這是使用者最易誤判做空的區）
+  const isFalling = drop5 < -2 || biasPct < -3;
+
+  if (isFalling) {
+    // 洗盤證據：跌但有承接痕跡、OBV沒同步破、量縮跌（不是大量出逃）
+    if (lowerShadow >= 2) { washScore += 25; ev.wash.push(`近5日 ${lowerShadow} 根長下影（殺低有人承接）`); }
+    if (obvSlope > -0.15 && drop5 < -3) { washScore += 25; ev.wash.push('價跌但OBV未同步破底（籌碼沒真的離開＝洗籌痕跡）'); }
+    if (volRatio < 0.9 && drop5 < -3) { washScore += 20; ev.wash.push(`量縮下跌（${volRatio.toFixed(2)}倍量，殺盤無量＝非主力出逃）`); }
+    if (psyV <= 25) { washScore += 15; ev.wash.push(`PSY ${psyV} 散戶恐慌交出籌碼（洗盤最愛的情緒）`); }
+    if (instNet != null && instNet > 0) { washScore += 20; ev.wash.push('法人5日仍淨買（跌勢中法人沒跑）'); }
+    if (closeStrong >= 2) { washScore += 10; ev.wash.push('多日收在當日高檔（盤中殺低尾盤拉回）'); }
+
+    // 出貨證據：帶量跌、OBV破底、法人跑、開高走低
+    if (volRatio > 1.3 && drop5 < -3) { distScore += 30; ev.dist.push(`爆量下跌（${volRatio.toFixed(2)}倍量＝主力調節/出逃）`); }
+    if (obvSlope < -0.3) { distScore += 25; ev.dist.push('OBV同步破底（籌碼真的在離開）'); }
+    if (instNet != null && instNet < 0) { distScore += 25; ev.dist.push('法人5日淨賣（機構站賣方）'); }
+    if (kbar != null && kbar <= -0.15) { distScore += 15; ev.dist.push(`KBAR ${kbar.toFixed(2)}（持續開高走低，拉高出貨痕跡）`); }
+    if (lowerShadow === 0 && drop5 < -4) { distScore += 15; ev.dist.push('連續實體黑K無下影（殺盤無人接＝弱）'); }
+  }
+
+  // 進貨證據（低檔盤整＋量價背離，不限跌勢）
+  if (biasPct < 5 && obvSlope > 0.3 && Math.abs(drop5) < 4) { accScore += 30; ev.acc.push('價平量增OBV上升（低檔主力默默進貨）'); }
+  if (kbar != null && kbar >= 0.15 && Math.abs(drop5) < 3) { accScore += 20; ev.acc.push(`KBAR +${kbar.toFixed(2)}（尾盤持續有人買）`); }
+  if (instNet != null && instNet > 0 && biasPct < 0) { accScore += 20; ev.acc.push('法人低於均線區仍淨買（逢低布局）'); }
+
+  // ── 綜合研判 ──
+  const scores = [
+    { name: '洗盤', dir: 'bounce', score: washScore, ev: ev.wash },
+    { name: '出貨', dir: 'down', score: distScore, ev: ev.dist },
+    { name: '進貨', dir: 'up', score: accScore, ev: ev.acc },
+  ].sort((a,b)=>b.score-a.score);
+
+  const top = scores[0];
+  if (top.score < 30) {
+    return { verdict: '訊號不足', dir: 'neutral', confidence: 0,
+      desc: '目前量價籌碼未出現明顯的主力意圖特徵，方向不明，觀望或等更清楚的訊號。',
+      scores, evidence: [] };
+  }
+  const confidence = Math.min(95, Math.round(top.score / (top.score + (scores[1].score||0) + 1) * 100));
+
+  const scriptMap = {
+    '洗盤': {
+      title: '🌊 疑似洗盤（洗散戶，非真跌）',
+      script: '主力用殺低嚇出散戶籌碼，籌碼沒真的離開。劇本：洗完常見急拉。操作：不宜追空（易被軋），做多者可等止跌訊號（帶量紅K收回均線）分批進；已持有可續抱但守好停損。',
+    },
+    '出貨': {
+      title: '📉 疑似出貨（真跌，籌碼在離開）',
+      script: '主力邊拉邊倒或帶量出逃，籌碼真的在流失。劇本：反彈是逃命波、續跌機率高。操作：做多者反彈減碼，做空者反彈到壓力可布局（非殺低追空），嚴設停損防軋。',
+    },
+    '進貨': {
+      title: '📈 疑似進貨（低檔布局）',
+      script: '主力在低檔量價背離默默吸貨，準備未來拉抬。劇本：打底完成後易啟動。操作：可分批布多，跌破近期低點且OBV同步走弱則證偽出場。',
+    },
+  };
+  const s = scriptMap[top.name];
+  return {
+    verdict: top.name, dir: top.dir, confidence,
+    title: s.title, desc: s.script,
+    scores, evidence: top.ev,
+    metrics: { biasPct, drop5, volRatio, psyV, obvSlope, lowerShadow },
+  };
+}
+
 function renderMainForce(D, formulas) {
   const card = document.getElementById('mainforce-card');
   if (!card) return;
@@ -183,6 +281,30 @@ function renderMainForce(D, formulas) {
     </div>
     <div style="flex:1;font-size:12px;color:var(--muted);line-height:1.6">${mf.desc}</div>
   </div>`;
+
+  // ── 主力意圖研判（洗盤/出貨/進貨的關鍵分岔）──
+  const intent = computeIntentAnalysis(D, formulas, mf);
+  if (intent && intent.confidence > 0) {
+    const iCol = intent.dir === 'up' ? 'var(--buy)' : intent.dir === 'down' ? 'var(--sell)' : intent.dir === 'bounce' ? 'var(--warn)' : 'var(--muted)';
+    html += `<div style="margin:4px 0 14px;padding:12px;background:${iCol}12;border:1.5px solid ${iCol}60;border-radius:10px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <span style="font-size:14px;font-weight:800;color:${iCol}">${intent.title}</span>
+        <span style="font-family:var(--mono);font-size:11px;color:var(--muted)">信心 ${intent.confidence}</span>
+      </div>
+      <div style="font-size:11px;color:var(--txt);line-height:1.65;margin-bottom:8px">${intent.desc}</div>`;
+    if (intent.evidence.length) {
+      intent.evidence.forEach(e => {
+        html += `<div style="display:flex;gap:8px;padding:3px 0"><span style="color:${iCol};font-size:11px">✓</span><span style="font-size:10px;color:var(--muted);line-height:1.5">${e}</span></div>`;
+      });
+    }
+    // 三方分數對照（讓你看到分岔的拉鋸）
+    html += `<div style="display:flex;gap:6px;margin-top:8px">`;
+    intent.scores.forEach(sc => {
+      const sCol = sc.dir==='up'?'var(--buy)':sc.dir==='down'?'var(--sell)':sc.dir==='bounce'?'var(--warn)':'var(--muted)';
+      html += `<div style="flex:1;text-align:center;background:var(--bg);border-radius:6px;padding:4px"><div style="font-size:9px;color:var(--muted)">${sc.name}</div><div style="font-family:var(--mono);font-size:13px;font-weight:700;color:${sc.score>0?sCol:'var(--muted2)'}">${sc.score}</div></div>`;
+    });
+    html += `</div></div>`;
+  }
 
   if (mf.evidence.length) {
     html += '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">判斷依據</div>';
@@ -495,8 +617,7 @@ async function loadDeepChipCard(D) {
     else if (instShortDown) { verdict = '📈 法人借券空單回補中——機構空方撤退，空單失去隊友，考慮跟著獲利了結'; vCol = 'var(--buy)'; }
     else { verdict = '➖ 法人空單無明顯異動'; vCol = 'var(--muted)'; }
     html += `<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">⚔️ 部位背離（聰明錢 vs 笨錢空單）</div>
-    <div class="risk-box" style="margin-bottom:4px"><div class="rb-label">法人借券賣出餘額</div><div class="rb-value">${fmtV(L.bal)} 張</div><div class="rb-sub" style="color:${L.chg5>=0?'var(--sell)':'var(--buy)'}">5日 ${L.chg5>=0?'+':''}${L.chg5}%（外資放空主要管道）</div></div>
-    <div style="font-size:10px;color:var(--muted);line-height:1.5;margin-bottom:8px">💡 白話：這是外資／機構向券商「借股票來賣」、目前還沒買回還券的累積量（張數），代表機構檯面上的放空部位。數字<b>上升</b>＝機構在加碼放空；<b>下降</b>＝機構在回補（買回股票還券），空方力道正在退潮。「5日${L.chg5>=0?'+':''}${L.chg5}%」就是這個餘額最近5個交易日的變化速度，負得越多代表回補越快。</div>
+    <div class="risk-box" style="margin-bottom:8px"><div class="rb-label">法人借券賣出餘額</div><div class="rb-value">${fmtV(L.bal)} 張</div><div class="rb-sub" style="color:${L.chg5>=0?'var(--sell)':'var(--buy)'}">5日 ${L.chg5>=0?'+':''}${L.chg5}%（外資放空主要管道）</div></div>
     <div style="padding:9px 12px;background:${vCol}10;border:1px solid ${vCol}50;border-radius:8px;font-size:11px;color:var(--muted);line-height:1.6;margin-bottom:12px">${verdict}</div>`;
   }
 
