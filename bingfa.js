@@ -281,6 +281,7 @@ function computeTradeGate(ctx) {
   const fusion = formulas && formulas.fusion ? formulas.fusion.value : 0;
   const psy = formulas && formulas.psy ? formulas.psy.value : 50;
   const margin = (typeof _marginCache !== 'undefined' && _marginCache[D.code]) ? _marginCache[D.code].d : null;
+  const fund = (typeof _fundCache !== 'undefined' && _fundCache[D.code]) ? _fundCache[D.code].d : null;
   let crowd = null;
   try { if (typeof computeCrowding === 'function') crowd = computeCrowding(D, formulas); } catch (e) {}
   let mf = null;
@@ -348,6 +349,26 @@ function computeTradeGate(ctx) {
     if (deep && deep.lend) {
       if (dir === -1 && deep.lend.chg5 >= 8) pass.push(`法人借券空單增 +${deep.lend.chg5}%（機構隊友）`);
       if (dir === -1 && deep.lend.chg5 <= -8) warn.push(`法人借券回補中（${deep.lend.chg5}%）：空方主力撤退，別戀戰`);
+    }
+
+    // R8 基本面背景濾網（僅輔助降級/加分，不否決——基本面本質是波段的背景濾網非進出場訊號，
+    // 資料未載入或無營收資料時自動略過，避免對缺資料的股票誤判）
+    // 門檻與 loadFundamentalCard() 卡片顯示邏輯一致（revYoY ≤-10%/≥20%），確保兩處判讀不互相矛盾
+    if (fund && fund.revYoY != null) {
+      if (dir === 1 && fund.revYoY <= -10) warn.push(`營收年減 ${fund.revYoY.toFixed(1)}%：基本面逆風，非致命但反彈力道可能受限`);
+      else if (dir === -1 && fund.revYoY >= 20) warn.push(`營收年增 +${fund.revYoY.toFixed(1)}%：逆基本面做空，技術轉空也要快進快出`);
+      else if (dir === 1 && fund.revYoY >= 20) pass.push(`營收年增 +${fund.revYoY.toFixed(1)}%：基本面順風`);
+      else if (dir === -1 && fund.revYoY <= -10) pass.push(`營收年減 ${fund.revYoY.toFixed(1)}%：基本面順風（空方）`);
+    }
+
+    // R9 樣本外訊號可信度（僅輔助降級/加分，不否決——這是「這檔股票的技術訊號歷史上準不準」的
+    // 事後校驗，不是當下的多空證據，用來提醒你該多信還是少信 R3/R4 的技術面結論；
+    // 樣本數<20時該模組自己都標「無法下結論」，此處沿用同一門檻，樣本不足直接略過不評論）
+    if (ctx.oos && ctx.oos.test && ctx.oos.test.n >= 20) {
+      const tr = ctx.oos.test.rate;
+      if (tr < 0.45) warn.push(`此股樣本外測試訊號偏反指標（命中率${Math.round(tr*100)}%）：技術面可信度低，改倚重籌碼/主力維度`);
+      else if (tr < 0.55) warn.push(`此股樣本外測試近似擲硬幣（命中率${Math.round(tr*100)}%）：技術訊號參考價值低`);
+      else if (tr >= 0.55 && ctx.oos.drop <= 10) pass.push(`此股樣本外驗證有效（命中率${Math.round(tr*100)}%，訓練/測試差距小）：技術訊號歷史上真有預測力`);
     }
 
     // 裁決：任一 fail = 禁止；warn≥2 = 謹慎；pass≥3 且 warn≤1 = 出手

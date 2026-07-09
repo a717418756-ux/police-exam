@@ -10,13 +10,22 @@ const $=id=>document.getElementById(id);
 const fmt=(n,d=2)=>n==null||isNaN(n)?'—':Number(n).toLocaleString('zh-TW',{minimumFractionDigits:d,maximumFractionDigits:d});
 const fmtV=v=>v==null?'—':v>=1e8?(v/1e8).toFixed(2)+'億':v>=1e4?(v/1e4).toFixed(1)+'萬':Number(v).toLocaleString();
 
+// 「資料查詢網址」可填 Cloudflare Workers 或 GAS 任一種，依網址內容判斷實際後端類型，
+// 讓錯誤訊息正確反映使用者實際填的是哪個後端（避免舊命名 GAS_URL 把訊息寫死成「GAS」造成誤導）
+function backendLabel(url){
+  if(!url || url.indexOf('http')!==0) return '尚未設定';
+  if(url.indexOf('workers.dev')>=0) return 'Cloudflare Workers';
+  if(url.indexOf('script.google.com')>=0) return 'GAS';
+  return '自訂後端';
+}
+
 function showErr(m){$('err-box').style.display='block';$('err-box').innerHTML=`<p style="color:var(--sell);font-weight:600;margin-bottom:6px">❌ ${m}</p><p style="color:var(--muted);font-size:12px">台股輸入4位數字（如 2330），美股輸入英文代碼（如 AAPL）。若確認正確仍失敗，可能為後端限流，稍後再試。</p>`;}
 function hideErr(){$('err-box').style.display='none';}
 
-// ── 抓資料（透過 GAS） ─────────────────────────────────────────────────
+// ── 抓資料（透過查詢網址：Cloudflare Workers 或 GAS）───────────────────
 const _stockCache = {};  // 個股資料快取（5分鐘，重查同股秒回）
 async function fetchStock(code){
-  if(GAS_URL.indexOf('http')!==0) throw new Error('尚未設定 GAS 網址，請先部署 Code.gs 並把 URL 填入設定');
+  if(GAS_URL.indexOf('http')!==0) throw new Error('尚未設定查詢網址，請先到設定頁「🔗 資料查詢網址」填入 Workers 或 GAS 網址');
   // 快取命中（5分鐘內）
   const cached=_stockCache[code];
   if(cached && (Date.now()-cached.time<300000)){
@@ -24,7 +33,7 @@ async function fetchStock(code){
   }
   let r;
   try{ r=await fetch(`${GAS_URL}?code=${encodeURIComponent(code)}`); }
-  catch(e){ if(typeof ErrorLog!=='undefined')ErrorLog.push('fetchStock連線',e); throw new Error('無法連線到 GAS 後端。請到右下 📒 → 設定，確認已填入 GAS 網址並按「測試連線」'); }
+  catch(e){ if(typeof ErrorLog!=='undefined')ErrorLog.push('fetchStock連線',e); throw new Error(`無法連線到後端（目前設定為 ${backendLabel(GAS_URL)}）。請到右下 📒 → 設定，確認查詢網址正確並按「🔌 測試」`); }
   if(!r.ok) throw new Error(`後端回應錯誤（${r.status}）`);
   const j=await r.json();
   if(!j.ok) throw new Error(j.error||'後端無法取得資料');
@@ -587,7 +596,9 @@ async function go(){
 
         // 出手紀律門（濃縮全站分析為出手/禁止裁決）
         try{
-          const gateCtx={D, regime:(typeof computeRegime==='function'?computeRegime(D):null), mtf:mtfResult, res, formulas, shi};
+          let oosResult=null;
+          try{ if(typeof computeOOSValidation==='function') oosResult=computeOOSValidation(D); }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('OOS(gate用)',err); }
+          const gateCtx={D, regime:(typeof computeRegime==='function'?computeRegime(D):null), mtf:mtfResult, res, formulas, shi, oos:oosResult};
           window._gateCtx=gateCtx;  // 供融資載入後補繪
           renderTradeGate(gateCtx);
         }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('紀律門',err); }

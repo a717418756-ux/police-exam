@@ -442,18 +442,20 @@ async function saveSyncUrl() {
   msg.style.color = 'var(--buy)';
 }
 
-// ── 測試 GAS 連線 ─────────────────────────────────────────────────────
+// ── 測試查詢網址連線（Cloudflare Workers 或 GAS）────────────────────────
 async function testGasConnection() {
   const msg = $('settings-msg');
-  if (!GAS_URL || GAS_URL.indexOf('http') !== 0) { msg.textContent = '❌ 請先填入並儲存 GAS 網址'; msg.style.color = 'var(--sell)'; return; }
-  msg.textContent = '測試連線中...'; msg.style.color = 'var(--muted)';
+  if (!GAS_URL || GAS_URL.indexOf('http') !== 0) { msg.textContent = '❌ 請先填入並儲存查詢網址'; msg.style.color = 'var(--sell)'; return; }
+  const label = typeof backendLabel === 'function' ? backendLabel(GAS_URL) : 'GAS';
+  msg.textContent = `測試連線中...（${label}）`; msg.style.color = 'var(--muted)';
   try {
     const r = await fetch(`${GAS_URL}?code=2330`);
     const j = await r.json();
-    if (j.ok) { msg.textContent = `✅ 連線成功！抓到 ${j.name || '2330'}，現價 ${j.price}`; msg.style.color = 'var(--buy)'; }
+    if (j.ok) { msg.textContent = `✅ 連線成功！（${label}）抓到 ${j.name || '2330'}，現價 ${j.price}`; msg.style.color = 'var(--buy)'; }
     else { msg.textContent = `⚠️ 連線成功但回傳：${j.error}`; msg.style.color = 'var(--warn)'; }
   } catch (e) {
-    msg.textContent = `❌ 連線失敗：${e.message}（請確認 GAS 部署權限設為「所有人」）`;
+    const hint = label === 'GAS' ? '請確認 GAS 部署權限設為「所有人」' : label === 'Cloudflare Workers' ? '請確認 Workers 網址正確且已 Deploy' : '請確認網址正確';
+    msg.textContent = `❌ 連線失敗：${e.message}（目前設定為 ${label}，${hint}）`;
     msg.style.color = 'var(--sell)';
     await ErrorLog.push('testGasConnection', e);
   }
