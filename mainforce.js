@@ -495,7 +495,8 @@ async function loadDeepChipCard(D) {
     else if (instShortDown) { verdict = '📈 法人借券空單回補中——機構空方撤退，空單失去隊友，考慮跟著獲利了結'; vCol = 'var(--buy)'; }
     else { verdict = '➖ 法人空單無明顯異動'; vCol = 'var(--muted)'; }
     html += `<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">⚔️ 部位背離（聰明錢 vs 笨錢空單）</div>
-    <div class="risk-box" style="margin-bottom:8px"><div class="rb-label">法人借券賣出餘額</div><div class="rb-value">${fmtV(L.bal)} 張</div><div class="rb-sub" style="color:${L.chg5>=0?'var(--sell)':'var(--buy)'}">5日 ${L.chg5>=0?'+':''}${L.chg5}%（外資放空主要管道）</div></div>
+    <div class="risk-box" style="margin-bottom:4px"><div class="rb-label">法人借券賣出餘額</div><div class="rb-value">${fmtV(L.bal)} 張</div><div class="rb-sub" style="color:${L.chg5>=0?'var(--sell)':'var(--buy)'}">5日 ${L.chg5>=0?'+':''}${L.chg5}%（外資放空主要管道）</div></div>
+    <div style="font-size:10px;color:var(--muted);line-height:1.5;margin-bottom:8px">💡 白話：這是外資／機構向券商「借股票來賣」、目前還沒買回還券的累積量（張數），代表機構檯面上的放空部位。數字<b>上升</b>＝機構在加碼放空；<b>下降</b>＝機構在回補（買回股票還券），空方力道正在退潮。「5日${L.chg5>=0?'+':''}${L.chg5}%」就是這個餘額最近5個交易日的變化速度，負得越多代表回補越快。</div>
     <div style="padding:9px 12px;background:${vCol}10;border:1px solid ${vCol}50;border-radius:8px;font-size:11px;color:var(--muted);line-height:1.6;margin-bottom:12px">${verdict}</div>`;
   }
 

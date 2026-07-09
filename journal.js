@@ -283,6 +283,21 @@ async function addTradeFromForm() {
     autoNote += `｜已記錄 ${exitRecords.length} 批出場`;
   }
 
+  // ── 記錄進場當下的出手紀律門判決（僅限即時單：現正檢視同一檔股票、且進場日=今日）──
+  // 為何限制這麼嚴：gate 判決依賴當下記憶體中的即時快取（籌碼/融資/主力縱深/OOS等），
+  // 無法對任意歷史日期正確回填；寧可欄位留空，也不要記錄一筆看似合理實則錯誤的快照，
+  // 污染未來「gate準不準」的校準統計。累積夠多即時單後即可用於回測gate門檻是否需要調整。
+  let gateSnapshot = null;
+  try {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    if (window._gateCtx && window._gateCtx.D && window._gateCtx.D.code === code
+        && entryDate === todayStr && typeof computeTradeGate === 'function') {
+      const g = computeTradeGate(window._gateCtx);
+      const dg = isLong ? g.long : g.short;
+      gateSnapshot = { verdict: dg.verdict, passN: dg.pass.length, failN: dg.fail.length, warnN: dg.warn.length };
+    }
+  } catch (e) { /* 拿不到就留空，不影響交易記錄本身 */ }
+
   await dbAddTrade({
     date: exitDate, entryDate, exitDate, holdDays, code, direction: dir, result,
     entryPrice, exitPrice, pnlPct: Math.round(pnlPct * 100) / 100, pnl,
@@ -292,6 +307,7 @@ async function addTradeFromForm() {
     entryFormulas,   // 進場日的公式分數
     batchRecords,    // 分批加碼紀錄
     exitRecords,     // 分批出場紀錄
+    gateSnapshot,    // 進場當下出手紀律門判決（僅即時單有值，供未來校準門檻用）
     sim: isSim       // 模擬單標記
   });
 
@@ -502,11 +518,31 @@ async function exportMarkdown() {
       const randAvg = sumRand / N, randWinRate = winRand / N * 100;
       const yourAvg = s.avgPnlPct, yourWinRate = s.winRate * 100;
       const beatRandom = yourAvg > randAvg && yourWinRate > randWinRate;
-      md += `## 一之二、期望值盲測對照（隨機重抽樣 vs 你的系統）\\n\\n`;
-      md += `| 對照組 | 平均報酬/筆 | 勝率 |\\n|------|------|------|\\n`;
-      md += `| 🎲 隨機重抽樣（1000次基準） | ${randAvg>=0?'+':''}${randAvg.toFixed(2)}% | ${randWinRate.toFixed(0)}% |\\n`;
-      md += `| 📈 你的系統 | ${yourAvg>=0?'+':''}${yourAvg.toFixed(2)}% | ${yourWinRate.toFixed(0)}% |\\n\\n`;
-      md += `> ${beatRandom ? '✅ 你的系統顯著優於隨機重抽樣基準——初步證據支持系統判斷帶來真實優勢（而非單純運氣或多頭Beta）。' : '⚠️ 你的系統尚未明顯優於隨機重抽樣——樣本數少時常見，需更多交易數據才能下結論，也可能代表目前訊號未帶來額外優勢。'}此對照為簡化版重抽樣，非完整蒙地卡羅路徑模擬，僅供方向性參考。\\n\\n`;
+      md += `## 一之二、期望值盲測對照（隨機重抽樣 vs 你的系統）\n\n`;
+      md += `| 對照組 | 平均報酬/筆 | 勝率 |\n|------|------|------|\n`;
+      md += `| 🎲 隨機重抽樣（1000次基準） | ${randAvg>=0?'+':''}${randAvg.toFixed(2)}% | ${randWinRate.toFixed(0)}% |\n`;
+      md += `| 📈 你的系統 | ${yourAvg>=0?'+':''}${yourAvg.toFixed(2)}% | ${yourWinRate.toFixed(0)}% |\n\n`;
+      md += `> ${beatRandom ? '✅ 你的系統顯著優於隨機重抽樣基準——初步證據支持系統判斷帶來真實優勢（而非單純運氣或多頭Beta）。' : '⚠️ 你的系統尚未明顯優於隨機重抽樣——樣本數少時常見，需更多交易數據才能下結論，也可能代表目前訊號未帶來額外優勢。'}此對照為簡化版重抽樣，非完整蒙地卡羅路徑模擬，僅供方向性參考。\n\n`;
+    }
+
+    // 出手紀律門校準統計（gate判決 vs 事後真實勝率——僅統計有 gateSnapshot 的即時單）
+    const gateTrades = trades.filter(t => t.gateSnapshot && t.gateSnapshot.passN != null);
+    if (gateTrades.length >= 5) {
+      const byPass = {};
+      gateTrades.forEach(t => {
+        const k = t.gateSnapshot.passN;
+        (byPass[k] = byPass[k] || []).push(t);
+      });
+      md += `## 一之三、出手紀律門校準統計（僅計即時單，共 ${gateTrades.length} 筆）\n\n`;
+      md += `| 進場當下 pass 數 | 筆數 | 勝率 | 平均報酬% |\n|------|------|------|------|\n`;
+      Object.keys(byPass).sort((a, b) => a - b).forEach(k => {
+        const arr = byPass[k];
+        if (arr.length < 5) return; // 樣本不足5筆不列入，避免少樣本誤導
+        const wr = arr.filter(t => t.result === 'win').length / arr.length * 100;
+        const avgP = arr.reduce((a, t) => a + t.pnlPct, 0) / arr.length;
+        md += `| ${k} | ${arr.length} | ${wr.toFixed(0)}% | ${avgP>=0?'+':''}${avgP.toFixed(2)}% |\n`;
+      });
+      md += `\n> 💡 這張表用來檢驗「pass≥3且warn≤1=可出手」這條寫死的門檻是否合理：若 pass=3 與 pass=5 的實際勝率差距不大，代表目前門檻可能訂太鬆；若某個 pass 數的勝率明顯低於整體平均，代表該分組不該被判定「可出手」。樣本數<5的分組已略過不列，避免用過少交易下結論。\n\n`;
     }
 
     // 重要提示給 AI
