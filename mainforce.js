@@ -197,12 +197,66 @@ function computeIntentAnalysis(D, formulas, mainForce) {
     if ((c[i]-l[i])/range > 0.6) closeStrong++;           // 收在當日高檔
   }
 
+  // ── Wyckoff Test：破前低後，後續量能是否遞減（賣壓是否真枯竭）──
+  // 依據：Wyckoff Spring/Shakeout 理論——破底本身不算數，破底後的「測試」才是關鍵訊號。
+  // 測試量 < 破底量 = 賣壓枯竭（洗盤/吸籌信號更可信）；測試量 ≥ 破底量 = 賣壓未消，不可輕信洗盤
+  let wyckoffTest = null;
+  {
+    const lookback = Math.min(20, n - 6);
+    let breakIdx = -1, breakVol = 0, breakLow = Infinity;
+    for (let i = n - lookback; i < n - 2; i++) {
+      const priorLow = Math.min(...l.slice(Math.max(0, i - 10), i));
+      if (l[i] < priorLow && v[i] > vol20 * 1.2) {          // 帶量破前低 = 疑似 Shakeout/Spring 或真跌破
+        if (v[i] > breakVol) { breakIdx = i; breakVol = v[i]; breakLow = l[i]; }
+      }
+    }
+    if (breakIdx >= 0) {
+      const afterVols = v.slice(breakIdx + 1, n);
+      const avgAfterVol = afterVols.length ? afterVols.reduce((a,b)=>a+b,0)/afterVols.length : 0;
+      const retested = afterVols.some((_, k) => l[breakIdx + 1 + k] <= breakLow * 1.02); // 有無回測破底區
+      const testPassed = avgAfterVol < breakVol * 0.7;       // 測試量明顯低於破底量
+      wyckoffTest = { breakIdx, testPassed, retested, daysSince: n - 1 - breakIdx };
+    }
+  }
+
+  // ── VSA Effort vs Result：爆量但價格幾乎不動 = 吸收（有大戶在承接/出貨但不讓價格反映）──
+  // 依據：Tom Williams VSA「Law of Effort vs Result」——高努力(量)、低結果(價變動) = 專業資金在對作
+  let absorption = null;
+  {
+    const last5vols = v.slice(-5), last5ranges = [];
+    for (let i = n - 5; i < n; i++) last5ranges.push(Math.abs(c[i] - c[i-1]) / c[i-1] * 100);
+    const avgVol10 = v.slice(-15, -5).reduce((a,b)=>a+b,0) / 10 || 1;
+    const avgRange10 = [];
+    for (let i = n - 15; i < n - 5; i++) if (i>=1) avgRange10.push(Math.abs(c[i]-c[i-1])/c[i-1]*100);
+    const avgRangeBase = avgRange10.length ? avgRange10.reduce((a,b)=>a+b,0)/avgRange10.length : 1;
+    let absorbDays = 0;
+    for (let k = 0; k < 5; k++) {
+      const highEffort = last5vols[k] > avgVol10 * 1.4;
+      const lowResult = last5ranges[k] < avgRangeBase * 0.6;
+      if (highEffort && lowResult) absorbDays++;
+    }
+    if (absorbDays >= 1) absorption = { days: absorbDays };
+  }
+
+  // ── VSA No Supply：下跌段量縮到明顯低於前兩根，且波幅窄（賣壓枯竭的乾淨訊號）──
+  // 依據：VSA No-Supply Bar——窄幅下跌 + 量低於前兩根均量，代表賣方失去興趣
+  let noSupplyDays = 0;
+  for (let i = n - 5; i < n; i++) {
+    if (i < 2) continue;
+    const prevAvgVol = (v[i-1] + v[i-2]) / 2;
+    const range = h[i] - l[i];
+    const avgRangeRecent = (h.slice(i-5, i).reduce((a,idx,k2)=>a+(h[i-5+k2]-l[i-5+k2]),0)) / 5 || range;
+    if (c[i] < c[i-1] && v[i] < prevAvgVol * 0.7 && range < avgRangeRecent * 0.7) noSupplyDays++;
+  }
+
   // ── 三方證據計分 ──
   let washScore = 0, distScore = 0, accScore = 0;         // 洗盤 / 出貨 / 進貨
   const ev = { wash: [], dist: [], acc: [] };
 
   // 是否處於下跌情境（意圖研判主要針對跌勢，這是使用者最易誤判做空的區）
-  const isFalling = drop5 < -2 || biasPct < -3;
+  // 注意：Shakeout本質是「跌深後快速反彈」，若只看近5日報酬，反彈會自己抵銷掉判斷資格，
+  // 導致最該辨識「這是洗盤」的那一刻反而跳出下跌情境。故額外用 wyckoffTest 是否存在來補判。
+  const isFalling = drop5 < -2 || biasPct < -3 || (wyckoffTest && wyckoffTest.daysSince <= 10);
 
   if (isFalling) {
     // 洗盤證據：跌但有承接痕跡、OBV沒同步破、量縮跌（不是大量出逃）
@@ -212,6 +266,10 @@ function computeIntentAnalysis(D, formulas, mainForce) {
     if (psyV <= 25) { washScore += 15; ev.wash.push(`PSY ${psyV} 散戶恐慌交出籌碼（洗盤最愛的情緒）`); }
     if (instNet != null && instNet > 0) { washScore += 20; ev.wash.push('法人5日仍淨買（跌勢中法人沒跑）'); }
     if (closeStrong >= 2) { washScore += 10; ev.wash.push('多日收在當日高檔（盤中殺低尾盤拉回）'); }
+    // Wyckoff Test 確認：破底後量能遞減，賣壓真枯竭（比單看下影線更可信的兩段式驗證）
+    if (wyckoffTest && wyckoffTest.testPassed) { washScore += 30; ev.wash.push(`Wyckoff測試通過：${wyckoffTest.daysSince}日前帶量破前低後，近日量能明顯遞減（賣壓真枯竭，非僅單根下影）`); }
+    if (absorption) { washScore += 15; ev.wash.push(`近5日${absorption.days}天爆量卻價格幾乎不動（Effort/Result背離＝有人在低檔吸收籌碼）`); }
+    if (noSupplyDays >= 2) { washScore += 15; ev.wash.push(`近5日${noSupplyDays}天窄幅量縮下跌（VSA無賣壓訊號，賣方失去興趣）`); }
 
     // 出貨證據：帶量跌、OBV破底、法人跑、開高走低
     if (volRatio > 1.3 && drop5 < -3) { distScore += 30; ev.dist.push(`爆量下跌（${volRatio.toFixed(2)}倍量＝主力調節/出逃）`); }
@@ -219,12 +277,15 @@ function computeIntentAnalysis(D, formulas, mainForce) {
     if (instNet != null && instNet < 0) { distScore += 25; ev.dist.push('法人5日淨賣（機構站賣方）'); }
     if (kbar != null && kbar <= -0.15) { distScore += 15; ev.dist.push(`KBAR ${kbar.toFixed(2)}（持續開高走低，拉高出貨痕跡）`); }
     if (lowerShadow === 0 && drop5 < -4) { distScore += 15; ev.dist.push('連續實體黑K無下影（殺盤無人接＝弱）'); }
+    // Wyckoff Test 未通過：破底後量能未遞減甚至更大，賣壓未消，不可輕信洗盤
+    if (wyckoffTest && !wyckoffTest.testPassed && wyckoffTest.retested) { distScore += 25; ev.dist.push(`Wyckoff測試未通過：${wyckoffTest.daysSince}日前破前低後，回測時量能未遞減（賣壓未消，恐是真跌破非洗盤）`); }
   }
 
   // 進貨證據（低檔盤整＋量價背離，不限跌勢）
   if (biasPct < 5 && obvSlope > 0.3 && Math.abs(drop5) < 4) { accScore += 30; ev.acc.push('價平量增OBV上升（低檔主力默默進貨）'); }
   if (kbar != null && kbar >= 0.15 && Math.abs(drop5) < 3) { accScore += 20; ev.acc.push(`KBAR +${kbar.toFixed(2)}（尾盤持續有人買）`); }
   if (instNet != null && instNet > 0 && biasPct < 0) { accScore += 20; ev.acc.push('法人低於均線區仍淨買（逢低布局）'); }
+  if (absorption && !isFalling) { accScore += 15; ev.acc.push(`近5日${absorption.days}天爆量價格不動（低檔吸收訊號）`); }
 
   // ── 綜合研判 ──
   const scores = [
@@ -303,7 +364,7 @@ function renderMainForce(D, formulas) {
       const sCol = sc.dir==='up'?'var(--buy)':sc.dir==='down'?'var(--sell)':sc.dir==='bounce'?'var(--warn)':'var(--muted)';
       html += `<div style="flex:1;text-align:center;background:var(--bg);border-radius:6px;padding:4px"><div style="font-size:9px;color:var(--muted)">${sc.name}</div><div style="font-family:var(--mono);font-size:13px;font-weight:700;color:${sc.score>0?sCol:'var(--muted2)'}">${sc.score}</div></div>`;
     });
-    html += `</div></div>`;
+    html += `<div style="font-size:9px;color:var(--muted2);margin-top:6px;line-height:1.4">研判依據參考 Wyckoff Method（測試/Test）與 VSA 量價分析法（Effort vs Result、No Supply），機構沿用近百年框架，非本系統原創</div></div>`;
   }
 
   if (mf.evidence.length) {
