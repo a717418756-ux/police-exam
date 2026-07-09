@@ -445,7 +445,7 @@ async function aiAnalysis(D,trend,risk,sigs){
 3.🛡️風險紀律：根據ATR停損與風報比，提醒部位與停損
 4.🧠心理提醒：點出當下最該避免的人性陷阱
 語氣專業直接。`,
-        messages:[{role:'user',content:`股票:${D.code}|現價:${cur}${D.price}|趨勢:${trend.verdict}|ATR停損:${cur}${fmt(risk.stopLoss)}|停利1:2:${cur}${fmt(risk.tp2)}|指標:${sigSum}`}]})
+        messages:[{role:'user',content:`股票:${D.code}|現價:${cur}${fmt(D.rawCloses?D.rawCloses[D.rawCloses.length-1]:D.price)}|趨勢:${trend.verdict}|ATR停損:${cur}${fmt(risk.stopLoss)}|停利1:2:${cur}${fmt(risk.tp2)}|指標:${sigSum}`}]})
     });
     const d=await res.json();
     const txt=d.content?.[0]?.text||'無法取得分析';
