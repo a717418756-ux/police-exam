@@ -144,6 +144,19 @@ function renderChip(chip, D) {
     '👉 投信買超，常認養中小型飆股，可留意', '👉 投信賣超，作帳行情或轉弱');
   html += '</div>';
 
+  // ── 自營商參考卡（僅供參考，不納入籌碼健康度計分）──
+  // 自營商買賣超包含大量避險、ETF申購贖回、造市等非方向性交易，噪音遠高於外資/投信，
+  // 不適合當成獨立多空訊號，故僅陳列數字＋提醒，不像外資/投信那樣給出方向性判讀語句。
+  if (chip.dealer5 !== undefined && chip.dealer5 !== null) {
+    const dBull = chip.dealer5 > 0;
+    html += `<div class="risk-box" style="margin-top:10px;opacity:.85">
+      <div class="rb-label">🏢 自營商（僅供參考）</div>
+      <div class="rb-value" style="color:var(--muted)">${fmtLot(chip.dealer5)}<span style="font-size:10px;color:var(--muted)"> 近5日</span></div>
+      <div class="rb-sub">單日 ${fmtLot(chip.dealer1)}｜20日 ${fmtLot(chip.dealer20)}${chip.dealerStreak >= 2 ? `｜連${dBull?'買':'賣'}${chip.dealerStreak}天` : ''}</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.5">⚠️ 自營商買賣超含大量避險／ETF申贖／造市成分，方向性遠不如外資投信可靠，僅列數字給你參考，不建議單獨依此進出。</div>
+    </div>`;
+  }
+
   if (health.concentration) {
     const concMap = {
       rising: { t: '📈 籌碼趨向集中', d: '近5日買超力道 > 20日平均，主力積極吸籌（類似5日均線>20日線），股價較易上漲', c: 'var(--buy)' },
