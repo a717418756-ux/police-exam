@@ -190,6 +190,42 @@ function renderProbability(p) {
   document.getElementById('prob-rows').innerHTML = rows;
 }
 
+/* ══ D-alt. 定錨效應（Anchoring Bias，與D支撐壓力互補）═══════════════════════════════════════
+   行為金融學：投資人會用「整數關卡」與「歷史高低點」當心理錨點，而非理性評估。
+   文獻依據：Liao, Chou, Chiu (2013)《定錨效應對外資動能交易行為的影響：
+   來自台灣股市的證據》，證實台灣市場外資交易行為確實受定錨效應影響。
+   與現有「支撐壓力」的差異：支撐壓力抓的是技術轉折點（實際成交密集區）；
+   此處抓的是「心理整數關卡」與「52週高低點」——兩者成因不同，不重複，互補。
+   ════════════════════════════════════════════════════════════════════ */
+function computeAnchoring(D) {
+  const c = D.rawCloses || D.closes, h = D.rawHighs || D.highs, l = D.rawLows || D.lows;
+  const price = D.rawCloses ? D.rawCloses[D.rawCloses.length - 1] : D.price;
+  const n = c.length;
+
+  // 整數關卡：依價格量級決定關卡間距（10元股看整數、100元股看5的倍數、1000元股看50的倍數）
+  const magnitude = price < 20 ? 1 : price < 100 ? 5 : price < 500 ? 10 : price < 2000 ? 50 : 100;
+  const nearestRound = Math.round(price / magnitude) * magnitude;
+  const roundDist = Math.abs(price - nearestRound) / price * 100;
+  const nearRound = roundDist < 1.5;  // 距離整數關卡在1.5%以內視為「貼近」
+
+  // 52週高低點（約252交易日，資料不足時用可得長度近似）
+  const lookback = Math.min(252, n);
+  const high52 = Math.max(...h.slice(-lookback));
+  const low52 = Math.min(...l.slice(-lookback));
+  const distFromHigh = (high52 - price) / high52 * 100;   // 距52週高點百分比
+  const distFromLow = (price - low52) / low52 * 100;       // 距52週低點百分比
+  const nearHigh52 = distFromHigh < 3;
+  const nearLow52 = distFromLow < 3;
+
+  const notes = [];
+  if (nearRound) notes.push(`貼近整數關卡 ${nearestRound}（距離${roundDist.toFixed(1)}%）——散戶與法人常在此掛單，易有心理性支撐/壓力`);
+  if (nearHigh52) notes.push(`貼近52週高點 ${h.slice(-lookback).length===lookback?'':'（資料未滿一年，近似）'}${high52.toFixed(1)}——歷史高點是最強心理錨點，突破常需要更大量能確認，反之則易獲利了結賣壓`);
+  if (nearLow52) notes.push(`貼近52週低點 ${low52.toFixed(1)}——留意「這裡曾經很便宜」的定錨心理，可能引發搶反彈或恐慌加碼摸底`);
+
+  if (!notes.length) return null;
+  return { nearRound, nearestRound, roundDist, nearHigh52, nearLow52, high52, low52, distFromHigh, distFromLow, notes };
+}
+
 /* ══ D. 支撐壓力自動辨識 ══════════════════════════════════════════════
    用近期轉折高低點 + 成交密集區，找出支撐壓力位
    ════════════════════════════════════════════════════════════════════ */
@@ -228,6 +264,22 @@ function renderSupportResistance(sr) {
       <div><div style="font-size:10px;color:var(--buy);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">⬇️ 下方支撐</div>${supHtml}</div>
     </div>
     <div style="text-align:center;margin-top:10px;font-family:var(--mono);font-size:12px;color:var(--muted)">目前價格 ${fmt(sr.price)}</div>`;
+
+  // 定錨效應（心理關卡，與上方技術支撐壓力互補顯示）
+  try {
+    if (typeof computeAnchoring === 'function' && window._lastD) {
+      const anchor = computeAnchoring(window._lastD);
+      if (anchor && anchor.notes.length) {
+        let html2 = `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd)">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">🧠 定錨效應（心理關卡，非技術轉折點）</div>`;
+        anchor.notes.forEach(n => {
+          html2 += `<div style="font-size:11px;color:var(--muted);line-height:1.6;padding:3px 0">▸ ${n}</div>`;
+        });
+        html2 += `<div style="font-size:9px;color:var(--muted2);margin-top:4px">依據：Liao, Chou & Chiu (2013) 台灣股市定錨效應實證研究</div></div>`;
+        document.getElementById('sr-content').innerHTML += html2;
+      }
+    }
+  } catch (e) { /* 略過，不影響主卡片 */ }
 }
 
 /* ══ E. 量價異常雷達 ══════════════════════════════════════════════════ */

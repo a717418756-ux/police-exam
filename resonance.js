@@ -7,6 +7,36 @@
    依賴：各模組的計算結果（在主流程組裝後傳入）
    ══════════════════════════════════════════════════════════════════════ */
 
+/* ══ 個股動能/反轉持續性檢定（Lag-1 自相關係數）═══════════════════════
+   統計基礎：日報酬率序列的一階自相關 r₁ = Corr(R_t, R_{t-1})
+   r₁ > 0 顯著 = 該股有動能延續性（趨勢訊號更可信）
+   r₁ < 0 顯著 = 該股有短線反轉傾向（超買超賣/PSY反指標訊號更可信）
+   顯著性判斷用 Bartlett 公式：白噪音下標準誤 ≈ 1/√n，取 2 倍標準誤（約95%信心）
+   為門檻，避免在資料不足或訊號等同雜訊時誤套權重（防止小樣本雜訊被誤判為統計規律）
+   用途：這是「個股自身統計性格」，跟 Regime（大盤環境）是正交維度，
+   同一支股票在同樣的大盤環境下，動能延續與否本身也有個股差異，兩者疊加才是完整資訊。
+   ⚠️ 特別排除 Ornstein-Uhlenbeck 半衰期模型：查證文獻後，該模型在日線级實單測試中
+   多次證實失效（t值顯著為負），且學界對半衰期指標本身的可解釋性有爭議，故不採用。
+   Lag-1自相關屬更穩健、更少假設、業界公認的基礎統計檢定，故選用此法。
+   ════════════════════════════════════════════════════════════════════ */
+function computeAutocorrelation(closes, lookback = 60) {
+  const c = closes;
+  const n = c.length;
+  if (n < lookback + 2) return null;
+  const rets = [];
+  for (let i = n - lookback; i < n; i++) rets.push((c[i] - c[i-1]) / c[i-1]);
+  const m = rets.length;
+  const mean = rets.reduce((a,b)=>a+b,0) / m;
+  let num = 0, den = 0;
+  for (let i = 1; i < m; i++) num += (rets[i]-mean) * (rets[i-1]-mean);
+  for (let i = 0; i < m; i++) den += (rets[i]-mean) ** 2;
+  const r1 = den ? num / den : 0;
+  const seThreshold = 2 / Math.sqrt(m);  // Bartlett：白噪音下的顯著性門檻（約95%信心水準）
+  const significant = Math.abs(r1) > seThreshold;
+  return { r1, significant, threshold: seThreshold, n: m,
+    character: !significant ? '接近隨機游走' : r1 > 0 ? '動能延續型' : '短線反轉型' };
+}
+
 function computeResonance(ctx) {
   // ctx 包含各維度已算好的結果
   // { trend, formulas, chip, vwap, structure, overheat, rsRating, marketScore, shi }
@@ -88,6 +118,19 @@ function computeResonance(ctx) {
   } else if (regimeName === '高波動危險') {
     for (const k in W) W[k] = 0.5;
   }
+
+  // ── 個股自相關修正（正交於Regime：個股自身統計性格，與大盤環境疊加）──
+  // 只在統計顯著時套用，避免對雜訊做出反應（過擬合防護）
+  let autocorr = null;
+  try {
+    if (ctx.D && ctx.D.closes) {
+      autocorr = computeAutocorrelation(ctx.D.closes, 60);
+      if (autocorr && autocorr.significant) {
+        if (autocorr.r1 > 0) { W.趨勢 *= 1.15; W.動能 *= 1.15; W.情緒 *= 0.85; }       // 動能延續型：加碼趨勢、降情緒反指標
+        else { W.情緒 *= 1.2; W.結構 *= 1.1; W.趨勢 *= 0.9; }                          // 短線反轉型：加碼情緒反指標與結構
+      }
+    }
+  } catch (e) { /* 略過，不影響主流程 */ }
   let wSum = 0, wNet = 0;
   dims.forEach(d => { const w = W[d.name] != null ? W[d.name] : 1; wSum += w; wNet += d.dir * w; });
   const consensus = wSum > 0 ? Math.round(wNet / wSum * 100) : 0;
@@ -108,7 +151,7 @@ function computeResonance(ctx) {
   }
 
   return { dims, bullCount: bullDims.length, bearCount: bearDims.length, neutralCount: neutralDims.length,
-    total, consensus, verdict, vClass, strength, regimeName, weights: W };
+    total, consensus, verdict, vClass, strength, regimeName, weights: W, autocorr };
 }
 
 function renderResonance(res) {
@@ -141,7 +184,7 @@ function renderResonance(res) {
 
   // 共振提示
   html += `<div style="margin-top:12px;padding:10px 12px;background:var(--bg);border:1px solid var(--bd);border-radius:8px;font-size:11px;color:var(--muted);line-height:1.6">
-    💡 多個獨立維度同方向 = 高勝率訊號。${res.strength==='strong'?'目前多維度強共振，是難得的明確訊號。':res.strength==='medium'?'目前有共振傾向，可參考。':'目前維度分歧，建議觀望等待共振。'}單一維度強不代表可靠，共振才是關鍵。${res.regimeName?`目前為「${res.regimeName}」態，共識度已依狀態動態加權（非固定權重）。`:''}
+    💡 多個獨立維度同方向 = 高勝率訊號。${res.strength==='strong'?'目前多維度強共振，是難得的明確訊號。':res.strength==='medium'?'目前有共振傾向，可參考。':'目前維度分歧，建議觀望等待共振。'}單一維度強不代表可靠，共振才是關鍵。${res.regimeName?`目前為「${res.regimeName}」態，共識度已依狀態動態加權（非固定權重）。`:''}${res.autocorr && res.autocorr.significant?`此股統計性格：<b>${res.autocorr.character}</b>（日報酬自相關 ${res.autocorr.r1>=0?'+':''}${res.autocorr.r1.toFixed(2)}，達統計顯著），已據此微調趨勢/情緒維度權重。`:res.autocorr?'此股日報酬自相關未達統計顯著（接近隨機游走），此層權重不調整，避免對雜訊反應。':''}
   </div>`;
 
   document.getElementById('resonance-content').innerHTML = html;

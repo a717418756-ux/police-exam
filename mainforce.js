@@ -518,6 +518,35 @@ function computeSmartStop(D, atr) {
    MACD金叉買、突破追、跌破殺）。明牌訊號越擁擠，越可能是主力的獵場：
    擁擠 + 主力反向（OBV/法人）= 明牌陷阱；擁擠 = 停損聚集 = 先被掃
    ════════════════════════════════════════════════════════════════════ */
+/* ══ ETF 換股窗口警示 ═══════════════════════════════════════════════
+   依據：0050/006208等市值型ETF每季（3/6/9/12月）審核，公告後10-20天生效；
+   0056/00878/00919等高股息ETF每半年審核，換股幅度通常更大（如00919曾18進18出）。
+   公告到生效的空窗期是市場最敏感階段（搶跑效應：法人/自營商提前買賣即將納入/剔除的股票）。
+   本功能僅做「日期窗口」提醒，不臆測個股是否為成分股（無可靠免費即時資料源可查證個股名單）。
+   ════════════════════════════════════════════════════════════════════ */
+function checkETFRebalanceWindow() {
+  const today = new Date();
+  const y = today.getFullYear();
+  // 市值型ETF：3/6/9/12月，公告約在該月上旬，生效在該月第三個週五後
+  const capMonths = [3, 6, 9, 12];
+  // 高股息ETF：通常在6月與12月前後審核（半年制，實際日期各投信略有差異，此為概估窗口）
+  const divMonths = [6, 12];
+  const inWindow = (month, daysBefore, daysAfter) => {
+    const target = new Date(y, month - 1, 15); // 該月中旬概估
+    const diffDays = (today - target) / 86400000;
+    return diffDays >= -daysBefore && diffDays <= daysAfter;
+  };
+  const capActive = capMonths.some(m => inWindow(m, 5, 20));
+  const divActive = divMonths.some(m => inWindow(m, 10, 25));
+  if (!capActive && !divActive) return null;
+  return {
+    capActive, divActive,
+    text: capActive && divActive
+      ? '市值型（0050/006208）與高股息型（0056/00878/00919）ETF換股窗口重疊期'
+      : capActive ? '市值型ETF（0050/006208）季度換股窗口期' : '高股息ETF（0056/00878/00919）半年換股窗口期',
+  };
+}
+
 function computeCrowding(D, formulas) {
   const c = D.closes, h = D.highs, l = D.lows, v = D.volumes, n = c.length;
   const price = D.price;
@@ -613,13 +642,20 @@ function renderCrowding(D, formulas) {
   if (cw.marginNote) {
     html += `<div style="font-size:11px;color:var(--warn);margin-bottom:10px;line-height:1.5">💳 ${cw.marginNote}</div>`;
   }
+  // ETF換股窗口警示（日期運算，不臆測個股是否為成分股）
+  try {
+    const etfW = typeof checkETFRebalanceWindow === 'function' ? checkETFRebalanceWindow() : null;
+    if (etfW) {
+      html += `<div style="padding:9px 12px;background:var(--warn-d);border:1px solid var(--warn);border-radius:8px;margin-bottom:10px;font-size:11px;color:var(--muted);line-height:1.6">📅 <b style="color:var(--warn)">${etfW.text}</b>——公告到生效的空窗期常見「搶跑效應」：法人/自營商提前買賣即將納入/剔除的成分股，中小型股尤其明顯。若持股接近0050/006208/0056/00878/00919市值門檻或殖利率門檻，留意換股名單公告（臺灣指數公司/富時羅素官網）。</div>`;
+    }
+  } catch (e) {}
   if (cw.seen.length) {
     html += '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">目前亮著的教科書訊號（AI散戶都看得到的）</div>';
     cw.seen.forEach(s => {
       html += `<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px solid var(--bd)"><span style="color:var(--muted2)">▸</span><span style="font-size:11px;color:var(--muted)">${s}</span></div>`;
     });
   }
-  html += `<div style="font-size:10px;color:var(--muted2);margin-top:10px;line-height:1.6">💡 反明牌邏輯：擁擠度高≠必反轉，但「擁擠+主力反向（OBV/法人）」= 高風險陷阱。停損位在擁擠訊號下常先被掃——本系統智慧停損已放結構外緩衝區。真正的優勢不在看到訊號，在知道多少人跟你看到同一個。</div>`;
+  html += `<div style="font-size:10px;color:var(--muted2);margin-top:10px;line-height:1.6">💡 反明牌邏輯：擁擠度高≠必反轉，但「擁擠+主力反向（OBV/法人）」= 高風險陷阱。停損位在擁擠訊號下常先被掃——本系統智慧停損已放結構外緩衝區。學術研究（Aghbabali, Chung & Huh, 2025）發現ChatGPT普及後，散戶交易方向的一致性明顯提高——這代表AI讓「所有人看到同一訊號」的風險比以前更高，本雷達正是為此設計：真正的優勢不在看到訊號，在知道多少人跟你看到同一個。</div>`;
   document.getElementById('crowd-content').innerHTML = html;
 }
 
