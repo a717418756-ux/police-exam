@@ -270,6 +270,7 @@ function computeIntentAnalysis(D, formulas, mainForce) {
     if (wyckoffTest && wyckoffTest.testPassed) { washScore += 30; ev.wash.push(`Wyckoff測試通過：${wyckoffTest.daysSince}日前帶量破前低後，近日量能明顯遞減（賣壓真枯竭，非僅單根下影）`); }
     if (absorption) { washScore += 15; ev.wash.push(`近5日${absorption.days}天爆量卻價格幾乎不動（Effort/Result背離＝有人在低檔吸收籌碼）`); }
     if (noSupplyDays >= 2) { washScore += 15; ev.wash.push(`近5日${noSupplyDays}天窄幅量縮下跌（VSA無賣壓訊號，賣方失去興趣）`); }
+    // 註：曾測試加入 Selling Climax（爆量殺低收上半）證據，於4檔真實資料A/B對照無明確改善（命中率61%→59%），依「無證據不修改」紀律撤回，2026-07-10。
 
     // 出貨證據：帶量跌、OBV破底、法人跑、開高走低
     if (volRatio > 1.3 && drop5 < -3) { distScore += 30; ev.dist.push(`爆量下跌（${volRatio.toFixed(2)}倍量＝主力調節/出逃）`); }
