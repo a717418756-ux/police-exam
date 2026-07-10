@@ -678,7 +678,7 @@ function renderCrowding(D, formulas) {
   try {
     const etfW = typeof checkETFRebalanceWindow === 'function' ? checkETFRebalanceWindow() : null;
     if (etfW) {
-      html += `<div style="padding:9px 12px;background:var(--warn-d);border:1px solid var(--warn);border-radius:8px;margin-bottom:10px;font-size:11px;color:var(--muted);line-height:1.6">📅 <b style="color:var(--warn)">${etfW.text}</b>——公告到生效的空窗期常見「搶跑效應」：法人/自營商提前買賣即將納入/剔除的成分股，中小型股尤其明顯。若持股接近0050/006208/0056/00878/00919市值門檻或殖利率門檻，留意換股名單公告（臺灣指數公司/富時羅素官網）。</div>`;
+      html += `<div style="padding:9px 12px;background:var(--warn-d);border:1px solid var(--warn);border-radius:8px;margin-bottom:10px;font-size:11px;color:var(--muted);line-height:1.6">📅 <b style="color:var(--warn)">${etfW.text}</b>——公告到生效的空窗期常見「搶跑效應」：法人/自營商提前買賣即將納入/剔除的成分股，中小型股尤其明顯。若持股接近0050/006208/0056/00878/00919市值門檻或殖利率門檻，留意換股名單公告（臺灣指數公司/富時羅素官網）。窗口日期為公開審核行事曆之概估，非成分股確認。</div>`;
     }
   } catch (e) {}
   if (cw.seen.length) {
