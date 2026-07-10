@@ -461,7 +461,7 @@ async function go(){
   if(!raw)return;
   const btn=$('go-btn');btn.disabled=true;btn.innerHTML='<span class="spin"></span>';
   hideErr();
-  ['stock-bar','trend-banner','risk-card','psych-card','ai-card','market-card','quant-card','formula-card','mktscore-card','chip-card','playbook-card','riskmetric-card','multiperiod-card','health-card','regime-card','rs-card','beta-card','prob-card','sr-card','vpradar-card','bingfa-card','verdict-banner','smc-card','resonance-card','mainforce-card','margin-card','mtf-card','crowd-card','gate-card','oos-card','fundamental-card','deepchip-card'].forEach(id=>$(id).style.display='none');
+  ['stock-bar','trend-banner','risk-card','psych-card','ai-card','market-card','quant-card','formula-card','mktscore-card','chip-card','playbook-card','riskmetric-card','multiperiod-card','health-card','regime-card','rs-card','beta-card','prob-card','sr-card','vpradar-card','bingfa-card','verdict-banner','smc-card','resonance-card','mainforce-card','margin-card','mtf-card','crowd-card','gate-card','behavior-chain-card','oos-card','fundamental-card','deepchip-card'].forEach(id=>$(id).style.display='none');
   $('ind-grid').style.display='none';$('ind-grid').innerHTML='';
   $('cat-row').style.display='none';$('cat-tabs').innerHTML='';
   activeCat='全部';

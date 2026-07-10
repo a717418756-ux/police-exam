@@ -497,4 +497,195 @@ function renderTradeGate(ctx) {
     四、沒有必勝法，只有正期望值：贏在「不出手的紀律」+「順公式的統計優勢」+「停損放在掃不到的地方」
   </div>`;
   document.getElementById('gate-content').innerHTML = html;
+  // 行為推理鏈與紀律門共用 ctx，掛在此處＝margin/deepchip 非同步補繪重呼叫本函式時，推理鏈自動同步刷新
+  try { if (typeof renderBehaviorChain === 'function') renderBehaviorChain(ctx); } catch (e) {}
+}
+
+/* ══ 行為推理鏈：指標 → 行為 → 走向 ═══════════════════════════════════
+   設計理念（使用者核心哲學）：每個指標都有用處，多個指標綜合出一個「行為」，
+   多個行為判斷出「走向」。此引擎不計算任何新指標——純粹把既有模組的輸出
+   組織成透明的三層推理過程，讓每一個結論都能往下追到原始指標。
+   ════════════════════════════════════════════════════════════════════ */
+function computeBehaviorSynthesis(ctx) {
+  const { D, regime, mtf, res, formulas } = ctx;
+  const behaviors = [];   // { name, actor, dir(-1/0/1), strength(0~100), basis[], read }
+
+  // ── 行為① 主力意圖（洗盤/出貨/進貨）──
+  let mf = null, intent = null;
+  try { if (typeof computeMainForce === 'function') mf = computeMainForce(D, formulas); } catch (e) {}
+  try { if (typeof computeIntentAnalysis === 'function' && mf) intent = computeIntentAnalysis(D, formulas, mf); } catch (e) {}
+  if (intent && intent.confidence > 0) {
+    behaviors.push({
+      name: `主力意圖：${intent.verdict}`, actor: '主力', group: 'mf-vol',
+      dir: intent.dir === 'up' ? 1 : intent.dir === 'down' ? -1 : intent.dir === 'bounce' ? 1 : 0,
+      strength: intent.confidence,
+      basis: ['量價關係', 'OBV能量潮', 'Wyckoff測試', 'KBAR強度', '下影線承接', '法人買賣超'],
+      read: intent.verdict === '洗盤' ? '殺低但籌碼沒離開＝洗散戶，短線偏反彈'
+          : intent.verdict === '出貨' ? '籌碼真的在流失＝反彈是逃命波'
+          : '低檔默默吸貨＝打底布局',
+    });
+  }
+
+  // ── 行為② 主力行為推估（吸籌/誘多/誘空…）──
+  if (mf && mf.confidence >= 40 && mf.behavior !== '無明顯主力行為') {
+    const dirMap = { '吸籌': 1, '進貨': 1, '誘空': 1, '洗盤': 0, '出貨': -1, '誘多': -1, '恐慌殺盤': 0 };
+    behaviors.push({
+      name: `主力行為：${mf.behavior}`, actor: '主力', group: 'mf-vol',
+      dir: dirMap[mf.behavior] != null ? dirMap[mf.behavior] : 0,
+      strength: mf.confidence,
+      basis: ['OBV偷跑', 'MFI資金流', 'KBAR', '影線形態', '假突破偵測'],
+      read: mf.desc || '',
+    });
+  }
+
+  // ── 行為③ 散戶行為（擁擠度＝反向解讀）──
+  let crowd = null;
+  try { if (typeof computeCrowding === 'function') crowd = computeCrowding(D, formulas); } catch (e) {}
+  if (crowd && crowd.crowding >= 45 && crowd.crowdDir !== 0) {
+    behaviors.push({
+      name: `散戶行為：${crowd.crowdDir === 1 ? '擁擠追多' : '擁擠追空'}（${crowd.crowding}分）`, actor: '散戶',
+      dir: -crowd.crowdDir * (crowd.crowding >= 70 ? 1 : 0),   // 高度擁擠才反向計分，中度僅提示
+      strength: crowd.crowding,
+      basis: ['教科書訊號可見度', '融資變化', '量能異常'],
+      read: crowd.crowding >= 70 ? '散戶高度擠在同一邊——人多的地方常是反向燃料' : '散戶偏向一邊但未達極端，觀察即可',
+    });
+  }
+
+  // ── 行為④ 散戶槓桿行為（融資融券象限）──
+  const margin = (typeof _marginCache !== 'undefined' && _marginCache[D.code]) ? _marginCache[D.code].d : null;
+  if (margin) {
+    const c = D.closes, n = c.length;
+    const priceDown5 = n >= 6 && D.price < c[n - 6];
+    let mDir = 0, mRead = '融資融券無明顯異常';
+    if (margin.marginChg5 > 4 && priceDown5) { mDir = -1; mRead = '融資增+價跌＝散戶逆勢接刀（歷史上最危險的象限），下跌常未完'; }
+    else if (margin.marginChg5 < -3 && !priceDown5) { mDir = 1; mRead = '融資減+價漲＝籌碼從散戶流向主力（最健康的上漲）'; }
+    else if (margin.shortRatio >= 25) { mDir = 1; mRead = `券資比${margin.shortRatio.toFixed(0)}%＝散戶空單擁擠，軋空燃料充足`; }
+    if (mDir !== 0) {
+      behaviors.push({ name: '散戶槓桿行為', actor: '散戶', dir: mDir, strength: 60,
+        basis: ['融資餘額5日變化', '融券餘額', '券資比', '價格方向'], read: mRead });
+    }
+  }
+
+  // ── 行為⑤ 大戶結構行為（FinMind千張剪刀差，有token才有）──
+  const deep = (typeof _deepCache !== 'undefined' && _deepCache[D.code]) ? _deepCache[D.code].d : null;
+  if (deep && deep.big) {
+    const b = deep.big;
+    if (b.bigChg > 0.3 && b.smallChg < -0.2) {
+      behaviors.push({ name: '大戶結構：吸籌', actor: '大戶', dir: 1, strength: 70,
+        basis: ['千張持股週變化', '散戶持股週變化'], read: `千張大戶+${b.bigChg}%、散戶${b.smallChg}%——籌碼流向大戶（結構偏多）` });
+    } else if (b.bigChg < -0.3 && b.smallChg > 0.2) {
+      behaviors.push({ name: '大戶結構：派發', actor: '大戶', dir: -1, strength: 70,
+        basis: ['千張持股週變化', '散戶持股週變化'], read: `千張大戶${b.bigChg}%、散戶+${b.smallChg}%——大戶倒貨給散戶（結構偏空）` });
+    }
+  }
+  if (deep && deep.lend && Math.abs(deep.lend.chg5) >= 8) {
+    behaviors.push({
+      name: `法人空單：${deep.lend.chg5 > 0 ? '增持' : '回補'}`, actor: '法人',
+      dir: deep.lend.chg5 > 0 ? -1 : 1, strength: 55,
+      basis: ['借券賣出餘額5日變化'],
+      read: deep.lend.chg5 > 0 ? '聰明錢正在建立空單部位' : '機構空方撤退中',
+    });
+  }
+
+  // ── 行為⑥ 市場環境行為（Regime）──
+  if (regime && regime.regime) {
+    const rDir = regime.regime === '多頭趨勢' ? 1 : regime.regime === '空頭趨勢' ? -1 : 0;
+    behaviors.push({
+      name: `環境：${regime.regime}`, actor: '市場',
+      dir: rDir, strength: regime.regime === '高波動危險' ? 30 : 55,
+      basis: ['ADX趨勢強度', '均線排列', '波動率'],
+      read: regime.regime === '高波動危險' ? '此環境所有訊號可靠度大降，部位減半' :
+            regime.regime === '盤整' ? '區間市，追突破易被巴，高賣低買' : `順著${regime.regime}方向操作勝率較高`,
+    });
+  }
+
+  // ── 行為⑦ 大週期行為（MTF）──
+  if (mtf && mtf.dir !== 0) {
+    behaviors.push({
+      name: `大週期：${mtf.dir === 1 ? '月週日偏多' : '月週日偏空'}`, actor: '市場',
+      dir: mtf.dir, strength: Math.min(80, Math.abs(mtf.total || 50)),
+      basis: ['月線30%', '週線40%', '日線30%'],
+      read: '大週期定調——順大逆小是波段基本盤',
+    });
+  }
+
+  // ── 行為⑧ 個股統計性格（自相關）──
+  if (res && res.autocorr && res.autocorr.significant) {
+    behaviors.push({
+      name: `個股性格：${res.autocorr.character}`, actor: '統計',
+      dir: 0, strength: 50,
+      basis: ['日報酬一階自相關（Bartlett顯著性檢定）'],
+      read: res.autocorr.r1 > 0 ? '此股漲跌有延續性，順勢訊號在此股較可信' : '此股漲多易回、跌深易彈，反指標訊號在此股較可信',
+    });
+  }
+
+  // ── 走向層：加權合成 ──
+  const votes = behaviors.filter(b => b.dir !== 0);
+  let wSum = 0, wNet = 0;
+  const seenGroupDir = {};   // 共線性折減：同源群組(共用底層指標)同方向的第二票折半，避免同一份證據投兩票
+  votes.forEach(b => {
+    let w = b.strength / 100;
+    if (b.group) {
+      const key = b.group + ':' + b.dir;
+      if (seenGroupDir[key]) w *= 0.5;
+      seenGroupDir[key] = true;
+    }
+    wSum += w; wNet += b.dir * w;
+  });
+  const score = wSum > 0 ? Math.round(wNet / wSum * 100) : 0;   // -100 ~ +100
+
+  // 衝突偵測：主力方向 vs 散戶方向同邊＝警訊
+  const mainDirs = behaviors.filter(b => (b.actor === '主力' || b.actor === '大戶' || b.actor === '法人') && b.dir !== 0);
+  const conflict = [];
+  if (intent && intent.verdict === '洗盤' && score < -20) conflict.push('意圖研判「洗盤」與整體偏空走向矛盾——洗盤情境追空易被軋，以意圖研判優先');
+  const mainNet = mainDirs.reduce((a, b) => a + b.dir, 0);
+  if (mainNet > 0 && score < -20) conflict.push('主力/大戶/法人合計偏多，但整體走向偏空——逆聰明錢的方向要特別小心');
+  if (mainNet < 0 && score > 20) conflict.push('主力/大戶/法人合計偏空，但整體走向偏多——上漲可能是誘多或逃命波');
+
+  let direction, dirClass;
+  if (Math.abs(score) < 20 || votes.length < 3) { direction = '⚪ 走向不明——行為證據不足或互相抵消，觀望'; dirClass = 'warn'; }
+  else if (score >= 50) { direction = '📈 走向偏多——多個行為指向同一邊'; dirClass = 'buy'; }
+  else if (score >= 20) { direction = '📈 走向略偏多——有傾向但未共振'; dirClass = 'buy'; }
+  else if (score <= -50) { direction = '📉 走向偏空——多個行為指向同一邊'; dirClass = 'sell'; }
+  else { direction = '📉 走向略偏空——有傾向但未共振'; dirClass = 'sell'; }
+
+  return { behaviors, score, direction, dirClass, conflict, voteCount: votes.length };
+}
+
+function renderBehaviorChain(ctx) {
+  const card = document.getElementById('behavior-chain-card');
+  if (!card) return;
+  let syn = null;
+  try { syn = computeBehaviorSynthesis(ctx); } catch (e) { card.style.display = 'none'; return; }
+  if (!syn || !syn.behaviors.length) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+
+  const dCol = syn.dirClass === 'buy' ? 'var(--buy)' : syn.dirClass === 'sell' ? 'var(--sell)' : 'var(--warn)';
+  let html = `<div style="padding:11px 13px;background:${dCol}12;border:1.5px solid ${dCol}60;border-radius:10px;margin-bottom:12px">
+    <div style="font-size:14px;font-weight:800;color:${dCol}">${syn.direction}</div>
+    <div style="font-size:11px;color:var(--muted);margin-top:3px">綜合分數 ${syn.score >= 0 ? '+' : ''}${syn.score}（-100全空 ~ +100全多）｜由 ${syn.voteCount} 個有方向的行為加權合成</div>
+  </div>`;
+
+  if (syn.conflict.length) {
+    syn.conflict.forEach(cf => {
+      html += `<div style="padding:8px 12px;background:var(--warn-d);border:1px solid var(--warn);border-radius:8px;margin-bottom:8px;font-size:11px;color:var(--muted);line-height:1.6">⚡ <b style="color:var(--warn)">行為衝突</b>：${cf}</div>`;
+    });
+  }
+
+  html += `<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">行為層（每個行為由下列指標綜合而來）</div>`;
+  syn.behaviors.forEach(b => {
+    const bCol = b.dir === 1 ? 'var(--buy)' : b.dir === -1 ? 'var(--sell)' : 'var(--muted)';
+    const arrow = b.dir === 1 ? '↗ 偏多' : b.dir === -1 ? '↘ 偏空' : '— 中性/性格';
+    html += `<div style="padding:8px 10px;background:var(--bg);border:1px solid var(--bd);border-left:3px solid ${bCol};border-radius:8px;margin-bottom:6px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:12px;font-weight:700">${b.name} <span style="font-size:10px;color:var(--muted2)">［${b.actor}］</span></span>
+        <span style="font-family:var(--mono);font-size:11px;color:${bCol};font-weight:700">${arrow} ${b.strength}</span>
+      </div>
+      <div style="font-size:11px;color:var(--muted);line-height:1.55;margin-top:3px">${b.read}</div>
+      <div style="font-size:9px;color:var(--muted2);margin-top:3px">↑ 指標層：${b.basis.join(' · ')}</div>
+    </div>`;
+  });
+
+  html += `<div style="font-size:10px;color:var(--muted2);margin-top:8px;line-height:1.6">💡 推理鏈設計：指標→行為→走向。單一指標會騙人、單一行為會誤判，但「主力、大戶、法人、散戶、市場」五方行為同時指向一邊時，就是全系統最可信的訊號。此卡不計算新指標，是既有模組結果的透明彙整——每個結論都能往下追到原始指標。行為衝突時，以「主力意圖研判」與「出手紀律門」優先。</div>`;
+  document.getElementById('behavior-chain-content').innerHTML = html;
 }

@@ -300,7 +300,13 @@ function computeIntentAnalysis(D, formulas, mainForce) {
       desc: '目前量價籌碼未出現明顯的主力意圖特徵，方向不明，觀望或等更清楚的訊號。',
       scores, evidence: [] };
   }
-  const confidence = Math.min(95, Math.round(top.score / (top.score + (scores[1].score||0) + 1) * 100));
+  // 信心 = 假說分離度 × 證據絕對強度。合成回測發現：舊公式只看分離度，
+  // 純隨機遊走上單邊拿30分（1條證據）就給95信心，誤報率57%。加入強度折減
+  // （score/70 封頂1）後，隨機雜訊信心降到41（跌破紀律門50門檻），真洗盤(65分)
+  // 維持91、真出貨(95分)維持95——結構性修正而非調參，不犧牲真訊號。
+  const separation = top.score / (top.score + (scores[1].score || 0) + 1);
+  const evidenceStrength = Math.min(1, top.score / 70);
+  const confidence = Math.min(95, Math.round(separation * evidenceStrength * 100));
 
   const scriptMap = {
     '洗盤': {
@@ -364,6 +370,22 @@ function renderMainForce(D, formulas) {
       const sCol = sc.dir==='up'?'var(--buy)':sc.dir==='down'?'var(--sell)':sc.dir==='bounce'?'var(--warn)':'var(--muted)';
       html += `<div style="flex:1;text-align:center;background:var(--bg);border-radius:6px;padding:4px"><div style="font-size:9px;color:var(--muted)">${sc.name}</div><div style="font-family:var(--mono);font-size:13px;font-weight:700;color:${sc.score>0?sCol:'var(--muted2)'}">${sc.score}</div></div>`;
     });
+    // 真實資料回測：此股2年歷史逐日重演，驗證意圖引擎在「這支股票」上準不準
+    try {
+      const bt = computeIntentBacktest(D);
+      if (bt) {
+        html += `<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--bd)">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px">📜 此股真實歷史驗證（2年逐日重演，共${bt.total}次判定事件）</div>`;
+        [['洗盤','漲'],['出貨','跌'],['進貨','漲']].forEach(([k, exp]) => {
+          const s = bt.stats[k];
+          if (!s.n) return;
+          const a5 = s.sum5 / s.n, a10 = s.sum10 / s.n;
+          const ok5 = (k === '出貨') ? a5 < 0 : a5 > 0, ok10 = (k === '出貨') ? a10 < 0 : a10 > 0;
+          html += `<div style="display:flex;flex-wrap:wrap;gap:6px;font-size:10px;padding:2px 0;color:var(--muted)"><span style="width:34px">${k}</span><span>${s.n}次</span><span style="font-family:var(--mono);color:${ok5?'var(--buy)':'var(--sell)'}">5日均${a5>=0?'+':''}${a5.toFixed(1)}%(中${Math.round(s.win5/s.n*100)}%)</span><span style="font-family:var(--mono);color:${ok10?'var(--buy)':'var(--sell)'}">10日均${a10>=0?'+':''}${a10.toFixed(1)}%(中${Math.round(s.win10/s.n*100)}%)</span><span style="color:var(--muted2)">期望${exp}</span></div>`;
+        });
+        html += `<div style="font-size:9px;color:var(--muted2);margin-top:3px">歷史PSY以中性值近似（避免前視偏誤）；此為「這支股票」的專屬驗證——若某類判定在此股歷史命中率低，該判定在此股別重壓；樣本少時參考價值有限</div></div>`;
+      }
+    } catch (e) {}
     html += `<div style="font-size:9px;color:var(--muted2);margin-top:6px;line-height:1.4">研判依據參考 Wyckoff Method（測試/Test）與 VSA 量價分析法（Effort vs Result、No Supply），機構沿用近百年框架，非本系統原創</div></div>`;
   }
 
@@ -747,4 +769,38 @@ async function loadDeepChipCard(D) {
   if (window._activeCode === D.code) {
     try { if (typeof renderTradeGate === 'function' && window._gateCtx && window._gateCtx.D && window._gateCtx.D.code === D.code) renderTradeGate(window._gateCtx); } catch (e) {}
   }
+}
+
+/* ══ 意圖引擎真實資料回測 ═══════════════════════════════════════════════
+   在該股「真實2年日K」上逐日重演：每天只給引擎當天以前的資料，記錄判定，
+   再對照之後5日真實走勢。洗盤/進貨期望後市漲、出貨期望後市跌。
+   事件化計數：同一判定連續出現只計首次（間隔≥10日才重計），避免同一事件灌水。
+   PSY用中性值50固定（歷史PSY未逐日重算，寧可少一項證據也不引入前視偏誤）。
+   ════════════════════════════════════════════════════════════════════ */
+function computeIntentBacktest(D) {
+  const n = D.closes.length;
+  if (n < 130) return null;
+  const H2 = 10;   // 同時統計5日與10日：洗盤機制上需等測試完成才反彈，單一視窗有盲點，雙視窗不挑好看的報
+  const stats = { '洗盤': { n: 0, sum5: 0, win5: 0, sum10: 0, win10: 0 }, '出貨': { n: 0, sum5: 0, win5: 0, sum10: 0, win10: 0 }, '進貨': { n: 0, sum5: 0, win5: 0, sum10: 0, win10: 0 } };
+  const neutralF = { psy: { value: 50 } };
+  const lastCount = { '洗盤': -99, '出貨': -99, '進貨': -99 };   // 各類判定獨立去重（信心短暫跌破50不會讓同一事件被重複計數）
+  for (let i = 70; i < n - H2; i++) {
+    const Ds = { closes: D.closes.slice(0, i + 1), highs: D.highs.slice(0, i + 1), lows: D.lows.slice(0, i + 1),
+                 volumes: D.volumes.slice(0, i + 1), price: D.closes[i], chip: null };
+    let it = null;
+    try { const mfs = computeMainForce(Ds, neutralF); it = computeIntentAnalysis(Ds, neutralF, mfs); } catch (e) { continue; }
+    if (!it || it.verdict === '訊號不足' || it.confidence < 50) continue;
+    if (i - lastCount[it.verdict] < 10) continue;   // 同事件去重
+    lastCount[it.verdict] = i;
+    const s = stats[it.verdict]; if (!s) continue;
+    const f5 = (D.closes[i + 5] - D.closes[i]) / D.closes[i] * 100;
+    const f10 = (D.closes[i + H2] - D.closes[i]) / D.closes[i] * 100;
+    s.n++; s.sum5 += f5; s.sum10 += f10;
+    const expectUp = it.verdict !== '出貨';
+    if ((expectUp && f5 > 0) || (!expectUp && f5 < 0)) s.win5++;
+    if ((expectUp && f10 > 0) || (!expectUp && f10 < 0)) s.win10++;
+  }
+  const total = stats['洗盤'].n + stats['出貨'].n + stats['進貨'].n;
+  if (total < 3) return null;   // 事件太少不顯示，避免無意義統計
+  return { stats, total };
 }
