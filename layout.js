@@ -7,7 +7,7 @@
 // 分頁定義（順序即按鈕順序）。cards 含該頁所有卡片 id
 const TABS = [
   { id:'t-decision', icon:'🎯', name:'決策',
-    cards:['gate-card','behavior-chain-card','bingfa-card','resonance-card','health-card','formula-card','prob-card','playbook-card'] },
+    cards:['gate-card','behavior-chain-card','movestage-card','bingfa-card','resonance-card','health-card','formula-card','prob-card','playbook-card'] },
   { id:'t-score', icon:'📊', name:'分數',
     cards:['quant-card','oos-card'] },
   { id:'t-market', icon:'🌐', name:'大盤',

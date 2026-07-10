@@ -144,19 +144,6 @@ function renderChip(chip, D) {
     '👉 投信買超，常認養中小型飆股，可留意', '👉 投信賣超，作帳行情或轉弱');
   html += '</div>';
 
-  // ── 自營商參考卡（僅供參考，不納入籌碼健康度計分）──
-  // 自營商買賣超包含大量避險、ETF申購贖回、造市等非方向性交易，噪音遠高於外資/投信，
-  // 不適合當成獨立多空訊號，故僅陳列數字＋提醒，不像外資/投信那樣給出方向性判讀語句。
-  if (chip.dealer5 !== undefined && chip.dealer5 !== null) {
-    const dBull = chip.dealer5 > 0;
-    html += `<div class="risk-box" style="margin-top:10px;opacity:.85">
-      <div class="rb-label">🏢 自營商（僅供參考）</div>
-      <div class="rb-value" style="color:var(--muted)">${fmtLot(chip.dealer5)}<span style="font-size:10px;color:var(--muted)"> 近5日</span></div>
-      <div class="rb-sub">單日 ${fmtLot(chip.dealer1)}｜20日 ${fmtLot(chip.dealer20)}${chip.dealerStreak >= 2 ? `｜連${dBull?'買':'賣'}${chip.dealerStreak}天` : ''}</div>
-      <div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.5">⚠️ 自營商買賣超含大量避險／ETF申贖／造市成分，方向性遠不如外資投信可靠，僅列數字給你參考，不建議單獨依此進出。</div>
-    </div>`;
-  }
-
   if (health.concentration) {
     const concMap = {
       rising: { t: '📈 籌碼趨向集中', d: '近5日買超力道 > 20日平均，主力積極吸籌（類似5日均線>20日線），股價較易上漲', c: 'var(--buy)' },
@@ -427,4 +414,95 @@ function renderHealthReport(ctx) {
       <span style="font-family:var(--mono);font-size:18px;font-weight:800;color:${gcol(it.grade)}">${it.grade}</span>
     </div>`
   ).join('');
+}
+
+/* ══ 行情溫度計：波段成熟度（初期/中期/尾端）═══════════════════════════
+   解決「方向判對但進場在訊號尾端」的問題（2885追高/2313追空的真實教訓）。
+   方法：ZigZag切出該股2年所有歷史波段（轉折門檻=ATR自適應），
+   把「當前進行中波段」的幅度與天數，放進該股自己的歷史分布看百分位——
+   幅度已超過歷史80%波段＝行情尾端，別追、持有者分批停利。
+   全部用該股自身統計，無跨股魔術數字，天生逐股校準。
+   ════════════════════════════════════════════════════════════════════ */
+function computeMoveStage(D) {
+  const c = D.closes, n = c.length;
+  if (n < 120) return null;
+  // ATR自適應轉折門檻（%）：波動大的股票需要更大的反向幅度才算波段結束
+  let trSum = 0;
+  for (let i = n - 20; i < n; i++) trSum += Math.abs(c[i] - c[i - 1]) / c[i - 1];
+  const thr = Math.max(0.03, (trSum / 20) * 3);   // 至少3%，或3倍日均變動
+
+  // ZigZag：切出所有波段 {dir, days, magPct}
+  const runs = [];
+  let pivotI = 0, pivotP = c[0], dir = 0, extI = 0, extP = c[0];
+  for (let i = 1; i < n; i++) {
+    if (dir >= 0 && c[i] > extP) { extP = c[i]; extI = i; }
+    if (dir <= 0 && c[i] < extP) { extP = c[i]; extI = i; }
+    if (dir === 0) { dir = c[i] > pivotP ? 1 : -1; extP = c[i]; extI = i; continue; }
+    const retr = dir === 1 ? (extP - c[i]) / extP : (c[i] - extP) / extP;
+    if (retr >= thr) {
+      runs.push({ dir, days: extI - pivotI, magPct: Math.abs(extP - pivotP) / pivotP * 100 });
+      pivotI = extI; pivotP = extP; dir = -dir; extP = c[i]; extI = i;
+    }
+  }
+  // 當前進行中波段（未被反轉確認）
+  const cur = { dir, days: n - 1 - pivotI, magPct: Math.abs(c[n - 1] - pivotP) / pivotP * 100 };
+  const hist = runs.filter(r => r.dir === cur.dir);
+  if (hist.length < 8) return null;   // 同向歷史波段太少，百分位無意義
+
+  const pct = (arr, x) => Math.round(arr.filter(v => v <= x).length / arr.length * 100);
+  const magPctl = pct(hist.map(r => r.magPct), cur.magPct);
+  const dayPctl = pct(hist.map(r => r.days), cur.days);
+
+  // 量能衰竭：波段後半量能是否低於前半（動能遞減佐證）
+  let volFade = false;
+  if (cur.days >= 6) {
+    const seg = D.volumes.slice(pivotI, n);
+    const half = Math.floor(seg.length / 2);
+    const v1 = seg.slice(0, half).reduce((a, b) => a + b, 0) / half;
+    const v2 = seg.slice(half).reduce((a, b) => a + b, 0) / (seg.length - half);
+    volFade = v2 < v1 * 0.75;
+  }
+
+  const maturity = Math.round(magPctl * 0.55 + dayPctl * 0.3 + (volFade ? 15 : 0));
+  let stage, advice, cls;
+  const dirTxt = cur.dir === 1 ? '上漲' : '下跌';
+  if (maturity >= 70) {
+    stage = '尾端'; cls = 'sell';
+    advice = cur.dir === 1
+      ? `本段上漲幅度已超過此股歷史${magPctl}%的上漲波段——持有者分批停利、未進場者別追高（2885教訓：追在連漲末端）`
+      : `本段下跌幅度已超過此股歷史${magPctl}%的下跌波段——空單分批回補、未進場者別追空殺低（2313教訓：追在跌勢末端）`;
+  } else if (maturity >= 40) {
+    stage = '中期'; cls = 'warn';
+    advice = `${dirTxt}波段進行中，幅度位於此股歷史第${magPctl}百分位——已持有可續抱，新進場需拉回/反彈找位，不宜市價追`;
+  } else {
+    stage = '初期'; cls = 'buy';
+    advice = `${dirTxt}波段尚屬初期（幅度僅第${magPctl}百分位）——若方向與意圖研判/共振一致，這是風報比最好的進場區`;
+  }
+  return { stage, cls, maturity, dir: cur.dir, dirTxt, curDays: cur.days, curMag: cur.magPct,
+    magPctl, dayPctl, volFade, histCount: hist.length, advice };
+}
+
+function renderMoveStage(D) {
+  const card = document.getElementById('movestage-card');
+  if (!card) return;
+  let ms = null;
+  try { ms = computeMoveStage(D); } catch (e) {}
+  if (!ms) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+  const col = ms.cls === 'buy' ? 'var(--buy)' : ms.cls === 'sell' ? 'var(--sell)' : 'var(--warn)';
+  document.getElementById('movestage-content').innerHTML = `
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+      <div style="font-size:22px;font-weight:800;color:${col}">${ms.dirTxt}·${ms.stage}</div>
+      <div style="flex:1">
+        <div style="height:8px;background:var(--bg);border-radius:4px;overflow:hidden"><div style="width:${Math.min(100, ms.maturity)}%;height:100%;background:linear-gradient(90deg,var(--buy),var(--warn),var(--sell))"></div></div>
+        <div style="font-size:9px;color:var(--muted2);margin-top:2px">成熟度 ${ms.maturity}/100（初期→尾端）</div>
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--txt);line-height:1.65;padding:9px 11px;background:${col}10;border:1px solid ${col}50;border-radius:8px">${ms.advice}</div>
+    <div style="display:flex;gap:6px;margin-top:8px">
+      <div style="flex:1;text-align:center;background:var(--bg);border-radius:6px;padding:5px"><div style="font-size:9px;color:var(--muted)">本段幅度</div><div style="font-family:var(--mono);font-size:12px;font-weight:700">${ms.curMag.toFixed(1)}%</div><div style="font-size:9px;color:var(--muted2)">第${ms.magPctl}百分位</div></div>
+      <div style="flex:1;text-align:center;background:var(--bg);border-radius:6px;padding:5px"><div style="font-size:9px;color:var(--muted)">持續天數</div><div style="font-family:var(--mono);font-size:12px;font-weight:700">${ms.curDays}日</div><div style="font-size:9px;color:var(--muted2)">第${ms.dayPctl}百分位</div></div>
+      <div style="flex:1;text-align:center;background:var(--bg);border-radius:6px;padding:5px"><div style="font-size:9px;color:var(--muted)">量能</div><div style="font-family:var(--mono);font-size:12px;font-weight:700;color:${ms.volFade ? 'var(--sell)' : 'var(--buy)'}">${ms.volFade ? '衰竭' : '正常'}</div><div style="font-size:9px;color:var(--muted2)">後半vs前半</div></div>
+    </div>
+    <div style="font-size:10px;color:var(--muted2);margin-top:8px;line-height:1.6">💡 百分位基準＝此股自己2年的 ${ms.histCount} 段同向歷史波段（ZigZag/ATR自適應切分），非跨股通用門檻。尾端≠必反轉，是「風報比變差」——解決「方向判對但進場在訊號尾端」的問題。</div>`;
 }

@@ -358,7 +358,12 @@ function renderMainForce(D, formulas) {
         <span style="font-size:14px;font-weight:800;color:${iCol}">${intent.title}</span>
         <span style="font-family:var(--mono);font-size:11px;color:var(--muted)">信心 ${intent.confidence}</span>
       </div>
-      <div style="font-size:11px;color:var(--txt);line-height:1.65;margin-bottom:8px">${intent.desc}</div>`;
+      <div style="font-size:11px;color:var(--txt);line-height:1.65;margin-bottom:8px">${intent.desc}</div>
+      ${intent.verdict === '洗盤' ? (() => {
+        const rh = D.rawHighs || D.highs;
+        const trig = Math.max(...rh.slice(-5));
+        return `<div style="padding:7px 10px;background:var(--buy)10;border:1px dashed var(--buy);border-radius:7px;margin-bottom:8px;font-size:11px;color:var(--muted);line-height:1.6">🎯 <b style="color:var(--buy)">吸籌確認觸發</b>：帶量（>1.2倍20日均量）站回近5日高點 <b style="font-family:var(--mono);color:var(--buy)">${fmt(trig)}</b> ＝洗盤結束訊號（Wyckoff Sign of Strength），可分批進場；未觸發前只觀察不搶進。</div>`;
+      })() : ''}`;
     if (intent.evidence.length) {
       intent.evidence.forEach(e => {
         html += `<div style="display:flex;gap:8px;padding:3px 0"><span style="color:${iCol};font-size:11px">✓</span><span style="font-size:10px;color:var(--muted);line-height:1.5">${e}</span></div>`;
