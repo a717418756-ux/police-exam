@@ -104,23 +104,6 @@ function applyLayout() {
 /* ══ UX 強化：墨水屏模式 / 卡片折疊 / 回頂（純顯示層，不碰邏輯）══ */
 (function initUX(){
   const run = () => {
-    // 墨水屏模式切換鈕（塞進 header）
-    try {
-      const hdr = document.querySelector('header');
-      if (hdr && !document.getElementById('eink-toggle')) {
-        const b = document.createElement('button');
-        b.id = 'eink-toggle'; b.textContent = '📖';
-        b.title = '墨水屏模式（Boox適用：淺色高對比、無動畫）';
-        b.style.cssText = 'background:var(--surf2);border:1px solid var(--bd);border-radius:8px;color:var(--txt);font-size:14px;padding:4px 9px;cursor:pointer;margin-left:6px';
-        b.onclick = () => {
-          const on = document.body.classList.toggle('eink');
-          try { localStorage.setItem('sr_eink', on ? '1' : '0'); } catch (e) {}
-        };
-        hdr.appendChild(b);
-      }
-      try { if (localStorage.getItem('sr_eink') === '1') document.body.classList.add('eink'); } catch (e) {}
-    } catch (e) {}
-
     // 卡片折疊：點標題收合（help鈕除外），偏好記憶
     try {
       let saved = {};
@@ -143,7 +126,7 @@ function applyLayout() {
       if (!document.getElementById('back-top')) {
         const bt = document.createElement('div');
         bt.id = 'back-top'; bt.textContent = '↑';
-        bt.onclick = () => window.scrollTo({ top: 0, behavior: document.body.classList.contains('eink') ? 'auto' : 'smooth' });
+        bt.onclick = () => window.scrollTo({ top: 0, behavior: 'smooth' });
         document.body.appendChild(bt);
         window.addEventListener('scroll', () => {
           bt.style.display = window.scrollY > 500 ? 'flex' : 'none';
