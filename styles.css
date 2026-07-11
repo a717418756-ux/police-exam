@@ -175,3 +175,20 @@ footer{text-align:center;padding:14px;font-size:11px;color:var(--muted);border-t
 .tab-pane{display:none}
 .tab-pane.active{display:block;animation:fadeIn .25s ease}
 @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* ══ 墨水屏模式（Boox 等 e-ink：淺底高對比、無動畫陰影）══ */
+body.eink{--bg:#FAFAF7;--surf:#FFFFFF;--surf2:#F2F2EE;--txt:#111111;--muted:#333333;--muted2:#666666;
+  --bd:#999999;--bd2:#555555;--buy:#0A5F2C;--sell:#8B1A1A;--warn:#7A5200;--acc:#1A3A8B;
+  --buy-d:#E4EFE8;--sell-d:#F5E6E6;--warn-d:#F5EFDf;}
+body.eink *{transition:none!important;animation:none!important;box-shadow:none!important;text-shadow:none!important}
+body.eink .card{border-width:1.5px}
+body.eink{font-size:15px}
+/* ══ 卡片折疊 ══ */
+.layer-title{cursor:pointer;user-select:none}
+.layer-title::after{content:'▾';margin-left:auto;color:var(--muted2);font-size:11px;padding-left:6px}
+.card-collapsed .layer-title::after{content:'▸'}
+.card-collapsed .card{display:none!important}
+/* ══ 回頂按鈕 ══ */
+#back-top{position:fixed;right:14px;bottom:76px;width:42px;height:42px;border-radius:50%;
+  background:var(--surf2);border:1.5px solid var(--bd2);color:var(--txt);font-size:18px;
+  display:none;align-items:center;justify-content:center;z-index:90;cursor:pointer}

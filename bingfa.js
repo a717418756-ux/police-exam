@@ -339,6 +339,16 @@ function computeTradeGate(ctx) {
       else pass.push('非擁擠明牌（人少的一邊，訊號含金量高）');
     }
     // R6 方向限定風險
+    // 溫度計整合：訊號尾端追單=風報比最差的進場（2885追高/2313追空的量化教訓，v64真實資料驗證）
+    try {
+      if (typeof computeMoveStage === 'function') {
+        const ms = computeMoveStage(D);
+        if (ms && ms.dir === dir) {
+          if (ms.stage === '尾端') warn.push(`行情溫度計「${ms.dirTxt}·尾端」(成熟度${ms.maturity})：本段已走完此股歷史${ms.magPctl}%波段，順向追單風報比差——等回檔/反彈再進`);
+          else if (ms.stage === '初期') pass.push(`行情溫度計「${ms.dirTxt}·初期」：波段尚新，進場位置佳`);
+        }
+      }
+    } catch (e) {}
     if (dir === -1) {
       if (margin && margin.shortRatio >= 30) fail.push(`券資比 ${margin.shortRatio.toFixed(0)}%：空單擁擠，軋空風險高`);
       else if (margin && margin.shortRatio >= 20) warn.push(`券資比 ${margin.shortRatio.toFixed(0)}% 偏高，空單控制部位`);
@@ -618,6 +628,23 @@ function computeBehaviorSynthesis(ctx) {
       read: res.autocorr.r1 > 0 ? '此股漲跌有延續性，順勢訊號在此股較可信' : '此股漲多易回、跌深易彈，反指標訊號在此股較可信',
     });
   }
+
+  // ── 行為⑨ 行情階段（溫度計，時機資訊不投方向票）──
+  try {
+    if (typeof computeMoveStage === 'function') {
+      const ms = computeMoveStage(D);
+      if (ms) {
+        behaviors.push({
+          name: `行情階段：${ms.dirTxt}·${ms.stage}`, actor: '時機',
+          dir: 0, strength: ms.maturity,
+          basis: ['ZigZag歷史波段分布', '幅度/天數百分位', '量能衰竭'],
+          read: ms.stage === '尾端' ? '本段行情已屬尾端——即使走向明確，順向追單風報比差，等回檔/反彈找位' :
+                ms.stage === '初期' ? '波段初期——若走向與行為共振一致，這是風報比最好的進場窗口' :
+                '波段中期——持有續抱，新單需拉回找位',
+        });
+      }
+    }
+  } catch (e) {}
 
   // ── 走向層：加權合成 ──
   const votes = behaviors.filter(b => b.dir !== 0);
