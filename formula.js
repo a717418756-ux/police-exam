@@ -237,7 +237,7 @@ function calcFusion(sti,mfd,eco,crash){
   let signal='hold',label;
   if(crash.level==='high'){signal='sell';label='🔴 崩跌預警優先 — 強烈避險';}
   else if(fusion>=40){signal='buy';label='🟢 多方共振，偏漲';}
-  else if(fusion<=-40){signal='hold';label='🟠 動能極弱但慎追空 — 真實資料實測：4檔台股FUSION≤-40後5日上漲率56%（跌深反彈區），空點應等反彈至壓力，2026-07量測';}
+  else if(fusion<=-40){signal='hold';label='🟠 動能極弱 — 跌深反彈區，慎追空（空點等反彈至壓力）';}
   else if(fusion>15){signal='hold';label='🟡 偏多但力道中等';}
   else if(fusion<-15){signal='hold';label='🟡 偏空但力道中等';}
   else label='⚪ 多空均衡，方向不明';
