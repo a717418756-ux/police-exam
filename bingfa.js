@@ -357,8 +357,8 @@ function computeTradeGate(ctx) {
       if (typeof computeIntentAnalysis === 'function') {
         try {
           const it = computeIntentAnalysis(D, formulas, mf);
-          if (it && it.verdict === '洗盤' && it.confidence >= 50) fail.push(`意圖研判「洗盤」(信心${it.confidence})：籌碼沒真的離開，這是洗散戶不是出貨，做空易被軋`);
-          else if (it && it.verdict === '出貨' && it.confidence >= 50) pass.push(`意圖研判「出貨」(信心${it.confidence})：籌碼真在離開，空方順勢`);
+          if (it && it.verdict === '洗盤' && it.confidence >= 50) warn.push(`意圖研判「洗盤」結構(信心${it.confidence})：量價顯示有承接痕跡。19年5055事件驗證此判定無方向預測力(α≈0)，但結構上做空需防被掃後軋，停損放寬`);
+          else if (it && it.verdict === '出貨' && it.confidence >= 50) warn.push(`意圖研判「出貨」結構(信心${it.confidence})：⚠️ 19年999事件驗證，此判定後5日僅46%真的下跌(α-4，反指標傾向)——不可作為做空依據，僅代表量價結構弱`);
         } catch (e) {}
       }
     } else {
@@ -372,7 +372,7 @@ function computeTradeGate(ctx) {
       if (dir === -1 && mf.behavior === '吸籌') fail.push(`主力吸籌中（信心${mf.confidence}）：你在空主力正在收的貨，逆大戶做空是散戶死法`);
       if (dir === -1 && (mf.behavior === '誘空' || mf.behavior === '洗盤')) warn.push(`${mf.behavior}型態進行中：空單易被掃後軋`);
       if (dir === 1 && mf.behavior === '吸籌') pass.push(`主力吸籌同向（信心${mf.confidence}）`);
-      if (dir === -1 && mf.behavior === '出貨') pass.push(`主力出貨同向（空單與主力同邊，信心${mf.confidence}）`);
+      if (dir === -1 && mf.behavior === '出貨') warn.push(`主力行為呈出貨結構（信心${mf.confidence}）：注意此結構經19年大樣本驗證無方向優勢，不構成空單加分，僅供結構參考`);
     }
     const deep = (typeof _deepCache !== 'undefined' && _deepCache[D.code]) ? _deepCache[D.code].d : null;
     if (deep && deep.big) {
@@ -525,14 +525,39 @@ function computeBehaviorSynthesis(ctx) {
   try { if (typeof computeMainForce === 'function') mf = computeMainForce(D, formulas); } catch (e) {}
   try { if (typeof computeIntentAnalysis === 'function' && mf) intent = computeIntentAnalysis(D, formulas, mf); } catch (e) {}
   if (intent && intent.confidence > 0) {
+    // ── 逐股α閘控（v75核心）：此判定在「這支股票」的歷史α決定它有沒有方向投票權 ──
+    // 依據：19年16檔5055事件驗證，意圖判定的方向α全體接近0且逐股異質性大（-14~+18），
+    // 全域方向投票已無正當性；改為逐股實證——α經貝氏收縮（James-Stein，Efron & Morris 1975）
+    // 防小樣本誤判：shrunkα = α × n/(n+20)，樣本越少越往0收縮。shrunkα≥2 才保留方向票。
+    let intentDir = intent.dir === 'up' ? 1 : intent.dir === 'down' ? -1 : intent.dir === 'bounce' ? 1 : 0;
+    let alphaNote = '';
+    try {
+      const bt = typeof computeIntentBacktest === 'function' ? computeIntentBacktest(D) : null;
+      if (bt && bt.stats[intent.verdict] && bt.stats[intent.verdict].n >= 5) {
+        const s = bt.stats[intent.verdict];
+        const isDown = intent.verdict === '出貨';
+        const b5 = isDown ? 100 - bt.base5 : bt.base5, b10 = isDown ? 100 - bt.base10 : bt.base10;
+        const aAvg = ((s.win5 / s.n * 100 - b5) + (s.win10 / s.n * 100 - b10)) / 2;
+        const shrunk = aAvg * s.n / (s.n + 20);
+        if (shrunk < 2) {
+          intentDir = 0;
+          alphaNote = `（此股${s.n}次歷史驗證α=${shrunk.toFixed(1)}無方向優勢→方向票停用，僅列結構參考）`;
+        } else {
+          alphaNote = `（此股${s.n}次歷史驗證α=+${shrunk.toFixed(1)}，方向票保留）`;
+        }
+      } else {
+        intentDir = 0;
+        alphaNote = '（此股歷史樣本不足，方向票保守停用）';
+      }
+    } catch (e) { intentDir = 0; }
     behaviors.push({
       name: `主力意圖：${intent.verdict}`, actor: '主力', group: 'mf-vol',
-      dir: intent.dir === 'up' ? 1 : intent.dir === 'down' ? -1 : intent.dir === 'bounce' ? 1 : 0,
+      dir: intentDir,
       strength: intent.confidence,
       basis: ['量價關係', 'OBV能量潮', 'Wyckoff測試', 'KBAR強度', '下影線承接', '法人買賣超'],
-      read: intent.verdict === '洗盤' ? '殺低但籌碼沒離開＝洗散戶，短線偏反彈'
-          : intent.verdict === '出貨' ? '籌碼真的在流失＝反彈是逃命波'
-          : '低檔默默吸貨＝打底布局',
+      read: (intent.verdict === '洗盤' ? '量價結構顯示殺低有承接、籌碼未明顯離開'
+          : intent.verdict === '出貨' ? '量價結構顯示籌碼流出中'
+          : '低檔量價背離，結構上有吸收痕跡') + alphaNote,
     });
   }
 
