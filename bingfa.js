@@ -328,7 +328,9 @@ function computeTradeGate(ctx) {
       else warn.push('共振中性：維度分歧，等更明確');
     }
     // R4 順公式（你的實戰數據教訓）
-    if ((dir === 1 && fusion >= 20) || (dir === -1 && fusion <= -20)) pass.push(`順公式（FUSION ${fusion >= 0 ? '+' : ''}${fusion}）`);
+    if (dir === 1 && fusion >= 40) warn.push(`FUSION極強區（+${fusion}）：19年75,056樣本驗證，極端強勢後5日上漲率反低於基準（α-2.7）——動能極端≠續漲，不給多單加分，防追高`);
+    else if (dir === -1 && fusion <= -40) warn.push(`FUSION極弱區（${fusion}）：19年驗證此區後5日51%反而上漲——不給空單加分，防追殺低點`);
+    else if ((dir === 1 && fusion >= 20) || (dir === -1 && fusion <= -20)) pass.push(`順公式（FUSION ${fusion >= 0 ? '+' : ''}${fusion}）`);
     else if ((dir === 1 && fusion <= -20) || (dir === -1 && fusion >= 20)) fail.push(`逆公式（FUSION ${fusion >= 0 ? '+' : ''}${fusion}）：你的實戰統計顯示逆公式進場 MAE 深 2~4 倍`);
     else warn.push('公式中性：FUSION 未同向確認');
     // R5 反明牌（別站人多的一邊）

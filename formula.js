@@ -236,8 +236,8 @@ function calcFusion(sti,mfd,eco,crash){
 
   let signal='hold',label;
   if(crash.level==='high'){signal='sell';label='🔴 崩跌預警優先 — 強烈避險';}
-  else if(fusion>=40){signal='buy';label='🟢 多方共振，偏漲';}
-  else if(fusion<=-40){signal='hold';label='🟠 動能極弱 — 跌深反彈區，慎追空（空點等反彈至壓力）';}
+  else if(fusion>=40){signal='hold';label='🟢 動能極強結構 — 非買進訊號（19年驗證極端強勢區無方向優勢，防追高）';}
+  else if(fusion<=-40){signal='hold';label='🟠 動能極弱結構 — 非做空訊號（19年驗證此區反而51%上漲，空點等反彈至壓力）';}
   else if(fusion>15){signal='hold';label='🟡 偏多但力道中等';}
   else if(fusion<-15){signal='hold';label='🟡 偏空但力道中等';}
   else label='⚪ 多空均衡，方向不明';

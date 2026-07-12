@@ -312,11 +312,11 @@ function computeIntentAnalysis(D, formulas, mainForce) {
   const scriptMap = {
     '洗盤': {
       title: '🌊 疑似洗盤（洗散戶，非真跌）',
-      script: '主力用殺低嚇出散戶籌碼，籌碼沒真的離開。劇本：洗完常見急拉，但反彈需要數日發酵（真實資料回測：4檔台股洗盤判定後5日近乎持平、10日才顯著轉正）——不是隔天就漲，別因短期不動而棄守。操作：不宜追空（易被軋），做多者可等止跌訊號（帶量紅K收回均線）分批進；已持有可續抱但守好停損。',
+      script: '主力用殺低嚇出散戶籌碼、籌碼未明顯離開——這是量價結構描述（Wyckoff Test等），非方向預測。19年16檔驗證（3,219事件）：方向命中51%≈隨機，但逐股差異大——本系統已改逐股α閘控，此股歷史有實證優勢才會在行為鏈投方向票（下方會標註）。操作：不宜貿然追空（結構上有承接痕跡），做多進場等吸籌確認觸發價，嚴設停損。',
     },
     '出貨': {
       title: '📉 疑似出貨（真跌，籌碼在離開）',
-      script: '主力邊拉邊倒或帶量出逃，籌碼真的在流失。劇本：續跌動能集中在前5日（真實資料回測：出貨判定後5日命中67-80%，10日部分個股已反彈）——空單時效短，拖過一週未跌要警覺。操作：做多者反彈減碼，做空者反彈到壓力可布局（非殺低追空），嚴設停損防軋。',
+      script: '主力邊拉邊倒或帶量出逃的量價結構描述。19年16檔驗證（999事件）：後5日僅46%真跌（α-4，反指標傾向）——絕不可單獨憑此做空，紀律門已對此除權。操作：出貨結構下做多應提高警覺、減碼觀察；做空需靠其他證據（籌碼、環境、溫度計初期）共振，此判定僅代表量價結構弱。',
     },
     '進貨': {
       title: '📈 疑似進貨（低檔布局）',
@@ -381,15 +381,20 @@ function renderMainForce(D, formulas) {
       const bt = computeIntentBacktest(D);
       if (bt) {
         html += `<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--bd)">
-          <div style="font-size:10px;color:var(--muted);margin-bottom:4px">📜 此股真實歷史驗證（2年逐日重演，共${bt.total}次判定事件）</div>`;
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px">📜 此股真實歷史驗證（2年逐日重演，共${bt.total}次判定事件；基準線：任一天未來5日${bt.base5.toFixed(0)}%/10日${bt.base10.toFixed(0)}%本身會漲）</div>`;
         [['洗盤','漲'],['出貨','跌'],['進貨','漲']].forEach(([k, exp]) => {
           const s = bt.stats[k];
           if (!s.n) return;
           const a5 = s.sum5 / s.n, a10 = s.sum10 / s.n;
-          const ok5 = (k === '出貨') ? a5 < 0 : a5 > 0, ok10 = (k === '出貨') ? a10 < 0 : a10 > 0;
-          html += `<div style="display:flex;flex-wrap:wrap;gap:6px;font-size:10px;padding:2px 0;color:var(--muted)"><span style="width:34px">${k}</span><span>${s.n}次</span><span style="font-family:var(--mono);color:${ok5?'var(--buy)':'var(--sell)'}">5日均${a5>=0?'+':''}${a5.toFixed(1)}%(中${Math.round(s.win5/s.n*100)}%)</span><span style="font-family:var(--mono);color:${ok10?'var(--buy)':'var(--sell)'}">10日均${a10>=0?'+':''}${a10.toFixed(1)}%(中${Math.round(s.win10/s.n*100)}%)</span><span style="color:var(--muted2)">期望${exp}</span></div>`;
+          const wr5 = s.win5 / s.n * 100, wr10 = s.win10 / s.n * 100;
+          // Alpha=扣除基準線後的真實優勢；出貨方向相反，基準線要用(100-base)校正
+          const base5adj = k === '出貨' ? 100 - bt.base5 : bt.base5;
+          const base10adj = k === '出貨' ? 100 - bt.base10 : bt.base10;
+          const alpha5 = wr5 - base5adj, alpha10 = wr10 - base10adj;
+          const ok5 = alpha5 > 3, ok10 = alpha10 > 3;   // 需超過基準線3個百分點才算有意義的優勢
+          html += `<div style="display:flex;flex-wrap:wrap;gap:6px;font-size:10px;padding:2px 0;color:var(--muted)"><span style="width:34px">${k}</span><span>${s.n}次</span><span style="font-family:var(--mono);color:${ok5?'var(--buy)':'var(--muted2)'}">5日中${Math.round(wr5)}%(α${alpha5>=0?'+':''}${alpha5.toFixed(0)})</span><span style="font-family:var(--mono);color:${ok10?'var(--buy)':'var(--muted2)'}">10日中${Math.round(wr10)}%(α${alpha10>=0?'+':''}${alpha10.toFixed(0)})</span><span style="color:var(--muted2)">期望${exp}</span></div>`;
         });
-        html += `<div style="font-size:9px;color:var(--muted2);margin-top:3px">歷史PSY以中性值近似（避免前視偏誤）；此為「這支股票」的專屬驗證——若某類判定在此股歷史命中率低，該判定在此股別重壓；樣本少時參考價值有限</div></div>`;
+        html += `<div style="font-size:9px;color:var(--muted2);margin-top:3px">α=命中率減去此股基準漲跌機率的真實優勢（非原始命中率，避免牛熊市漂移偽裝成訊號有效）；歷史PSY以中性值近似；樣本少時參考價值有限</div></div>`;
       }
     } catch (e) {}
     html += `<div style="font-size:9px;color:var(--muted2);margin-top:6px;line-height:1.4">研判依據參考 Wyckoff Method（測試/Test）與 VSA 量價分析法（Effort vs Result、No Supply），機構沿用近百年框架，非本系統原創</div></div>`;
@@ -769,6 +774,31 @@ async function loadDeepChipCard(D) {
     }
   }
 
+  // ── 當沖比重（散戶投機直接溫度計，FinMind TaiwanStockDayTrading）──
+  if (dc.dayTrading) {
+    const dt = dc.dayTrading;
+    const hot = dt.cur >= 30 || (dt.avg20 > 0 && dt.cur > dt.avg20 * 1.5);
+    html += `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd)">
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">⚡ 當沖比重（散戶投機溫度）</div>
+      <div style="display:flex;gap:8px;align-items:baseline"><span style="font-family:var(--mono);font-size:16px;font-weight:700;color:${hot ? 'var(--sell)' : 'var(--txt)'}">${dt.cur}%</span><span style="font-size:10px;color:var(--muted2)">近${dt.days}日均 ${dt.avg20}%</span></div>
+      <div style="font-size:10px;color:var(--muted);line-height:1.5;margin-top:3px">${hot ? '⚠️ 當沖客高度聚集——短線投機盤主導，波動放大且訊號雜訊高，反明牌邏輯適用' : '當沖比重正常，未見投機盤過熱'}</div>
+    </div>`;
+  }
+
+  // ── 自營商自行 vs 避險細分（分離權證避險與真實自營意圖）──
+  if (dc.dealer) {
+    const dl = dc.dealer;
+    const selfDir = dl.selfNet > 0 ? '買' : '賣';
+    html += `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd)">
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">🏦 自營商細分（近${dl.days}日）</div>
+      <div style="display:flex;gap:14px;font-size:11px;color:var(--muted)">
+        <span>自行買賣 <b style="font-family:var(--mono);color:${dl.selfNet >= 0 ? 'var(--buy)' : 'var(--sell)'}">${dl.selfNet >= 0 ? '+' : ''}${dl.selfNet}張</b></span>
+        <span>避險 <b style="font-family:var(--mono);color:var(--muted2)">${dl.hedgeNet >= 0 ? '+' : ''}${dl.hedgeNet}張</b></span>
+      </div>
+      <div style="font-size:10px;color:var(--muted2);line-height:1.5;margin-top:3px">自行=自營商真實意圖（${selfDir}方）；避險多為權證造市對沖，非方向性意圖，看主力請以「自行」為準</div>
+    </div>`;
+  }
+
   html += `<div style="font-size:10px;color:var(--muted2);margin-top:10px;line-height:1.6">💡 部位背離是「統計優勢」不是無風險套利（零售層級不存在套利）。持股分級為週資料。資料來源：FinMind。</div>`;
   document.getElementById('deepchip-content').innerHTML = html;
   // 補繪前校驗代碼一致（防 async 競爭）
@@ -790,6 +820,19 @@ function computeIntentBacktest(D) {
   const stats = { '洗盤': { n: 0, sum5: 0, win5: 0, sum10: 0, win10: 0 }, '出貨': { n: 0, sum5: 0, win5: 0, sum10: 0, win10: 0 }, '進貨': { n: 0, sum5: 0, win5: 0, sum10: 0, win10: 0 } };
   const neutralF = { psy: { value: 50 } };
   const lastCount = { '洗盤': -99, '出貨': -99, '進貨': -99 };   // 各類判定獨立去重（信心短暫跌破50不會讓同一事件被重複計數）
+
+  // 基準線（無條件上漲率）：此股任一天的未來5日/10日本身漲跌機率，不看任何訊號。
+  // 若股票本身處於強勢多頭，基準線會>50%，此時判定命中率必須扣掉基準線才是真正的Alpha，
+  // 否則牛市裡隨便判都會「看起來準」（2026-07以18檔台股實測：78%個股區間上漲，基準線達52-53%）。
+  let baseWin5 = 0, baseWin10 = 0, baseN = 0;
+  for (let i = 70; i < n - H2; i++) {
+    if ((D.closes[i + 5] - D.closes[i]) > 0) baseWin5++;
+    if ((D.closes[i + H2] - D.closes[i]) > 0) baseWin10++;
+    baseN++;
+  }
+  const base5 = baseN ? baseWin5 / baseN * 100 : 50;
+  const base10 = baseN ? baseWin10 / baseN * 100 : 50;
+
   for (let i = 70; i < n - H2; i++) {
     const Ds = { closes: D.closes.slice(0, i + 1), highs: D.highs.slice(0, i + 1), lows: D.lows.slice(0, i + 1),
                  volumes: D.volumes.slice(0, i + 1), price: D.closes[i], chip: null };
@@ -808,5 +851,5 @@ function computeIntentBacktest(D) {
   }
   const total = stats['洗盤'].n + stats['出貨'].n + stats['進貨'].n;
   if (total < 3) return null;   // 事件太少不顯示，避免無意義統計
-  return { stats, total };
+  return { stats, total, base5, base10 };
 }
