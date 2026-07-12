@@ -280,6 +280,25 @@ function renderSupportResistance(sr, D) {
       }
     }
   } catch (e) { /* 略過，不影響主卡片 */ }
+
+  // 圖形線位（趨勢線/通道/箱型/三角/頸線——線位工具非方向預測）
+  try {
+    if (typeof computeChartPatterns === 'function' && D) {
+      const cp = computeChartPatterns(D);
+      if (cp && cp.patterns.length) {
+        let html3 = `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd)">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">📐 圖形線位（觸碰容差 ±${cp.tol}%）</div>`;
+        cp.patterns.forEach(p => {
+          html3 += `<div style="padding:7px 10px;background:var(--bg);border:1px solid var(--bd);border-radius:8px;margin-bottom:6px">
+            <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-size:12px;font-weight:700">${p.kind}</span><span style="font-family:var(--mono);font-size:12px;font-weight:700;color:var(--acc)">${fmt(p.level)}${p.level2 ? ' / ' + fmt(p.level2) : ''}</span></div>
+            <div style="font-size:10px;color:var(--muted);line-height:1.55;margin-top:2px">${p.note}</div>
+          </div>`;
+        });
+        html3 += `<div style="font-size:9px;color:var(--muted2);line-height:1.5">線位=可下單的具體價位（突破觸發/停損擺放），非方向預測（19年5055事件已證純價格方向訊號α≈0）。人人看得到的線=停損聚集區，突破/跌破常先掃停損，等回測確認更穩。</div></div>`;
+        document.getElementById('sr-content').innerHTML += html3;
+      }
+    }
+  } catch (e) { /* 略過，不影響主卡片 */ }
 }
 
 /* ══ E. 量價異常雷達 ══════════════════════════════════════════════════ */
@@ -469,4 +488,133 @@ async function loadFundamentalCard(D) {
   notes.forEach(x => { html += `<div style="margin-top:8px;padding:9px 12px;background:${x.c}10;border:1px solid ${x.c}50;border-radius:8px;font-size:11px;color:var(--muted);line-height:1.6">${x.t}</div>`; });
   html += `<div style="font-size:10px;color:var(--muted2);margin-top:10px;line-height:1.6">💡 基本面在波段層級是「背景濾網」不是進出場訊號：避免逆重大基本面做單、放大泡沫判斷。台股月營收每月10日前公布，常是行情引爆點。資料：證交所 BWIBBU / 月營收彙總。</div>`;
   document.getElementById('fundamental-content').innerHTML = html;
+}
+
+/* ══ 圖形線位引擎：趨勢線/通道/箱型/三角收斂/頸線 ═══════════════════════
+   定位（重要）：這是「線位工具」不是「方向預測」——19年5055事件已證明純價格
+   方向訊號α≈0，本引擎只回答「市場共同看到的線在哪個價位」（Lo, Mamaysky &
+   Wang 2000：型態提供增量資訊而非獲利保證）。線位價值：①可下單的具體價位
+   （突破觸發/停損擺放）②與反明牌整合——人人看得到的線=停損聚集區易被掃。
+   全部使用未還原原始市價（下單價位鐵律）。
+   ════════════════════════════════════════════════════════════════════ */
+function computeChartPatterns(D) {
+  const c = D.rawCloses || D.closes, h = D.rawHighs || D.highs, l = D.rawLows || D.lows;
+  const n = c.length;
+  if (n < 60) return null;
+  const price = c[n - 1];
+  const N = Math.min(120, n);
+  const off = n - N;   // 只看近120日
+  // ATR%容差（線觸碰判定）
+  let tr = 0; for (let i = n - 20; i < n; i++) tr += Math.abs(c[i] - c[i - 1]) / c[i - 1];
+  const tol = Math.max(0.008, (tr / 20) * 1.5);   // 至少0.8%
+
+  // ── 轉折點（與支撐壓力同款5點法，帶索引）──
+  const pivH = [], pivL = [];
+  for (let i = off + 2; i < n - 2; i++) {
+    if (h[i] > h[i-1] && h[i] > h[i-2] && h[i] > h[i+1] && h[i] > h[i+2]) pivH.push({ i, p: h[i] });
+    if (l[i] < l[i-1] && l[i] < l[i-2] && l[i] < l[i+1] && l[i] < l[i+2]) pivL.push({ i, p: l[i] });
+  }
+  if (pivH.length < 2 && pivL.length < 2) return null;
+  const out = [];
+  const lineVal = (a, b, x) => a.p + (b.p - a.p) / (b.i - a.i) * (x - a.i);
+  const touches = (a, b, arr, isLow) => {
+    let t = 0;
+    for (let i = a.i; i < n; i++) {
+      const v = lineVal(a, b, i), ref = isLow ? l[i] : h[i];
+      if (Math.abs(ref - v) / v < tol) t++;
+    }
+    return t;
+  };
+
+  // ── 趨勢線：最近兩個「遞升低點」=上升趨勢線；「遞降高點」=下降趨勢線 ──
+  let upLine = null, dnLine = null;
+  for (let k = pivL.length - 1; k >= 1 && !upLine; k--) {
+    for (let j = k - 1; j >= 0; j--) {
+      if (pivL[j].p < pivL[k].p && pivL[k].i - pivL[j].i >= 8) {
+        const t = touches(pivL[j], pivL[k], l, true);
+        if (t >= 2) { upLine = { a: pivL[j], b: pivL[k], t }; break; }
+      }
+    }
+  }
+  for (let k = pivH.length - 1; k >= 1 && !dnLine; k--) {
+    for (let j = k - 1; j >= 0; j--) {
+      if (pivH[j].p > pivH[k].p && pivH[k].i - pivH[j].i >= 8) {
+        const t = touches(pivH[j], pivH[k], h, false);
+        if (t >= 2) { dnLine = { a: pivH[j], b: pivH[k], t }; break; }
+      }
+    }
+  }
+  const nearTxt = (v) => {
+    const d = (price - v) / v * 100;
+    const ad = Math.abs(d);
+    return ad < tol * 100 ? `⚡現價正在線上（${d >= 0 ? '+' : ''}${d.toFixed(1)}%）` : d > 0 ? `線在下方 ${ad.toFixed(1)}%（支撐性質）` : `線在上方 ${ad.toFixed(1)}%（壓力性質）`;
+  };
+  if (upLine) {
+    const v = lineVal(upLine.a, upLine.b, n - 1);
+    if (v > 0 && v < price * 1.3) out.push({ kind: '上升趨勢線', level: v, note: `${upLine.t}次觸碰確認，${nearTxt(v)}。跌破此線=結構轉弱訊號，也是多單停損參考位（注意：人人看得到的線，破線常先掃停損再反轉）` });
+  }
+  if (dnLine) {
+    const v = lineVal(dnLine.a, dnLine.b, n - 1);
+    if (v > 0 && v > price * 0.7) out.push({ kind: '下降趨勢線', level: v, note: `${dnLine.t}次觸碰確認，${nearTxt(v)}。帶量站上此線=結構轉強訊號（突破需量能配合，無量突破多為假突破）` });
+  }
+  // ── 通道：趨勢線+對側平行線 ──
+  if (upLine) {
+    const slope = (upLine.b.p - upLine.a.p) / (upLine.b.i - upLine.a.i);
+    let maxDev = 0;
+    for (let i = upLine.a.i; i < n; i++) { const d = h[i] - (upLine.a.p + slope * (i - upLine.a.i)); if (d > maxDev) maxDev = d; }
+    const top = lineVal(upLine.a, upLine.b, n - 1) + maxDev;
+    if (maxDev > 0 && top > price) out.push({ kind: '上升通道頂', level: top, note: `通道上緣（壓力），觸及常見獲利了結；通道操作=下緣買上緣賣，突破上緣才是加速` });
+  }
+
+  // ── 箱型整理：近40日高低點各自「走平」（斜率相對價格<0.05%/日）──
+  {
+    const M = Math.min(40, N);
+    const hs = h.slice(n - M), ls = l.slice(n - M);
+    const hMax = Math.max(...hs), lMin = Math.min(...ls);
+    const range = (hMax - lMin) / price * 100;
+    // 用前半/後半極值比較判斷走平
+    const hs1 = Math.max(...hs.slice(0, M >> 1)), hs2 = Math.max(...hs.slice(M >> 1));
+    const ls1 = Math.min(...ls.slice(0, M >> 1)), ls2 = Math.min(...ls.slice(M >> 1));
+    const flatTop = Math.abs(hs2 - hs1) / price < 0.02, flatBot = Math.abs(ls2 - ls1) / price < 0.02;
+    if (flatTop && flatBot && range < 15 && range > 3) {
+      out.push({ kind: '箱型整理', level: hMax, level2: lMin, note: `近${M}日箱頂 ${fmt(hMax)}／箱底 ${fmt(lMin)}（幅度${range.toFixed(1)}%）。箱內高賣低買；帶量突破箱頂/跌破箱底才是方向啟動，量度目標≈箱高一倍` });
+    } else if (flatTop && !flatBot && ls2 > ls1) {
+      out.push({ kind: '上升三角（頸線）', level: hMax, note: `水平壓力 ${fmt(hMax)} + 低點墊高=買方漸強的收斂。帶量突破水平線為經典訊號，假突破率也高（人人在看），突破回測不破再確認更穩` });
+    } else if (flatBot && !flatTop && hs2 < hs1) {
+      out.push({ kind: '下降三角（頸線）', level: lMin, note: `水平支撐 ${fmt(lMin)} + 高點降低=賣方漸強的收斂。跌破水平線為經典弱勢訊號，但注意破線掃停損後回穩的假跌破` });
+    }
+  }
+
+  // ── 對稱三角收斂：高點遞降+低點遞升同時成立 ──
+  if (upLine && dnLine && upLine.b.i > n - 45 && dnLine.b.i > n - 45) {
+    const uV = lineVal(upLine.a, upLine.b, n - 1), dV = lineVal(dnLine.a, dnLine.b, n - 1);
+    if (dV > uV && (dV - uV) / price < 0.10) {
+      // 收斂中：算頂點距離
+      const uS = (upLine.b.p - upLine.a.p) / (upLine.b.i - upLine.a.i);
+      const dS = (dnLine.b.p - dnLine.a.p) / (dnLine.b.i - dnLine.a.i);
+      const apexDays = (uS - dS) !== 0 ? Math.round((dV - uV) / (uS - dS)) : 99;
+      if (apexDays > 0 && apexDays < 60) out.push({ kind: '三角收斂', level: dV, level2: uV, note: `上緣 ${fmt(dV)}／下緣 ${fmt(uV)}，約 ${apexDays} 個交易日內收斂到頂點——波動壓縮接近尾聲，突破方向常伴隨動能釋放（方向本身不可預測，等突破確認+量能）` });
+    }
+  }
+
+  // ── 頸線：雙重頂/雙重底 ──
+  {
+    const HH = pivH.slice(-3), LL = pivL.slice(-3);
+    if (HH.length >= 2) {
+      const [x, y] = HH.slice(-2);
+      if (Math.abs(x.p - y.p) / y.p < 0.03 && y.i - x.i >= 10) {
+        const valley = Math.min(...l.slice(x.i, y.i + 1));
+        if (price > valley && price < y.p * 1.02) out.push({ kind: 'M頭頸線（潛在）', level: valley, note: `兩高點 ${fmt(x.p)}/${fmt(y.p)} 相近，頸線=中間低點 ${fmt(valley)}。跌破頸線才算型態成立（量度跌幅≈頭高），未破前只是雙高不是M頭` });
+      }
+    }
+    if (LL.length >= 2) {
+      const [x, y] = LL.slice(-2);
+      if (Math.abs(x.p - y.p) / y.p < 0.03 && y.i - x.i >= 10) {
+        const peak = Math.max(...h.slice(x.i, y.i + 1));
+        if (price < peak && price > y.p * 0.98) out.push({ kind: 'W底頸線（潛在）', level: peak, note: `兩低點 ${fmt(x.p)}/${fmt(y.p)} 相近，頸線=中間高點 ${fmt(peak)}。帶量突破頸線才算W底成立（量度漲幅≈底深），未破前只是雙低` });
+      }
+    }
+  }
+
+  return out.length ? { patterns: out, tol: Math.round(tol * 1000) / 10 } : null;
 }
