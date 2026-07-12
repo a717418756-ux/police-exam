@@ -179,7 +179,7 @@ function renderBingfa(D, shi, tradeScore, exit) {
 }
 
 /* ── 綜合決策橫幅（整合兵法分級+健康度+崩跌風險，一句話結論）──────── */
-function renderVerdictBanner(shi, tradeScore, formulas, marketScore, res) {
+function renderVerdictBanner(shi, tradeScore, formulas, marketScore, res, D, regime, mtf) {
   const banner = document.getElementById('verdict-banner');
   const inner = document.getElementById('vb-inner');
   if (!banner || !inner) return;
@@ -189,37 +189,54 @@ function renderVerdictBanner(shi, tradeScore, formulas, marketScore, res) {
   const crash = formulas && formulas.crash ? formulas.crash.score : 0;
   const fusion = formulas && formulas.fusion ? formulas.fusion.value : 0;
 
-  // 決定主色與結論
+  // ══ 全系統避險警示彙整（v78 大整合：把 v59-v77 所有已驗證的風險偵測收攏到一處）══
+  // 優先序：環境級 > 時機級 > 結構衝突 > 擁擠/槓桿 > 提示級
+  const warns = [];
+  const addW = (pri, icon, text) => warns.push({ pri, icon, text });
+  let syn = null, ms = null, crowd = null;
+  try { if (typeof computeMoveStage === 'function') ms = computeMoveStage(D); } catch (e) {}
+  try { if (typeof computeBehaviorSynthesis === 'function') syn = computeBehaviorSynthesis({ D, regime, mtf, res, formulas }); } catch (e) {}
+  try { if (typeof computeCrowding === 'function') crowd = computeCrowding(D, formulas); } catch (e) {}
+
+  try { if (regime && regime.regime === '高波動危險') addW(1, '🌪', '環境「高波動危險」：所有訊號可靠度大降，部位至少減半或觀望'); } catch (e) {}
+  try { if (ms && ms.stage === '尾端') addW(2, '🌡', `行情「${ms.dirTxt}·尾端」（成熟度${ms.maturity}）：本段已走完此股歷史${ms.magPctl}%波段——順向追單風報比差，等回檔/反彈找位`); } catch (e) {}
+  try { if (syn && syn.conflict && syn.conflict.length) addW(3, '⚡', `行為衝突：${syn.conflict[0]}`); } catch (e) {}
+  try { if (crowd && crowd.crowding >= 70) addW(4, '👥', `散戶擁擠度 ${crowd.crowding}/100：教科書訊號人人可見，停損密集區易被掃——與主力反向時是陷阱`); } catch (e) {}
+  try {
+    const mg = (typeof _marginCache !== 'undefined' && _marginCache[D.code]) ? _marginCache[D.code].d : null;
+    if (mg && D.closes.length >= 6 && mg.marginChg5 > 4 && D.price < D.closes[D.closes.length - 6]) addW(4, '💳', '融資增+價跌：散戶逆勢接刀象限（歷史最危險），下跌常未完，做多再等');
+  } catch (e) {}
+  try {
+    const dp = (typeof _deepCache !== 'undefined' && _deepCache[D.code]) ? _deepCache[D.code].d : null;
+    if (dp && dp.dayTrading && (dp.dayTrading.cur >= 30 || (dp.dayTrading.avg20 > 0 && dp.dayTrading.cur > dp.dayTrading.avg20 * 1.5))) addW(5, '⚡', `當沖比重 ${dp.dayTrading.cur}%：投機盤主導，波動放大且日內訊號雜訊高`);
+  } catch (e) {}
+  try { if (fusion >= 40) addW(5, '🔥', `FUSION 極強區（+${fusion}）：19年驗證極端強勢無續漲優勢——防追高`); } catch (e) {}
+  try { if (fusion <= -40) addW(5, '🧊', `FUSION 極弱區（${fusion}）：19年驗證此區51%反而上漲——防追殺低點`); } catch (e) {}
+  try { const etf = (typeof checkETFRebalanceWindow === 'function') ? checkETFRebalanceWindow() : null; if (etf) addW(6, '📅', etf.text + '——留意搶跑效應（概估窗口）'); } catch (e) {}
+  warns.sort((a, b) => a.pri - b.pri);
+
+  // ══ 主結論（v78 修復：D 改由參數傳入——先前引用未定義變數導致空方分支靜默失效）══
   let color, bg, title, summary;
   if (crash >= 60) {
     color = 'var(--sell)'; bg = 'var(--sell-d)';
     title = '🚨 崩跌預警，建議避開';
     summary = `崩跌風險分 ${crash}/100，即使其他指標尚可，風險優先原則下不宜進場`;
-  } else if (grade === 'A' && fusion > 20) {
-    color = 'var(--buy)'; bg = 'var(--buy-d)';
-    title = '🟢 A級標的，多方共振，可優先佈局';
-    summary = `勢能 ${shi.shi}分、交易評分 ${tradeScore.score}、FUSION +${fusion}，順勢可為。記得設好停損與分批停利`;
   } else if (grade === 'A' || grade === 'B') {
-    color = '#10B981'; bg = 'var(--buy-d)';
-    title = `🟢 ${grade}級標的，條件良好`;
-    summary = `勢能 ${shi.shi}分、交易評分 ${tradeScore.score}。趨勢與籌碼面尚可，留意進場時機與風控`;
+    color = grade === 'A' ? 'var(--buy)' : '#10B981'; bg = 'var(--buy-d)';
+    title = `🟢 ${grade}級標的，多方條件${grade === 'A' ? '完整' : '良好'}`;
+    summary = `勢能 ${shi.shi}分、交易評分 ${tradeScore.score}${syn ? `、行為結構 ${syn.score >= 0 ? '+' : ''}${syn.score}` : ''}。${warns.length ? '但有警示需先處理（見下方）' : '結構乾淨，依出手紀律門的執行計畫進場，嚴設停損分批停利'}`;
   } else if (grade === 'C') {
     color = 'var(--warn)'; bg = 'var(--warn-d)';
     title = '🟡 C級標的，勢能普通，謹慎';
     summary = `勢能 ${shi.shi}分。條件中等，不急進場，等更明確訊號或更好價位`;
   } else if (shi.shortGrade === 'A' || shi.shortGrade === 'B') {
-    // 空方建議前，先檢查「低檔反彈風險」——避免對急跌後、隨時要技術性反彈的股票喊做空
-    // （低多方勢能≠適合做空；這是 2313/2885 走勢相反的根本原因：勢能鏡像沒把反彈風險算進去）
     const psyVal = (formulas && formulas.psy) ? formulas.psy.value : 50;
     const c = D.closes, n = c.length;
-    const ma20v = n >= 20 ? c.slice(-20).reduce((a,b)=>a+b,0)/20 : c[n-1];
-    const biasPct = (D.price - ma20v) / ma20v * 100;  // 負乖離過大=超跌
-    // 近5日跌幅（急跌判定）
-    const drop5 = n >= 6 ? (c[n-1] - c[n-6]) / c[n-6] * 100 : 0;
+    const ma20v = n >= 20 ? c.slice(-20).reduce((a, b) => a + b, 0) / 20 : c[n - 1];
+    const biasPct = (D.price - ma20v) / ma20v * 100;
+    const drop5 = n >= 6 ? (c[n - 1] - c[n - 6]) / c[n - 6] * 100 : 0;
     const bounceRisk = psyVal <= 28 || biasPct <= -8 || drop5 <= -8;
-
     if (bounceRisk) {
-      // 反彈風險高：降級為「不宜追空」，明確擋掉這種最危險的空點
       color = 'var(--warn)'; bg = 'var(--warn-d)';
       title = '⚠️ 空方勢能強，但此刻「不宜追空」';
       const reasons = [];
@@ -230,7 +247,7 @@ function renderVerdictBanner(shi, tradeScore, formulas, marketScore, res) {
     } else {
       color = 'var(--sell)'; bg = 'var(--sell-d)';
       title = `🔻 空方${shi.shortGrade}級標的，弱勢明確`;
-      summary = `空方勢能 ${shi.shortShi}分（趨勢/籌碼/量能同弱），且非跌深超賣區，偏空操作可考慮。做空嚴守停損`;
+      summary = `空方勢能 ${shi.shortShi}分（趨勢/籌碼/量能同弱），且非跌深超賣區${ms && ms.stage === '尾端' && ms.dir === -1 ? '，但行情已尾端——等反彈找位而非市價追' : '，偏空可依紀律門評估'}。做空嚴守停損`;
     }
   } else {
     color = 'var(--muted)'; bg = 'var(--bg)';
@@ -246,9 +263,7 @@ function renderVerdictBanner(shi, tradeScore, formulas, marketScore, res) {
   document.getElementById('vb-title').style.color = color;
   document.getElementById('vb-summary').textContent = summary;
 
-  // 關鍵指標小標籤
   const chip = (label, val, c) => `<div style="background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:5px 10px;font-size:11px"><span style="color:var(--muted)">${label}</span> <span style="font-family:var(--mono);font-weight:700;color:${c}">${val}</span></div>`;
-  // 信心指數 = 共振共識度絕對值；維度分歧時在結論加註降信心
   const confidence = res ? Math.abs(res.consensus) : null;
   if (res && res.strength === 'weak') {
     document.getElementById('vb-summary').textContent += '。⚠️ 各維度目前分歧，信心指數低，不強行給方向——觀望也是操作';
@@ -257,10 +272,23 @@ function renderVerdictBanner(shi, tradeScore, formulas, marketScore, res) {
   document.getElementById('vb-metrics').innerHTML =
     chip('勢能', shi.shi, color) +
     chip('交易評分', tradeScore.score, 'var(--acc)') +
-    chip('FUSION', (fusion>=0?'+':'')+fusion, fusion>=0?'var(--buy)':'var(--sell)') +
-    chip('崩跌風險', crash, crash>=35?'var(--sell)':'var(--muted)') +
-    (mkt!=null ? chip('大盤', mkt, mkt>=55?'var(--buy)':mkt<=45?'var(--sell)':'var(--warn)') : '') +
-    (confidence!=null ? chip('信心', confidence, confidence>=60?'var(--buy)':confidence>=30?'var(--warn)':'var(--sell)') : '');
+    (syn ? chip('行為結構', (syn.score >= 0 ? '+' : '') + syn.score, syn.score >= 20 ? 'var(--buy)' : syn.score <= -20 ? 'var(--sell)' : 'var(--muted)') : '') +
+    (ms ? chip('行情階段', ms.stage, ms.cls === 'buy' ? 'var(--buy)' : ms.cls === 'sell' ? 'var(--sell)' : 'var(--warn)') : '') +
+    chip('崩跌風險', crash, crash >= 35 ? 'var(--sell)' : 'var(--muted)') +
+    (mkt != null ? chip('大盤', mkt, mkt >= 55 ? 'var(--buy)' : mkt <= 45 ? 'var(--sell)' : 'var(--warn)') : '') +
+    (confidence != null ? chip('信心', confidence, confidence >= 60 ? 'var(--buy)' : confidence >= 30 ? 'var(--warn)' : 'var(--sell)') : '');
+
+  // ══ 避險警示區（最多3條，其餘計數；無警示顯示綠色安心線）══
+  const wEl = document.getElementById('vb-warns');
+  if (wEl) {
+    if (warns.length) {
+      let wh = warns.slice(0, 3).map(w => `<div style="display:flex;gap:7px;align-items:flex-start;padding:6px 10px;background:var(--warn-d);border:1px solid var(--warn);border-radius:8px;margin-bottom:5px;font-size:11px;color:var(--muted);line-height:1.55"><span>${w.icon}</span><span>${w.text}</span></div>`).join('');
+      if (warns.length > 3) wh += `<div style="font-size:10px;color:var(--muted2);padding:2px 4px">另有 ${warns.length - 3} 項提示，詳見各分析卡</div>`;
+      wEl.innerHTML = wh;
+    } else {
+      wEl.innerHTML = `<div style="font-size:10px;color:var(--buy);padding:2px 4px">✓ 全系統避險掃描（環境/階段/衝突/擁擠/槓桿/極端值/ETF窗口）無警示</div>`;
+    }
+  }
 }
 async function checkBingfaWarning() {
   try {

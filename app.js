@@ -638,7 +638,7 @@ async function go(){
           res=computeResonance({D,trend,formulas,chip:D.chip,vwap,structure,overheat,rsRating,marketScore,shi,mtf:mtfResult,regime:regimeResult});
           renderResonance(res);
         }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('共振確認',err); }
-        renderVerdictBanner(shi, tradeScore, formulas, marketScore, res);
+        renderVerdictBanner(shi, tradeScore, formulas, marketScore, res, D, regimeResult, mtfResult);
 
         // 出手紀律門（濃縮全站分析為出手/禁止裁決）
         try{
