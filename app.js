@@ -216,7 +216,30 @@ function analyzeRisk(D,atr){
 
   // ATR 停損（2倍）
   const atrMult=2;
-  const stopLoss=price-atr*atrMult;
+  let stopLoss=price-atr*atrMult;
+  // ── v80聯動：停損防掃調整 ──
+  // 原理：停損若恰好放在「人人看得到的線位（趨勢線/箱底/頸線）或整數關卡」內側緊貼處，
+  // 正好落在全市場停損聚集區，最容易被掃損後反轉。偵測到即下移到該價位外側0.8%。
+  let stopNote=null;
+  try{
+    const levels=[];
+    if(typeof computeChartPatterns==='function'){
+      const cp=computeChartPatterns(D);
+      if(cp) cp.patterns.forEach(p=>{ if(p.level<price)levels.push({v:p.level,name:p.kind}); if(p.level2&&p.level2<price)levels.push({v:p.level2,name:p.kind+'下緣'}); });
+    }
+    if(typeof computeAnchoring==='function'){
+      const an=computeAnchoring(D);
+      if(an&&an.nearRound&&an.nearestRound<price) levels.push({v:an.nearestRound,name:'整數關卡'});
+    }
+    for(const L of levels){
+      // 停損在線位上方且距離<0.6%價格 = 貼在掃損區內側
+      if(stopLoss>L.v && (stopLoss-L.v)/price<0.006){
+        stopLoss=L.v*0.992;
+        stopNote=`已避開掃損區：原停損貼近「${L.name} ${L.v.toFixed(2)}」內側（全市場停損聚集處），下移至其外側0.8%`;
+        break;
+      }
+    }
+  }catch(e){}
   const stopDist=price-stopLoss;
   const stopPct=stopDist/price*100;
 
@@ -241,7 +264,7 @@ function analyzeRisk(D,atr){
   const kellyHalf=kellyFull/2;
   const kellyQuarter=kellyFull/4;
 
-  return{capital,riskPct,winRate,atr,stopLoss,stopPct,stopDist,chandelier,tp2,tp3,
+  return{capital,riskPct,winRate,atr,stopLoss,stopPct,stopDist,chandelier,tp2,tp3,stopNote,
     riskAmount,shares,positionValue,positionPct,
     kellyFull:Math.max(0,kellyFull),kellyHalf:Math.max(0,kellyHalf),kellyQuarter:Math.max(0,kellyQuarter),
     currency:D.currency};
@@ -386,7 +409,7 @@ function renderRisk(r){
   $('risk-card').style.display='block';
   const cur=r.currency==='TWD'?'NT$':'$';
   const boxes=[
-    {cls:'',label:'🛑 ATR 停損價 (2×ATR)',value:cur+fmt(r.stopLoss),valCls:'sell',sub:`停損距離 ${fmt(r.stopDist)}（${r.stopPct.toFixed(1)}%），比固定%停損更貼合波動`},
+    {cls:'',label:'🛑 ATR 停損價 (2×ATR)',value:cur+fmt(r.stopLoss),valCls:'sell',sub:`停損距離 ${fmt(r.stopDist)}（${r.stopPct.toFixed(1)}%）${r.stopNote?'。📐 '+r.stopNote:'，比固定%停損更貼合波動'}`},
     {cls:'good',label:'🎯 停利價 1:2 風報比',value:cur+fmt(r.tp2),valCls:'buy',sub:`風報比 1:2，即使勝率40%長期仍可能獲利`},
     {cls:'good',label:'🎯 停利價 1:3 風報比',value:cur+fmt(r.tp3),valCls:'buy',sub:`理想風報比，讓獲利奔跑`},
     {cls:'warn',label:'🪜 移動停利 (Chandelier)',value:cur+fmt(r.chandelier),valCls:'warn',sub:`最高價-3×ATR，股價創高就上移，保護獲利`},
@@ -639,6 +662,7 @@ async function go(){
           renderResonance(res);
         }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('共振確認',err); }
         renderVerdictBanner(shi, tradeScore, formulas, marketScore, res, D, regimeResult, mtfResult);
+        window._bannerArgs = { shi, tradeScore, formulas, marketScore, res, D, regime: regimeResult, mtf: mtfResult };   // 供margin/deep非同步到達後補繪橫幅警示
 
         // 出手紀律門（濃縮全站分析為出手/禁止裁決）
         try{

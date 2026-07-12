@@ -490,8 +490,10 @@ async function loadMarginCard(D) {
   // 補繪前校驗：確認使用者還在看同一檔（防快速換股的 async 競爭導致張冠李戴）
   if (window._activeCode === D.code) {
     try { if (typeof renderCrowding === 'function' && window._lastD && window._lastD.code === D.code) renderCrowding(window._lastD, window._lastFormulas); } catch (e) {}
+    try { const ba = window._bannerArgs; if (ba && ba.D && ba.D.code === D.code && window._activeCode === D.code && typeof renderVerdictBanner === 'function') renderVerdictBanner(ba.shi, ba.tradeScore, ba.formulas, ba.marketScore, ba.res, ba.D, ba.regime, ba.mtf); } catch (e) {}
     try { if (typeof renderTradeGate === 'function' && window._gateCtx && window._gateCtx.D && window._gateCtx.D.code === D.code) renderTradeGate(window._gateCtx); } catch (e) {}
     try { if (typeof renderCrowding === 'function' && window._lastD && window._lastD.code === D.code) renderCrowding(window._lastD, window._lastFormulas); } catch (e) {}
+    try { const ba = window._bannerArgs; if (ba && ba.D && ba.D.code === D.code && window._activeCode === D.code && typeof renderVerdictBanner === 'function') renderVerdictBanner(ba.shi, ba.tradeScore, ba.formulas, ba.marketScore, ba.res, ba.D, ba.regime, ba.mtf); } catch (e) {}
   }
 }
 
@@ -821,6 +823,7 @@ async function loadDeepChipCard(D) {
   if (window._activeCode === D.code) {
     try { if (typeof renderTradeGate === 'function' && window._gateCtx && window._gateCtx.D && window._gateCtx.D.code === D.code) renderTradeGate(window._gateCtx); } catch (e) {}
     try { if (typeof renderCrowding === 'function' && window._lastD && window._lastD.code === D.code) renderCrowding(window._lastD, window._lastFormulas); } catch (e) {}
+    try { const ba = window._bannerArgs; if (ba && ba.D && ba.D.code === D.code && window._activeCode === D.code && typeof renderVerdictBanner === 'function') renderVerdictBanner(ba.shi, ba.tradeScore, ba.formulas, ba.marketScore, ba.res, ba.D, ba.regime, ba.mtf); } catch (e) {}
   }
 }
 
@@ -830,9 +833,12 @@ async function loadDeepChipCard(D) {
    事件化計數：同一判定連續出現只計首次（間隔≥10日才重計），避免同一事件灌水。
    PSY用中性值50固定（歷史PSY未逐日重算，寧可少一項證據也不引入前視偏誤）。
    ════════════════════════════════════════════════════════════════════ */
+const _ibMemo = { k: null, v: null };   // 回測記憶化：同股同資料長度只算一次（橫幅/行為鏈/意圖卡共用，避免一次查詢重跑5-6次×30ms）
 function computeIntentBacktest(D) {
   const n = D.closes.length;
   if (n < 130) return null;
+  const _k = (D.code || '') + ':' + n;
+  if (_ibMemo.k === _k) return _ibMemo.v;
   const H2 = 10;   // 同時統計5日與10日：洗盤機制上需等測試完成才反彈，單一視窗有盲點，雙視窗不挑好看的報
   const stats = { '洗盤': { n: 0, sum5: 0, win5: 0, sum10: 0, win10: 0 }, '出貨': { n: 0, sum5: 0, win5: 0, sum10: 0, win10: 0 }, '進貨': { n: 0, sum5: 0, win5: 0, sum10: 0, win10: 0 } };
   const neutralF = { psy: { value: 50 } };
@@ -867,6 +873,7 @@ function computeIntentBacktest(D) {
     if ((expectUp && f10 > 0) || (!expectUp && f10 < 0)) s.win10++;
   }
   const total = stats['洗盤'].n + stats['出貨'].n + stats['進貨'].n;
-  if (total < 3) return null;   // 事件太少不顯示，避免無意義統計
-  return { stats, total, base5, base10 };
+  const result = total < 3 ? null : { stats, total, base5, base10 };   // 事件太少回null，避免無意義統計
+  _ibMemo.k = _k; _ibMemo.v = result;
+  return result;
 }
