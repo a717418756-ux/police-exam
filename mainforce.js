@@ -491,6 +491,7 @@ async function loadMarginCard(D) {
   if (window._activeCode === D.code) {
     try { if (typeof renderCrowding === 'function' && window._lastD && window._lastD.code === D.code) renderCrowding(window._lastD, window._lastFormulas); } catch (e) {}
     try { if (typeof renderTradeGate === 'function' && window._gateCtx && window._gateCtx.D && window._gateCtx.D.code === D.code) renderTradeGate(window._gateCtx); } catch (e) {}
+    try { if (typeof renderCrowding === 'function' && window._lastD && window._lastD.code === D.code) renderCrowding(window._lastD, window._lastFormulas); } catch (e) {}
   }
 }
 
@@ -633,6 +634,15 @@ function computeCrowding(D, formulas) {
     if (crowdDir === 1 && mc.d.marginChg5 > 4) { crowding += 20; marginNote = `融資5日+${mc.d.marginChg5.toFixed(1)}%——散戶不只看到明牌，還真的用槓桿進場了`; }
     if (crowdDir === -1 && mc.d.shortRatio >= 20) { crowding += 15; marginNote = `券資比 ${mc.d.shortRatio.toFixed(0)}%——散戶空單也擁擠，殺跌明牌+軋空燃料並存`; }
   }
+  // 當沖比重（v80聯動：deepchip的直接散戶投機量測，非同步到達後由補繪刷新本卡）
+  let dayTradeNote = null;
+  try {
+    const dp = (typeof _deepCache !== 'undefined' && _deepCache[D.code]) ? _deepCache[D.code].d : null;
+    if (dp && dp.dayTrading && (dp.dayTrading.cur >= 30 || (dp.dayTrading.avg20 > 0 && dp.dayTrading.cur > dp.dayTrading.avg20 * 1.5))) {
+      crowding += 15;
+      dayTradeNote = `當沖比重 ${dp.dayTrading.cur}%（均${dp.dayTrading.avg20}%）——投機盤直接量測確認擁擠，非僅間接推估`;
+    }
+  } catch (e) {}
   crowding = Math.min(100, crowding);
 
   // 主力是否站在明牌反面（陷阱偵測）
@@ -647,7 +657,7 @@ function computeCrowding(D, formulas) {
     }
   } catch (e) { /* OBV 失敗略過 */ }
 
-  return { crowdDir, crowding, buyVotes, sellVotes, seen, trap, bias, marginNote };
+  return { crowdDir, crowding, buyVotes, sellVotes, seen, trap, bias, marginNote, dayTradeNote };
 }
 
 function renderCrowding(D, formulas) {
@@ -678,6 +688,12 @@ function renderCrowding(D, formulas) {
   }
   if (cw.marginNote) {
     html += `<div style="font-size:11px;color:var(--warn);margin-bottom:10px;line-height:1.5">💳 ${cw.marginNote}</div>`;
+  }
+  if (cw.dayTradeNote) {
+    html += `<div style="font-size:11px;color:var(--warn);margin-bottom:10px;line-height:1.5">⚡ ${cw.dayTradeNote}</div>`;
+  }
+  if (cw.dayTradeNote) {
+    html += `<div style="font-size:11px;color:var(--warn);margin-bottom:10px;line-height:1.5">⚡ ${cw.dayTradeNote}</div>`;
   }
   // ETF換股窗口警示（日期運算，不臆測個股是否為成分股）
   try {
@@ -804,6 +820,7 @@ async function loadDeepChipCard(D) {
   // 補繪前校驗代碼一致（防 async 競爭）
   if (window._activeCode === D.code) {
     try { if (typeof renderTradeGate === 'function' && window._gateCtx && window._gateCtx.D && window._gateCtx.D.code === D.code) renderTradeGate(window._gateCtx); } catch (e) {}
+    try { if (typeof renderCrowding === 'function' && window._lastD && window._lastD.code === D.code) renderCrowding(window._lastD, window._lastFormulas); } catch (e) {}
   }
 }
 

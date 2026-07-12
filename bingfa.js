@@ -212,6 +212,16 @@ function renderVerdictBanner(shi, tradeScore, formulas, marketScore, res, D, reg
   } catch (e) {}
   try { if (fusion >= 40) addW(5, '🔥', `FUSION 極強區（+${fusion}）：19年驗證極端強勢無續漲優勢——防追高`); } catch (e) {}
   try { if (fusion <= -40) addW(5, '🧊', `FUSION 極弱區（${fusion}）：19年驗證此區51%反而上漲——防追殺低點`); } catch (e) {}
+  try {
+    if (typeof computeChartPatterns === 'function') {
+      const cp = computeChartPatterns(D);
+      if (cp) {
+        const px = D.rawCloses ? D.rawCloses[D.rawCloses.length - 1] : D.price;
+        const onLine = cp.patterns.find(p => Math.abs(px - p.level) / p.level * 100 < cp.tol);
+        if (onLine) addW(4, '📐', `現價正處「${onLine.kind}」線位 ${onLine.level.toFixed(2)}——全市場都看得到的關卡，突破/跌破未經收盤+量能確認前別搶方向`);
+      }
+    }
+  } catch (e) {}
   try { const etf = (typeof checkETFRebalanceWindow === 'function') ? checkETFRebalanceWindow() : null; if (etf) addW(6, '📅', etf.text + '——留意搶跑效應（概估窗口）'); } catch (e) {}
   warns.sort((a, b) => a.pri - b.pri);
 
@@ -488,6 +498,17 @@ function renderTradeGate(ctx) {
       try { if (typeof computeSmartStop === 'function') smart = computeSmartStop(D, atr); } catch (e) {}
       const entry = D.rawCloses ? D.rawCloses[D.rawCloses.length - 1] : D.price;
       const stop = smart ? smart[planSide].stop : (planSide === 'long' ? entry - 2 * atr : entry + 2 * atr);
+      // 聯動：停損若恰落在圖形線位上=全市場停損聚集區，最易被掃——提示外移
+      let stopLineWarn = '';
+      try {
+        if (typeof computeChartPatterns === 'function') {
+          const cp2 = computeChartPatterns(D);
+          if (cp2) {
+            const hitL = cp2.patterns.find(p => Math.abs(stop - p.level) / p.level * 100 < cp2.tol || (p.level2 && Math.abs(stop - p.level2) / p.level2 * 100 < cp2.tol));
+            if (hitL) stopLineWarn = `<div style="font-size:10px;color:var(--warn);line-height:1.5;margin-top:4px">📐 注意：停損價恰與「${hitL.kind}」線位重疊——這是全市場停損聚集區，最易被插針掃損後反轉。建議往結構外再讓 0.5~1 倍ATR。</div>`;
+          }
+        }
+      } catch (e) {}
       const dist = Math.abs(entry - stop);
       const sgn = planSide === 'long' ? 1 : -1;
       const tp1 = entry + sgn * 2 * dist, tp2 = entry + sgn * 3 * dist;
@@ -510,7 +531,7 @@ function renderTradeGate(ctx) {
           <div class="risk-box"><div class="rb-label">進場</div><div class="rb-value">${cur}${fmt(entry)}</div><div class="rb-sub">現價（可等${planSide==='long'?'回踩':'反彈'}）</div></div>
           <div class="risk-box"><div class="rb-label">🛑 停損</div><div class="rb-value" style="color:var(--sell)">${cur}${fmt(stop)}</div><div class="rb-sub">${smart?smart[planSide].method:'2×ATR'}</div></div>
           <div class="risk-box"><div class="rb-label">✅ 停利 2R/3R</div><div class="rb-value" style="color:var(--buy)">${cur}${fmt(tp1)} / ${fmt(tp2)}</div><div class="rb-sub">出50%/25%，剩25%續抱</div></div>
-        </div>
+        </div>${stopLineWarn}
         <div style="font-size:10px;color:var(--muted);margin-top:8px">⏱️ 時間停損：3~5日未朝預期發展即全撤，不等價格停損。${(function(){
           try{
             const cc=D.closes,nn=cc.length;if(nn<40)return '';
@@ -642,6 +663,14 @@ function computeBehaviorSynthesis(ctx) {
       behaviors.push({ name: '大戶結構：派發', actor: '大戶', dir: -1, strength: 70,
         basis: ['千張持股週變化', '散戶持股週變化'], read: `千張大戶${b.bigChg}%、散戶+${b.smallChg}%——大戶倒貨給散戶（結構偏空）` });
     }
+  }
+  if (deep && deep.dealer && Math.abs(deep.dealer.selfNet) >= 200) {   // 自行淨額≥200張才有意義
+    behaviors.push({
+      name: `自營商自行：${deep.dealer.selfNet > 0 ? '買超' : '賣超'}`, actor: '法人',
+      dir: deep.dealer.selfNet > 0 ? 1 : -1, strength: 50,
+      basis: ['自營商自行買賣超（已剝離權證避險對沖）'],
+      read: `近${deep.dealer.days}日自行淨${deep.dealer.selfNet > 0 ? '買' : '賣'} ${Math.abs(deep.dealer.selfNet)} 張——這是自營商真實方向意圖（避險部位不計）`,
+    });
   }
   if (deep && deep.lend && Math.abs(deep.lend.chg5) >= 8) {
     behaviors.push({
