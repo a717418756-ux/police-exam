@@ -505,4 +505,87 @@ function renderMoveStage(D) {
       <div style="flex:1;text-align:center;background:var(--bg);border-radius:6px;padding:5px"><div style="font-size:9px;color:var(--muted)">量能</div><div style="font-family:var(--mono);font-size:12px;font-weight:700;color:${ms.volFade ? 'var(--sell)' : 'var(--buy)'}">${ms.volFade ? '衰竭' : '正常'}</div><div style="font-size:9px;color:var(--muted2)">後半vs前半</div></div>
     </div>
     <div style="font-size:10px;color:var(--muted2);margin-top:8px;line-height:1.6">💡 百分位基準＝此股自己2年的 ${ms.histCount} 段同向歷史波段（ZigZag/ATR自適應切分），非跨股通用門檻。尾端≠必反轉，是「風報比變差」——解決「方向判對但進場在訊號尾端」的問題。</div>`;
+
+  // 聯動：突破/拉回結構品質檢查（切入時機的具體化）
+  try {
+    const sq = typeof computeSetupQuality === 'function' ? computeSetupQuality(D) : null;
+    if (sq) {
+      let qh = '';
+      const block = (title, obj, extra) => {
+        let s = `<div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--bd)">
+          <div style="display:flex;justify-content:space-between;margin-bottom:5px"><span style="font-size:11px;font-weight:700">${title}</span><span style="font-family:var(--mono);font-size:12px;font-weight:700;color:${obj.passed >= 3 ? 'var(--buy)' : obj.passed === 2 ? 'var(--warn)' : 'var(--sell)'}">${obj.passed}/4 項通過</span></div>`;
+        obj.checks.forEach(ck => { s += `<div style="font-size:10px;color:${ck.ok ? 'var(--muted)' : 'var(--muted2)'};padding:1px 0">${ck.ok ? '✓' : '✗'} ${ck.txt}</div>`; });
+        if (extra) s += extra;
+        return s + `</div>`;
+      };
+      if (sq.breakout) qh += block(`📈 突破結構檢查（前高 ${fmt(sq.breakout.level)}）`, sq.breakout,
+        `<div style="font-size:9px;color:var(--muted2);margin-top:3px">3項以上＝結構乾淨的突破；≤2項＝假突破風險高（尤其無量），等回測站穩再說</div>`);
+      if (sq.pullback) qh += block(`🌀 拉回結構檢查（回檔 ${sq.pullback.retr.toFixed(0)}%）`, sq.pullback,
+        `<div style="font-size:9px;color:var(--muted2);margin-top:3px">3項以上＝健康拉回；切入觸發：帶量站回近5日高 <b style="font-family:var(--mono);color:var(--buy)">${fmt(sq.pullback.trigger)}</b>（未觸發前只等不搶）</div>`);
+      if (qh) document.getElementById('movestage-content').innerHTML += `<div style="font-size:9px;color:var(--muted2);margin-top:6px"></div>` + qh + `<div style="font-size:9px;color:var(--muted2);margin-top:4px">檢查清單＝可驗證的量價事實，非機率預測（未經校準的「可信度%」是假精確，本系統不產出）。</div>`;
+    }
+  } catch (e) {}
+}
+
+/* ══ 突破/拉回 結構品質檢查（誠實版：清單非機率）═══════════════════════
+   定位：回答「這次突破/這次拉回的『結構』乾不乾淨」——每項都是可驗證的
+   量價事實，合計 X/4 項通過。刻意不輸出「可信度%」：未經歷史校準的機率
+   數字＝假精確（本系統19年驗證教訓）。價位一律原始市價。
+   ════════════════════════════════════════════════════════════════════ */
+function computeSetupQuality(D) {
+  const c = D.rawCloses || D.closes, h = D.rawHighs || D.highs, l = D.rawLows || D.lows;
+  const cc = D.closes, v = D.volumes, n = c.length;
+  if (n < 65) return null;
+  const price = c[n - 1];
+  const vol20 = v.slice(-21, -1).reduce((a, b) => a + b, 0) / 20;
+  let atr = 0; for (let i = n - 14; i < n; i++) atr += Math.max(h[i] - l[i], Math.abs(h[i] - c[i - 1]), Math.abs(l[i] - c[i - 1]));
+  atr /= 14;
+
+  // ── 突破檢查：現價在近20日前高之上（不含今日）的2%內或已突破 ──
+  let breakout = null;
+  {
+    const hi20 = Math.max(...h.slice(n - 21, n - 1));
+    if (price > hi20 * 0.995) {   // 正在挑戰或已突破
+      const checks = [];
+      checks.push({ ok: v[n - 1] > vol20 * 1.5, txt: `量能 ${v[n-1] > 0 ? (v[n-1] / vol20).toFixed(1) : 0}×（需>1.5× 20日均量）` });
+      const range = h[n - 1] - l[n - 1] || 1;
+      checks.push({ ok: (c[n - 1] - l[n - 1]) / range > 0.6, txt: '收在當日振幅上半（收高=買方守住戰果）' });
+      checks.push({ ok: price - hi20 > atr * 0.5, txt: `突破幅度 ${(price - hi20).toFixed(2)}（需>0.5×ATR，貼著前高=易假突破）` });
+      // 站穩：突破後所有收盤未跌回前高之下（若今天才突破則此項=今日收盤過前高）
+      let firstBreak = n - 1;
+      for (let i = n - 2; i >= n - 6 && i >= 0; i--) { if (c[i] > hi20) firstBreak = i; else break; }
+      const held = c.slice(firstBreak).every(x => x > hi20);
+      checks.push({ ok: held && price > hi20, txt: firstBreak < n - 1 ? `突破後 ${n - 1 - firstBreak} 日站穩前高之上` : '今日突破（站穩需後續確認）' });
+      breakout = { level: hi20, passed: checks.filter(x => x.ok).length, checks };
+    }
+  }
+
+  // ── 拉回檢查：20日內創過60日高、現在回檔中（未創新高且高於前段起點）──
+  let pullback = null;
+  {
+    const hi60idx = h.slice(n - 60).reduce((best, x, i) => x > h[n - 60 + best] ? i : best, 0);
+    const peakI = n - 60 + hi60idx, peak = h[peakI];
+    if (peakI >= n - 20 && peakI < n - 2 && price < peak) {   // 近20日創高後回檔至少2天
+      // 前段起點：peak往前找最近的顯著低點
+      let baseI = peakI; for (let i = peakI - 1; i >= Math.max(0, peakI - 40); i--) { if (l[i] < l[baseI]) baseI = i; }
+      const legUp = peak - l[baseI];
+      if (legUp > 0) {
+        const retr = (peak - price) / legUp * 100;   // 回檔佔前段漲幅比例
+        const checks = [];
+        checks.push({ ok: retr < 50, txt: `回檔僅前段漲幅的 ${retr.toFixed(0)}%（<50%＝淺回，強勢特徵）` });
+        const upVol = v.slice(baseI, peakI + 1).reduce((a, b) => a + b, 0) / (peakI - baseI + 1);
+        const dnVol = v.slice(peakI + 1).reduce((a, b) => a + b, 0) / (n - peakI - 1);
+        checks.push({ ok: dnVol < upVol * 0.75, txt: `回檔量縮至上漲段的 ${(dnVol / upVol * 100).toFixed(0)}%（<75%＝賣壓輕）` });
+        const ma20 = cc.slice(-20).reduce((a, b) => a + b, 0) / 20;
+        checks.push({ ok: D.price > ma20, txt: '守住20日均線（趨勢結構未破壞）' });
+        const recentRange = (h[n - 1] - l[n - 1] + h[n - 2] - l[n - 2]) / 2;
+        const peakRange = (h[peakI] - l[peakI] + h[peakI - 1] - l[peakI - 1]) / 2;
+        checks.push({ ok: recentRange < peakRange, txt: 'K棒振幅收斂（波動冷卻，非恐慌出逃）' });
+        const trig = Math.max(...h.slice(-5));
+        pullback = { retr, passed: checks.filter(x => x.ok).length, checks, trigger: trig };
+      }
+    }
+  }
+  if (!breakout && !pullback) return null;
+  return { breakout, pullback };
 }
