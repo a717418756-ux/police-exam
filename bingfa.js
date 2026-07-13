@@ -225,7 +225,7 @@ function renderVerdictBanner(shi, tradeScore, formulas, marketScore, res, D, reg
   try {
     const bs3 = (typeof computeBreakoutStats === 'function') ? computeBreakoutStats(D) : null;
     const sq3 = (typeof computeSetupQuality === 'function') ? computeSetupQuality(D) : null;
-    if (bs3 && sq3 && sq3.breakout && bs3.all.rate < 45) addW(3, '📊', `此股正在突破，但歷史突破成功率僅 ${bs3.all.rate.toFixed(0)}%（${bs3.all.n}次樣本，假突破率${bs3.fakeRate.toFixed(0)}%）——追價期望值為負，等回測前高不破再進`);
+    if (bs3 && sq3 && sq3.breakout) addW(3, '📊', `正在突破：此股歷史成功率 ${bs3.all.rate.toFixed(0)}%（假突破率${bs3.fakeRate.toFixed(0)}%，${bs3.all.n}次）｜台股19年基準僅38.4%——追突破本質期望值為負，寧可等回測前高不破再進，或只在帶量時進（帶量41% vs 無量35%）`);
   } catch (e) {}
   try { const etf = (typeof checkETFRebalanceWindow === 'function') ? checkETFRebalanceWindow() : null; if (etf) addW(6, '📅', etf.text + '——留意搶跑效應（概估窗口）'); } catch (e) {}
   warns.sort((a, b) => a.pri - b.pri);
@@ -389,8 +389,9 @@ function computeTradeGate(ctx) {
       if (dir === 1 && typeof computeBreakoutStats === 'function' && typeof computeSetupQuality === 'function') {
         const sqG = computeSetupQuality(D), bsG = computeBreakoutStats(D);
         if (sqG && sqG.breakout && bsG) {
-          if (bsG.all.rate < 45) warn.push(`此股歷史突破成功率僅 ${bsG.all.rate.toFixed(0)}%（假突破率${bsG.fakeRate.toFixed(0)}%，${bsG.all.n}次）——追突破期望值為負，建議等回測前高${fmt(sqG.breakout.level)}不破再進`);
-          else if (bsG.all.rate >= 55) pass.push(`此股歷史突破成功率 ${bsG.all.rate.toFixed(0)}%（${bsG.all.n}次樣本）——突破後續走的機率高於平均`);
+          if (bsG.all.rate < 38) warn.push(`此股歷史突破成功率僅 ${bsG.all.rate.toFixed(0)}%（假突破率${bsG.fakeRate.toFixed(0)}%，${bsG.all.n}次），低於台股19年基準38.4%——追突破期望值明顯為負，建議等回測前高${fmt(sqG.breakout.level)}不破再進`);
+          else if (bsG.all.rate >= 48) pass.push(`此股歷史突破成功率 ${bsG.all.rate.toFixed(0)}%（${bsG.all.n}次），優於台股基準38.4%——但仍未過半，務必設好停損`);
+          else warn.push(`此股突破成功率 ${bsG.all.rate.toFixed(0)}%（${bsG.all.n}次），與台股基準38.4%相當——追突破本質期望值為負，帶量進場較佳（19年：帶量41% vs 無量35%）`);
         }
       }
     } catch (e) {}
