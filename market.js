@@ -47,6 +47,19 @@ function renderMarket(m) {
     else { desc = `PCR ${pcr.toFixed(0)}%，選擇權多空情緒中性`; }
     boxes.push({ cls: tone, label: '⚖️ PCR 賣權買權比(未平倉)', value: `${pcr.toFixed(0)}%`, valCls: tone === 'good' ? 'buy' : 'warn', sub: desc });
   }
+  // 類股廣度（假強/假弱偵測：指數與廣度背離）
+  const bw = (m.tw && m.tw.breadth) ? m.tw.breadth : null;
+  if (bw && bw.total) {
+    const upPct = Math.round(bw.up / bw.total * 100);
+    const idxChg = (m.tw && m.tw.index && m.tw.index.changePct != null) ? m.tw.index.changePct : null;
+    let tone = '', desc = `${bw.total}個類股：漲${bw.up}／跌${bw.dn}${bw.flat ? '／平' + bw.flat : ''}`;
+    if (idxChg != null && idxChg > 0.3 && upPct < 40) { tone = ''; desc += `——⚠️ 加權漲但僅${upPct}%類股上漲＝權值股獨撐的「假強」，中小型普跌，追多風險高`; }
+    else if (idxChg != null && idxChg < -0.3 && upPct > 60) { tone = 'good'; desc += `——加權跌但${upPct}%類股上漲＝權值股拖累的「假弱」，個股其實偏強`; }
+    else if (upPct >= 65) { tone = 'good'; desc += `——普漲格局，市場參與度健康`; }
+    else if (upPct <= 35) { desc += `——普跌格局，弱勢環境少做多`; }
+    else { tone = 'warn'; desc += `——漲跌參半，個股行情重於指數`; }
+    boxes.push({ cls: tone, label: '📊 類股廣度', value: `${upPct}% 上漲`, valCls: upPct >= 55 ? 'buy' : upPct <= 45 ? 'sell' : 'warn', sub: desc });
+  }
   // 美股隔夜
   const usItem = (label, icon, d, note) => {
     if (!d) return;

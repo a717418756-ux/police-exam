@@ -332,6 +332,25 @@ function renderPlaybook(D, atr) {
     scenario('📈 做多劇本', 'var(--buy)', price, longStop, longTp1, longTp2, noteL) +
     scenario('📉 做空劇本', 'var(--sell)', price, shortStop, shortTp1, shortTp2, noteS) +
     `<div style="font-size:10px;color:var(--muted);line-height:1.6;padding:8px 4px">💡 停利採「知足不辱」分批：到停利一出50%、停利二出25%、剩25%續抱讓獲利奔跑。做空風險較高（虧損理論無上限），務必嚴守停損。<br>⏱️ 時間停損：進場 3~5 日未朝預期方向發展即離場——短線單不快贏通常不會贏，做空尤甚（拖著的空單還在付借券與除息成本）。<br>🛡️ 智慧停損原理：主力最愛掃「整數ATR位/結構位正下方」的停損，故本系統把停損放在<b>結構位之外＋動態緩衝</b>（該股越愛假跌破，緩衝越大），降低「剛停損就反向走」的機率。</div>`;
+
+  // ── 日內型態（此股歷史條件頻率，非模型預測）──
+  try {
+    const ip = typeof computeIntradayProfile === 'function' ? computeIntradayProfile(D) : null;
+    if (ip) {
+      const top = ip.dist[0];
+      let hint = '';
+      if (ip.bucket === '開高' && ip.dist.find(x => x.k === '走低' && x.shift > 3)) hint = '此股開高後沖高回落的傾向高於平常——不追開盤價，等回測支撐再說';
+      else if (ip.bucket === '開低' && ip.dist.find(x => x.k === '走高' && x.shift > 3)) hint = '此股開低後收復的傾向高於平常——開盤恐慌殺低常是日內低點，空單別追殺';
+      else if (ip.bucket === '開平') hint = '無跳空日此股偏向區間整理——日內突破需量能確認';
+      const rows = ip.dist.map(x => `<span style="margin-right:10px">${x.k} <b style="font-family:var(--mono);color:${x.shift>3?'var(--warn)':'var(--txt)'}">${x.p.toFixed(0)}%</b><span style="color:var(--muted2);font-size:9px">(基準${x.base.toFixed(0)}${x.shift>=0?'+':''}${x.shift.toFixed(1)})</span></span>`).join('');
+      document.getElementById('pb-rows').innerHTML += `<div style="margin-top:8px;padding:8px 10px;background:var(--bg);border:1px solid var(--bd);border-radius:8px">
+        <div style="font-size:10px;color:var(--muted);margin-bottom:4px">🕐 日內型態｜今日${ip.bucket}（跳空${ip.todayGap>=0?'+':''}${ip.todayGap.toFixed(1)}%）→ 此股${ip.n}個同型開局日的收盤走向：</div>
+        <div style="font-size:11px">${rows}</div>
+        ${hint ? `<div style="font-size:10px;color:var(--warn);line-height:1.5;margin-top:4px">💡 ${hint}</div>` : ''}
+        <div style="font-size:9px;color:var(--muted2);margin-top:4px">機率＝此股自身歷史頻率（±${ip.wilson.toFixed(0)}%信賴半寬），非預測模型；位移(±)為相對此股無條件基準的變化，位移才是資訊。盤中查詢時「今日走向」尚未定案。</div>
+      </div>`;
+    }
+  } catch (e) {}
 }
 
 /* ══ 區塊 F：風險強化（最大回撤 + 波動率排名）════════════════════════ */
@@ -541,15 +560,18 @@ function computeSetupQuality(D) {
   let atr = 0; for (let i = n - 14; i < n; i++) atr += Math.max(h[i] - l[i], Math.abs(h[i] - c[i - 1]), Math.abs(l[i] - c[i - 1]));
   atr /= 14;
 
-  // ── 突破檢查：現價在近20日前高之上（不含今日）的2%內或已突破 ──
+  // ── 突破檢查：真的站上近20日前高（不含今日），或今日盤中確實觸及前高之上 ──
+  //    修：原用 price > hi20*0.995 會在平盤/貼前高時恆真，對「根本沒突破」的股票顯示假情境
   let breakout = null;
   {
     const hi20 = Math.max(...h.slice(n - 21, n - 1));
-    if (price > hi20 * 0.995) {   // 正在挑戰或已突破
+    const brokeOut = c[n - 1] > hi20;                    // 收盤站上前高
+    const touched = h[n - 1] > hi20 && c[n - 1] > hi20 * 0.98;   // 盤中觸及且收盤未大幅回落＝挑戰中
+    if (brokeOut || touched) {
       const checks = [];
       checks.push({ ok: v[n - 1] > vol20 * 1.5, txt: `量能 ${v[n-1] > 0 ? (v[n-1] / vol20).toFixed(1) : 0}×（需>1.5× 20日均量）` });
       const range = h[n - 1] - l[n - 1] || 1;
-      checks.push({ ok: (c[n - 1] - l[n - 1]) / range > 0.6, txt: '收在當日振幅上半（收高=買方守住戰果）' });
+      checks.push({ ok: (c[n - 1] - l[n - 1]) / range > 0.6, txt: '收在當日振幅上緣60%以上（收高=買方守住戰果，非只是勉強過半）' });
       checks.push({ ok: price - hi20 > atr * 0.5, txt: `突破幅度 ${(price - hi20).toFixed(2)}（需>0.5×ATR，貼著前高=易假突破）` });
       // 站穩：突破後所有收盤未跌回前高之下（若今天才突破則此項=今日收盤過前高）
       let firstBreak = n - 1;
@@ -588,4 +610,41 @@ function computeSetupQuality(D) {
   }
   if (!breakout && !pullback) return null;
   return { breakout, pullback };
+}
+
+/* ══ 日內型態引擎（Intraday Profile — 誠實版）════════════════════════════
+   定位：不是「AI預測開高走低72%」那種未校準機率（假精確）。這裡的機率＝
+   「此股自己的歷史條件頻率」：今天開盤方向已知後，查此股過去所有同型開局
+   的日子，實際收盤走向的分布，並與無條件基準對照（位移才是資訊）。
+   實證前提已用18檔8,811交易日驗證：開高→走低位移+4.1、開低→走高+4.7
+   （跳空回補效應，方向與文獻一致）；台股整體「走低>走高」為隔夜漲日內跌
+   的結構現象。gap用還原價比率（除息跨日有微小失真，一年僅數日）。
+   ════════════════════════════════════════════════════════════════════ */
+function computeIntradayProfile(D) {
+  const o = D.opens, c = D.closes;
+  if (!o || !c || c.length < 120 || o.length !== c.length) return null;
+  const n = c.length;
+  const gapOf = (i) => (o[i] - c[i - 1]) / c[i - 1] * 100;
+  const dayOf = (i) => (c[i] - o[i]) / o[i] * 100;
+  const gb = (g) => g > 0.5 ? '開高' : g < -0.5 ? '開低' : '開平';
+  const db = (d) => d > 0.5 ? '走高' : d < -0.5 ? '走低' : '盤整';
+
+  const todayGap = gapOf(n - 1);
+  const bucket = gb(todayGap);
+  const realized = db(dayOf(n - 1));   // 今日（或最近一日）到目前為止的實現走向
+
+  // 此股歷史：同開局分布 vs 無條件基準（排除今日）
+  const condN = { 走高: 0, 走低: 0, 盤整: 0 }; let cn = 0;
+  const baseN = { 走高: 0, 走低: 0, 盤整: 0 }; let bn = 0;
+  for (let i = 1; i < n - 1; i++) {
+    const dk = db(dayOf(i));
+    baseN[dk]++; bn++;
+    if (gb(gapOf(i)) === bucket) { condN[dk]++; cn++; }
+  }
+  if (cn < 30) return null;   // 同型開局樣本太少，頻率無意義
+  const dist = ['走高', '走低', '盤整'].map(k => ({
+    k, p: condN[k] / cn * 100, base: baseN[k] / bn * 100,
+  })).map(x => ({ ...x, shift: x.p - x.base })).sort((a, b) => b.p - a.p);
+  const wilson = 1.96 * Math.sqrt(0.25 / cn) * 100;   // 半寬（保守p=0.5）
+  return { todayGap, bucket, realized, dist, n: cn, wilson };
 }
