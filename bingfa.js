@@ -222,6 +222,11 @@ function renderVerdictBanner(shi, tradeScore, formulas, marketScore, res, D, reg
       }
     }
   } catch (e) {}
+  try {
+    const bs3 = (typeof computeBreakoutStats === 'function') ? computeBreakoutStats(D) : null;
+    const sq3 = (typeof computeSetupQuality === 'function') ? computeSetupQuality(D) : null;
+    if (bs3 && sq3 && sq3.breakout && bs3.all.rate < 45) addW(3, '📊', `此股正在突破，但歷史突破成功率僅 ${bs3.all.rate.toFixed(0)}%（${bs3.all.n}次樣本，假突破率${bs3.fakeRate.toFixed(0)}%）——追價期望值為負，等回測前高不破再進`);
+  } catch (e) {}
   try { const etf = (typeof checkETFRebalanceWindow === 'function') ? checkETFRebalanceWindow() : null; if (etf) addW(6, '📅', etf.text + '——留意搶跑效應（概估窗口）'); } catch (e) {}
   warns.sort((a, b) => a.pri - b.pri);
 
@@ -366,7 +371,7 @@ function computeTradeGate(ctx) {
       else warn.push('共振中性：維度分歧，等更明確');
     }
     // R4 順公式（你的實戰數據教訓）
-    if (dir === 1 && fusion >= 40) warn.push(`FUSION極強區（+${fusion}）：19年75,056樣本驗證，極端強勢後5日上漲率反低於基準（α-2.7）——動能極端≠續漲，不給多單加分，防追高`);
+    if (dir === 1 && fusion >= 40) warn.push(`FUSION極強區（+${fusion}）：19年116,759樣本驗證，極端強勢後5日上漲率反低於基準（α-2.5）——動能極端≠續漲，不給多單加分，防追高`);
     else if (dir === -1 && fusion <= -40) warn.push(`FUSION極弱區（${fusion}）：19年驗證此區後5日51%反而上漲——不給空單加分，防追殺低點`);
     else if ((dir === 1 && fusion >= 20) || (dir === -1 && fusion <= -20)) pass.push(`順公式（FUSION ${fusion >= 0 ? '+' : ''}${fusion}）`);
     else if ((dir === 1 && fusion <= -20) || (dir === -1 && fusion >= 20)) fail.push(`逆公式（FUSION ${fusion >= 0 ? '+' : ''}${fusion}）：你的實戰統計顯示逆公式進場 MAE 深 2~4 倍`);
@@ -379,6 +384,16 @@ function computeTradeGate(ctx) {
       else pass.push('非擁擠明牌（人少的一邊，訊號含金量高）');
     }
     // R6 方向限定風險
+    // 突破統計聯動：追突破前先看此股歷史成功率（False Breakout Database）
+    try {
+      if (dir === 1 && typeof computeBreakoutStats === 'function' && typeof computeSetupQuality === 'function') {
+        const sqG = computeSetupQuality(D), bsG = computeBreakoutStats(D);
+        if (sqG && sqG.breakout && bsG) {
+          if (bsG.all.rate < 45) warn.push(`此股歷史突破成功率僅 ${bsG.all.rate.toFixed(0)}%（假突破率${bsG.fakeRate.toFixed(0)}%，${bsG.all.n}次）——追突破期望值為負，建議等回測前高${fmt(sqG.breakout.level)}不破再進`);
+          else if (bsG.all.rate >= 55) pass.push(`此股歷史突破成功率 ${bsG.all.rate.toFixed(0)}%（${bsG.all.n}次樣本）——突破後續走的機率高於平均`);
+        }
+      }
+    } catch (e) {}
     // 溫度計整合：訊號尾端追單=風報比最差的進場（2885追高/2313追空的量化教訓，v64真實資料驗證）
     try {
       if (typeof computeMoveStage === 'function') {
@@ -397,8 +412,8 @@ function computeTradeGate(ctx) {
       if (typeof computeIntentAnalysis === 'function') {
         try {
           const it = computeIntentAnalysis(D, formulas, mf);
-          if (it && it.verdict === '洗盤' && it.confidence >= 50) warn.push(`意圖研判「洗盤」結構(信心${it.confidence})：量價顯示有承接痕跡。19年5055事件驗證此判定無方向預測力(α≈0)，但結構上做空需防被掃後軋，停損放寬`);
-          else if (it && it.verdict === '出貨' && it.confidence >= 50) warn.push(`意圖研判「出貨」結構(信心${it.confidence})：⚠️ 19年999事件驗證，此判定後5日僅46%真的下跌(α-4，反指標傾向)——不可作為做空依據，僅代表量價結構弱`);
+          if (it && it.verdict === '洗盤' && it.confidence >= 50) warn.push(`意圖研判「洗盤」結構(信心${it.confidence})：量價顯示有承接痕跡。19年5,111事件驗證此判定無方向預測力(α≈0，籌碼/環境分層亦無分化)，但結構上做空需防被掃後軋，停損放寬`);
+          else if (it && it.verdict === '出貨' && it.confidence >= 50) warn.push(`意圖研判「出貨」結構(信心${it.confidence})：⚠️ 19年1,509事件驗證，此判定後5日僅47%真的下跌(反指標傾向，法人同步賣超時更易反彈)——不可作為做空依據，僅代表量價結構弱`);
         } catch (e) {}
       }
     } else {
@@ -577,7 +592,7 @@ function computeBehaviorSynthesis(ctx) {
   try { if (typeof computeIntentAnalysis === 'function' && mf) intent = computeIntentAnalysis(D, formulas, mf); } catch (e) {}
   if (intent && intent.confidence > 0) {
     // ── 逐股α閘控（v75核心）：此判定在「這支股票」的歷史α決定它有沒有方向投票權 ──
-    // 依據：19年16檔5055事件驗證，意圖判定的方向α全體接近0且逐股異質性大（-14~+18），
+    // 依據：19年24檔7,908事件驗證，意圖判定的方向α全體接近0（籌碼/環境條件分層亦無分化）且逐股異質性大（-13~+20），
     // 全域方向投票已無正當性；改為逐股實證——α經貝氏收縮（James-Stein，Efron & Morris 1975）
     // 防小樣本誤判：shrunkα = α × n/(n+20)，樣本越少越往0收縮。shrunkα≥2 才保留方向票。
     let intentDir = intent.dir === 'up' ? 1 : intent.dir === 'down' ? -1 : intent.dir === 'bounce' ? 1 : 0;

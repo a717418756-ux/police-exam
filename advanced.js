@@ -294,7 +294,12 @@ function renderSupportResistance(sr, D) {
             <div style="font-size:10px;color:var(--muted);line-height:1.55;margin-top:2px">${p.note}</div>
           </div>`;
         });
-        html3 += `<div style="font-size:9px;color:var(--muted2);line-height:1.5">線位=可下單的具體價位（突破觸發/停損擺放），非方向預測（19年5055事件已證純價格方向訊號α≈0）。人人看得到的線=停損聚集區，突破/跌破常先掃停損，等回測確認更穩。</div></div>`;
+        let fbTxt = '';
+        try {
+          const bs2 = typeof computeBreakoutStats === 'function' ? computeBreakoutStats(D) : null;
+          if (bs2) fbTxt = `<br>📊 此股歷史突破成功率 <b style="color:${bs2.all.rate < 50 ? 'var(--sell)' : 'var(--buy)'}">${bs2.all.rate.toFixed(0)}%</b>（假突破率 ${bs2.fakeRate.toFixed(0)}%，${bs2.all.n}次樣本）——線位突破後未必走出去，這是此股自己的紀錄。`;
+        } catch (e3) {}
+        html3 += `<div style="font-size:9px;color:var(--muted2);line-height:1.5">線位=可下單的具體價位（突破觸發/停損擺放），非方向預測（19年7,908事件已證純價格方向訊號α≈0）。人人看得到的線=停損聚集區，突破/跌破常先掃停損，等回測確認更穩。${fbTxt}</div></div>`;
         document.getElementById('sr-content').innerHTML += html3;
       }
     }

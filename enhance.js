@@ -537,8 +537,21 @@ function renderMoveStage(D) {
         if (extra) s += extra;
         return s + `</div>`;
       };
-      if (sq.breakout) qh += block(`📈 突破結構檢查（前高 ${fmt(sq.breakout.level)}）`, sq.breakout,
-        `<div style="font-size:9px;color:var(--muted2);margin-top:3px">3項以上＝結構乾淨的突破；≤2項＝假突破風險高（尤其無量），等回測站穩再說</div>`);
+      if (sq.breakout) {
+        let bkNote = '';
+        try {
+          const bs = typeof computeBreakoutStats === 'function' ? computeBreakoutStats(D) : null;
+          if (bs) {
+            const col = bs.all.rate >= 55 ? 'var(--buy)' : bs.all.rate <= 45 ? 'var(--sell)' : 'var(--warn)';
+            bkNote = `<div style="margin-top:5px;padding:6px 8px;background:${col}10;border:1px dashed ${col};border-radius:6px;font-size:10px;color:var(--muted);line-height:1.55">
+              📊 <b>此股歷史突破統計</b>：過去 ${bs.all.n} 次站上前高，<b style="color:${col}">成功率 ${bs.all.rate.toFixed(0)}%</b>（±${bs.all.ci.toFixed(0)}%）→ <b>假突破率 ${bs.fakeRate.toFixed(0)}%</b>
+              ${bs.vol && bs.novol ? `<br>帶量突破 ${bs.vol.rate.toFixed(0)}%(${bs.vol.n}次) vs 無量 ${bs.novol.rate.toFixed(0)}%(${bs.novol.n}次)` : ''}
+              ${bs.all.rate < 50 ? '<br>⚠️ 此股突破成功率低於五成——追突破期望值為負，寧可等回測支撐不破再進' : ''}</div>`;
+          }
+        } catch (e2) {}
+        qh += block(`📈 突破結構檢查（前高 ${fmt(sq.breakout.level)}）`, sq.breakout,
+          `<div style="font-size:9px;color:var(--muted2);margin-top:3px">清單為可驗證的量價事實；成功率請以下方「此股歷史統計」為準（機率＝該股自身頻率，非模型預測）</div>` + bkNote);
+      }
       if (sq.pullback) qh += block(`🌀 拉回結構檢查（回檔 ${sq.pullback.retr.toFixed(0)}%）`, sq.pullback,
         `<div style="font-size:9px;color:var(--muted2);margin-top:3px">3項以上＝健康拉回；切入觸發：帶量站回近5日高 <b style="font-family:var(--mono);color:var(--buy)">${fmt(sq.pullback.trigger)}</b>（未觸發前只等不搶）</div>`);
       if (qh) document.getElementById('movestage-content').innerHTML += `<div style="font-size:9px;color:var(--muted2);margin-top:6px"></div>` + qh + `<div style="font-size:9px;color:var(--muted2);margin-top:4px">檢查清單＝可驗證的量價事實，非機率預測（未經校準的「可信度%」是假精確，本系統不產出）。</div>`;
@@ -569,7 +582,7 @@ function computeSetupQuality(D) {
     const touched = h[n - 1] > hi20 && c[n - 1] > hi20 * 0.98;   // 盤中觸及且收盤未大幅回落＝挑戰中
     if (brokeOut || touched) {
       const checks = [];
-      checks.push({ ok: v[n - 1] > vol20 * 1.5, txt: `量能 ${v[n-1] > 0 ? (v[n-1] / vol20).toFixed(1) : 0}×（需>1.5× 20日均量）` });
+      checks.push({ ok: v[n - 1] > vol20 * 1.5, txt: `量能 ${v[n-1] > 0 ? (v[n-1] / vol20).toFixed(1) : 0}×20日均量（放量代表關注度，但實測「帶量突破較可靠」未獲支持——見下方此股統計）` });
       const range = h[n - 1] - l[n - 1] || 1;
       checks.push({ ok: (c[n - 1] - l[n - 1]) / range > 0.6, txt: '收在當日振幅上緣60%以上（收高=買方守住戰果，非只是勉強過半）' });
       checks.push({ ok: price - hi20 > atr * 0.5, txt: `突破幅度 ${(price - hi20).toFixed(2)}（需>0.5×ATR，貼著前高=易假突破）` });
@@ -647,4 +660,55 @@ function computeIntradayProfile(D) {
   })).map(x => ({ ...x, shift: x.p - x.base })).sort((a, b) => b.p - a.p);
   const wilson = 1.96 * Math.sqrt(0.25 / cn) * 100;   // 半寬（保守p=0.5）
   return { todayGap, bucket, realized, dist, n: cn, wilson };
+}
+
+/* ══ 逐股突破統計引擎（False Breakout Database 的正面表述）═══════════════
+   回答：「這支股票的突破，歷史上有多少比例真的走出去？」
+   機率＝該股自身歷史頻率（同 smartStop 假跌破率、日內型態的方法論），
+   非模型預測，附樣本數與信賴半寬。定義（避免主觀）：
+     突破事件＝收盤站上「前20日最高」（前一日尚未站上，取首次）
+     成功＝突破後5日內，收盤未跌回突破日的前高之下，且最高價曾再漲>1×ATR
+     失敗（假突破）＝5日內收盤跌破前高
+   同時分「帶量(>1.5倍20日均量)」與「無量」兩組——量能是否真的有鑑別力，
+   讓此股自己的資料回答，不預設立場。全部使用原始市價。
+   ════════════════════════════════════════════════════════════════════ */
+function computeBreakoutStats(D) {
+  const c = D.rawCloses || D.closes, h = D.rawHighs || D.highs, l = D.rawLows || D.lows;
+  const v = D.volumes, n = c.length;
+  if (n < 150) return null;
+  const H = 5;
+  const grp = { all: { n: 0, win: 0 }, vol: { n: 0, win: 0 }, novol: { n: 0, win: 0 } };
+  let lastEvent = -99;
+  for (let i = 25; i < n - H; i++) {
+    const hi20 = Math.max(...h.slice(i - 20, i));
+    if (c[i] <= hi20) continue;               // 今日未站上前高
+    if (c[i - 1] > hi20) continue;            // 昨日已站上＝非首次突破
+    if (i - lastEvent < 5) continue;          // 同一波突破去重
+    lastEvent = i;
+    // ATR（事件當時）
+    let atr = 0;
+    for (let k = i - 13; k <= i; k++) atr += Math.max(h[k] - l[k], Math.abs(h[k] - c[k - 1]), Math.abs(l[k] - c[k - 1]));
+    atr /= 14;
+    // 成功判定：5日內未收破前高，且曾再漲>1×ATR
+    let held = true, extended = false;
+    for (let k = i + 1; k <= i + H && k < n; k++) {
+      if (c[k] < hi20) { held = false; break; }
+      if (h[k] > c[i] + atr) extended = true;
+    }
+    const win = (held && extended) ? 1 : 0;
+    const vol20 = v.slice(i - 20, i).reduce((a, b) => a + b, 0) / 20;
+    const heavy = vol20 > 0 && v[i] > vol20 * 1.5;
+    grp.all.n++; grp.all.win += win;
+    const g = heavy ? grp.vol : grp.novol;
+    g.n++; g.win += win;
+  }
+  if (grp.all.n < 8) return null;   // 樣本太少不報（避免小樣本假規律，本專案三次教訓）
+  const rate = (g) => g.n ? g.win / g.n * 100 : null;
+  const ci = (g) => g.n ? 1.96 * Math.sqrt(0.25 / g.n) * 100 : null;
+  return {
+    all: { n: grp.all.n, rate: rate(grp.all), ci: ci(grp.all) },
+    vol: grp.vol.n >= 5 ? { n: grp.vol.n, rate: rate(grp.vol), ci: ci(grp.vol) } : null,
+    novol: grp.novol.n >= 5 ? { n: grp.novol.n, rate: rate(grp.novol), ci: ci(grp.novol) } : null,
+    fakeRate: 100 - rate(grp.all),
+  };
 }
