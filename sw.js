@@ -2,6 +2,14 @@
    sw.js — Service Worker
    ★ 版本號從 config.js 的 APP_VERSION 自動帶入（importScripts）
      改版只需改 config.js 一個地方，這裡會自動破舊快取
+   ──────────────────────────────────────────────────────────────────
+   ⚠️ 已知地雷／注意事項：
+     - API網域必須列在快取排除清單，否則Service Worker會把股票資料
+       當靜態資源快取住，導致使用者永遠看到查詢當下那一刻的舊資料
+       （曾發生：.workers.dev、finmindtrade.com「先前遺漏」造成資料
+       不更新的bug，已修復並在程式內註解標註）
+     - 新增任何後端資料來源網域（例如未來加TWSE直連），務必同步把
+       該網域加進此檔的排除清單，這是交付前檢查清單項目之一
    ══════════════════════════════════════════════════════════════════════ */
 importScripts('./config.js');
 
@@ -26,9 +34,18 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   const u = e.request.url;
-  // 動態資料（GAS / Yahoo / 期交所 / API）一律走網路，不快取
-  if (u.includes('script.google.com') || u.includes('googleusercontent') ||
-      u.includes('anthropic') || u.includes('yahoo') ||
-      u.includes('twse') || u.includes('tpex') || u.includes('taifex')) return;
+  // 動態資料一律走網路，不快取（否則查詢結果會被瀏覽器當成靜態資源鎖死，永遠拿到舊資料）
+  // 這行清單必須涵蓋所有可能的查詢後端網域，遺漏任何一個都會導致該來源的資料被誤快取
+  if (
+    e.request.method !== 'GET' ||                    // 非GET一律不碰（POST如雲端備份）
+    u.includes('script.google.com') ||                // GAS 備份/查詢後端
+    u.includes('googleusercontent') ||
+    u.includes('.workers.dev') ||                      // Cloudflare Workers 查詢後端（先前遺漏，是舊資料的主因）
+    u.includes('anthropic') ||
+    u.includes('yahoo') ||                              // Yahoo Finance K線
+    u.includes('twse') || u.includes('tpex') ||        // 證交所/櫃買中心
+    u.includes('taifex') ||                             // 期交所
+    u.includes('finmindtrade.com')                     // FinMind 主力縱深（先前遺漏）
+  ) return;
   e.respondWith(caches.match(e.request).then(c => c || fetch(e.request)));
 });

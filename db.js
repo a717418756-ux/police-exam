@@ -2,6 +2,21 @@
    db.js — 本地 IndexedDB 儲存 + GAS 雲端雙向同步
    依賴：config.js（APP_VERSION）
    schema 改變時，DB_VERSION 會跟著 APP_VERSION 自動升（無需手改）
+   ──────────────────────────────────────────────────────────────────
+   函式清單：
+     openDB                    — 開啟/建立IndexedDB連線
+     dbSetSetting/dbGetSetting  — 設定值存取
+     dbAddTrade/dbDeleteTrade/dbGetAllTrades — 交易日誌CRUD
+     computeStats                — 基礎統計（勝率/期望值，供凱利公式）
+     computeAdvancedStats        — 進階統計（Wilson信賴區間/處分效應等）
+     exportBackup/importBackup    — 全量備份匯出入（跨裝置搬家用）
+   ⚠️ 已知地雷／注意事項：
+     - computeStats只用真實單（trade.sim=false）算勝率，模擬單刻意排除，
+       避免污染凱利公式回填的真實勝率——這是「AI協作交接提示詞.md」裡
+       明訂的資料流鐵律，勿改成把模擬單也納入統計
+     - DB_VERSION隨APP_VERSION自動升級會觸發IndexedDB的onupgradeneeded，
+       若新增object store或索引，須在openDB內對應版本號區塊寫遷移邏輯，
+       否則舊資料庫的使用者升級後可能讀不到新欄位
    ══════════════════════════════════════════════════════════════════════ */
 
 const DB_NAME = 'stockRadarDB';

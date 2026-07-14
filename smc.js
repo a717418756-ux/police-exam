@@ -5,6 +5,20 @@
    B. BOS 結構突破 / CHoCH 性格轉變（聰明錢結構，純數學）
    C. 過熱反指標（用硬數據抓「新聞狂熱」效果，比抓新聞可靠）
    依賴：app.js($/fmt)、formula.js
+   ──────────────────────────────────────────────────────────────────
+   函式清單：
+     computeVWAP          — 移動成交量加權均價
+     computeStructure      — BOS結構突破/CHoCH性格轉變（供意圖引擎Wyckoff測試引用）
+     computeLiquidityPools — 流動性池（潛在停損聚集區，與圖形線位概念相近）
+     computeOverheat        — 過熱反指標
+     renderSMC              — 卡片渲染
+   ⚠️ 已知地雷／注意事項：
+     - computeStructure的BOS/CHoCH判定被mainforce.js意圖引擎引用作為
+       Wyckoff測試證據之一，修改突破/跌破的判定邏輯會連動影響主力
+       行為分類，建議改動後重跑意圖引擎的合成情境測試
+     - computeLiquidityPools與advanced.js的computeChartPatterns概念
+       重疊（皆為潛在停損聚集區），若要合併須先確認兩者的觸碰容差
+       定義是否一致，避免同一價位算出兩種不同的「聚集區」結論
    ══════════════════════════════════════════════════════════════════════ */
 
 /* ══ A. VWAP 移動成交量加權均價 ════════════════════════════════════════

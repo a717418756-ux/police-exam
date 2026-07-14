@@ -12,6 +12,42 @@
    ⑦ 觀勢 → 勢能分數：趨勢40%+籌碼30%+量20%+產業10%
    ⑧ 分級 → 勢能 ≥80 A級、70~80 B級、60~70 C級
    依賴：app.js(sma/calcDMI/$/fmt)、advanced.js(RS)、formula.js
+   ──────────────────────────────────────────────────────────────────
+   函式清單（依出現順序）：
+     computeShiPower                  — 勢能分數（趨勢/籌碼/量/產業）
+     computeTradeScore                — 交易評分（進場時機）
+     renderVerdictBanner              — ★決策橫幅：全系統警示彙整出口
+                                         (D/regime/mtf 為必要參數，勿省略)
+     computeBehaviorSynthesis         — 行為推理鏈：指標→行為→走向
+                                         三層推理；主力意圖投票經逐股α閘控
+                                         (group欄位標記共線證據，同組同向
+                                         第二票折半，見votes計算段)
+     renderTradeGate / 出手紀律門       — R1~R6七道關卡；R6含突破統計聯動
+     renderPlaybook相關（見mainforce.js）
+   ──────────────────────────────────────────────────────────────────
+   近期版本異動（供排雷定位用）：
+     v60  共線折減機制（同group同向第二票×0.5）
+     v75  主力意圖投票改「逐股α閘控」：computeIntentBacktest算此股α，
+          貝氏收縮(James-Stein)後shrunkα≥2才保留方向票，否則dir=0僅列
+          結構參考。此邏輯若被覆寫會讓已證偽的方向訊號重新投票，須小心
+     v76  出貨/洗盤紀律門文字改為警告(非fail)，FUSION極端區除權(不再加分)
+     v78  ★大整合：renderVerdictBanner簽名擴為8參數含D/regime/mtf；
+          修復潛伏雷「舊版空方分支引用未定義變數D」（生產環境曾靜默失效）
+     v80  五條聯動：線位→橫幅、當沖→擁擠度、自營自行→行為鏈投票、
+          停損×線位重疊偵測、deep到達補繪擁擠雷達
+     v87  突破統計(computeBreakoutStats)接入R6紀律門 + 橫幅
+     v89  突破統計跨市場分離：非台股(isTW=false)不套用台股38.4%基準，
+          否則會對美股股票錯誤外推台股統計結論
+     v90  橫幅與紀律門突破警示門檻對齊(48%)，避免同股同時被pass又warn；
+          支撐壓力卡的重複假突破數字移除，改指向溫度計卡（單一真相來源）
+   ⚠️ 已知地雷／注意事項：
+     - renderVerdictBanner的空方判斷分支需要D參數(現價/PSY/乖離計算)，
+       str_replace編輯此函式時務必確認函式簽名8個參數完整帶入
+     - computeBehaviorSynthesis內任何新增behaviors.push()若與既有證據
+       共用底層指標(如OBV/KBAR)，須標記相同group讓折減機制生效，否則
+       等於讓同一份證據重複投票
+     - 突破統計相關的3處warn/pass判斷(banner/gate)門檻須保持一致(當前48%)，
+       改動其一必須同步改另一處，否則同股票會出現互相矛盾的訊息
    ══════════════════════════════════════════════════════════════════════ */
 
 /* ── 勢能分數（觀勢）────────────────────────────────────────────────
@@ -225,7 +261,11 @@ function renderVerdictBanner(shi, tradeScore, formulas, marketScore, res, D, reg
   try {
     const bs3 = (typeof computeBreakoutStats === 'function') ? computeBreakoutStats(D) : null;
     const sq3 = (typeof computeSetupQuality === 'function') ? computeSetupQuality(D) : null;
-    if (bs3 && sq3 && sq3.breakout) addW(3, '📊', `正在突破：此股歷史成功率 ${bs3.all.rate.toFixed(0)}%（假突破率${bs3.fakeRate.toFixed(0)}%，${bs3.all.n}次）｜台股19年基準僅38.4%——追突破本質期望值為負，寧可等回測前高不破再進，或只在帶量時進（帶量41% vs 無量35%）`);
+    if (bs3 && sq3 && sq3.breakout && !(bs3.tier === 'high' && bs3.all.rate >= 48)) addW(3, '📊', bs3.tier === 'high'
+      ? `正在突破：此股歷史成功率 ${bs3.all.rate.toFixed(0)}%（假突破率${bs3.fakeRate.toFixed(0)}%，${bs3.all.n}次樣本）${bs3.isTW ? '｜台股基準38.4%' : ''}——追突破期望值偏低，寧可等回測前高不破再進，或只在帶量時進`
+      : (bs3.isTW
+        ? `正在突破：台股19年3,934次驗證，突破成功率僅38.4%（假突破率61.6%）——追突破期望值為負。此股樣本${bs3.all.n}次不足採信，請以台股基準判斷，帶量進場較佳`
+        : `正在突破：此股樣本僅${bs3.all.n}次，統計參考價值低。追突破普遍假突破率偏高，務必設好停損`));
   } catch (e) {}
   try { const etf = (typeof checkETFRebalanceWindow === 'function') ? checkETFRebalanceWindow() : null; if (etf) addW(6, '📅', etf.text + '——留意搶跑效應（概估窗口）'); } catch (e) {}
   warns.sort((a, b) => a.pri - b.pri);
@@ -389,9 +429,19 @@ function computeTradeGate(ctx) {
       if (dir === 1 && typeof computeBreakoutStats === 'function' && typeof computeSetupQuality === 'function') {
         const sqG = computeSetupQuality(D), bsG = computeBreakoutStats(D);
         if (sqG && sqG.breakout && bsG) {
-          if (bsG.all.rate < 38) warn.push(`此股歷史突破成功率僅 ${bsG.all.rate.toFixed(0)}%（假突破率${bsG.fakeRate.toFixed(0)}%，${bsG.all.n}次），低於台股19年基準38.4%——追突破期望值明顯為負，建議等回測前高${fmt(sqG.breakout.level)}不破再進`);
-          else if (bsG.all.rate >= 48) pass.push(`此股歷史突破成功率 ${bsG.all.rate.toFixed(0)}%（${bsG.all.n}次），優於台股基準38.4%——但仍未過半，務必設好停損`);
-          else warn.push(`此股突破成功率 ${bsG.all.rate.toFixed(0)}%（${bsG.all.n}次），與台股基準38.4%相當——追突破本質期望值為負，帶量進場較佳（19年：帶量41% vs 無量35%）`);
+          if (!bsG.isTW) {
+            // 非台股：台股38.4%基準不外推（跨市場錯誤外推），僅用此股自身統計
+            if (bsG.tier === 'high' && bsG.all.rate >= 48) pass.push(`此股歷史突破成功率 ${bsG.all.rate.toFixed(0)}%（${bsG.all.n}次樣本）——突破品質佳，但仍需設好停損`);
+            else warn.push(`此股突破成功率 ${bsG.all.rate.toFixed(0)}%（${bsG.all.n}次樣本${bsG.tier !== 'high' ? '，樣本偏少參考價值有限' : ''}）——追突破普遍假突破率偏高，建議等回測前高${fmt(sqG.breakout.level)}不破再進`);
+          } else if (bsG.tier !== 'high') {
+            warn.push(`追突破警示：台股19年3,934次突破，成功率僅38.4%（假突破率61.6%）——追突破本質期望值為負。此股樣本僅${bsG.all.n}次不足採信，以台股基準為準；帶量進場較佳（帶量41% vs 無量35%），或等回測前高${fmt(sqG.breakout.level)}不破再進`);
+          } else if (bsG.all.rate < 38) {
+            warn.push(`此股歷史突破成功率僅 ${bsG.all.rate.toFixed(0)}%（假突破率${bsG.fakeRate.toFixed(0)}%，${bsG.all.n}次），低於台股基準38.4%——追突破期望值明顯為負，建議等回測前高${fmt(sqG.breakout.level)}不破再進`);
+          } else if (bsG.all.rate >= 48) {
+            pass.push(`此股歷史突破成功率 ${bsG.all.rate.toFixed(0)}%（${bsG.all.n}次），優於台股基準38.4%——但仍未過半，務必設好停損`);
+          } else {
+            warn.push(`此股突破成功率 ${bsG.all.rate.toFixed(0)}%（${bsG.all.n}次），與台股基準38.4%相當——追突破本質期望值為負，帶量進場較佳（19年：帶量41% vs 無量35%）`);
+          }
         }
       }
     } catch (e) {}

@@ -9,6 +9,27 @@
    F. 市場情緒儀表板（融資融券+VIX+PCR 合成）
    依賴：app.js($/fmt/fmtV)、quant.js(signalsAtIndex)
    資料限制：產業分類/籌碼集中度無免費API，以近似法或標註
+   ──────────────────────────────────────────────────────────────────
+   後續新增函式（v79起）：
+     computeAnchoring                  — 定錨效應（Liao,Chou&Chiu 2013）
+     computeChartPatterns              — 圖形線位引擎：趨勢線/通道/箱型/
+                                         三角收斂/M頭W底頸線，線位工具
+                                         非方向預測，全程用原始市價
+     renderSupportResistance           — 支撐壓力卡渲染，尾端接圖形線位
+                                         與突破統計(v90起僅一句話指引)
+   ──────────────────────────────────────────────────────────────────
+   近期版本異動：
+     v79  圖形線位引擎首次加入；str_replace編輯此函式時第4次吃掉catch
+          （本檔案高風險區，長函式編輯建議用函式邊界錨點而非行內文字錨點）
+     v80  停損×線位重疊偵測聯動（見bingfa.js執行計畫區塊）
+     v83  類股廣度線位無關，另見market.js/worker.js
+     v90  移除支撐壓力卡內重複的突破成功率數字，改一句話指向溫度計卡
+   ⚠️ 已知地雷／注意事項：
+     - renderSupportResistance函式較長(200+行)，內含多個try-catch區塊，
+       str_replace編輯時務必先view確認catch邊界完整，此檔曾4次因編輯
+       誤刪catch導致「Missing catch or finally」語法錯誤
+     - computeChartPatterns用ATR自適應容差(tol)判斷觸碰，勿與固定%容差
+       混用，否則波動大小不同的股票會有不一致的線位判定標準
    ══════════════════════════════════════════════════════════════════════ */
 
 /* ── 大盤基準快取（避免每檔都重抓）─────────────────────────────────── */
@@ -297,7 +318,7 @@ function renderSupportResistance(sr, D) {
         let fbTxt = '';
         try {
           const bs2 = typeof computeBreakoutStats === 'function' ? computeBreakoutStats(D) : null;
-          if (bs2) fbTxt = `<br>📊 此股歷史突破成功率 <b style="color:${bs2.all.rate < 50 ? 'var(--sell)' : 'var(--buy)'}">${bs2.all.rate.toFixed(0)}%</b>（假突破率 ${bs2.fakeRate.toFixed(0)}%，${bs2.all.n}次樣本）——線位突破後未必走出去，這是此股自己的紀錄。`;
+          if (bs2) fbTxt = `<br>📊 突破線位不等於突破成功——此股歷史統計與台股基準詳見「行情溫度計」卡的突破結構檢查。`;
         } catch (e3) {}
         html3 += `<div style="font-size:9px;color:var(--muted2);line-height:1.5">線位=可下單的具體價位（突破觸發/停損擺放），非方向預測（19年7,908事件已證純價格方向訊號α≈0）。人人看得到的線=停損聚集區，突破/跌破常先掃停損，等回測確認更穩。${fbTxt}</div></div>`;
         document.getElementById('sr-content').innerHTML += html3;

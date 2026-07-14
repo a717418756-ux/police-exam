@@ -8,6 +8,19 @@
    C. 壓縮指數：布林帶寬歷史百分位，極度壓縮 = 大變盤前兆
    依賴：app.js(sma/calcBB)、quant.js(signalsAtIndex)
    資料需求：後端已改抓 2 年日K（月線重採樣約 24 根）
+   ──────────────────────────────────────────────────────────────────
+   函式清單：
+     resampleTF / tfTrendScore — 週期重採樣 + 單週期趨勢分
+     computeMTF / renderMTF     — 多時間框架共振主體
+     computeBayesProb           — 貝氏機率（該股歷史命中率為證據）
+     computeCompression         — 布林帶寬歷史百分位（壓縮指數）
+     renderBayes                 — 貝氏機率卡渲染
+   ⚠️ 已知地雷／注意事項：
+     - computeMTF回傳的mtf.dir/mtf.total被bingfa.js決策橫幅與行為推理鏈
+       引用（v78起renderVerdictBanner第8參數即為mtf），修改回傳結構
+       須同步檢查呼叫端解構賦值是否對應
+     - 貝氏機率的訊號相關性折減(0.6)為經驗值非實證校準，若要調整
+       建議先用backtest_standalone.js驗證校準後機率的實際準確度
    ══════════════════════════════════════════════════════════════════════ */
 
 /* ── 重採樣：日K → 週K(5日) / 月K(21日) ──────────────────────────── */

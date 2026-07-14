@@ -7,6 +7,30 @@
    D. 智慧停損：結構位停損 + 歷史假跌破收回率（防被洗掉後反向走）
    依賴：smc.js(computeStructure)、enhance.js、app.js($/fmt/fmtV)
    注意：無逐根開盤價，影線分析以前收盤近似開盤（常用近似法，已標註）
+   ──────────────────────────────────────────────────────────────────
+   函式清單（依出現順序）：
+     computeOBV / computeMFI          — 量能累積指標
+     computeMainForce                 — 主力行為分類（吸籌/洗盤/出貨等）
+     computeIntentAnalysis            — 洗盤/出貨/進貨 意圖研判 + 劇本文字
+     computeIntentBacktest            — 逐股回測（意圖判定 vs 未來5/10日），
+                                         有記憶化 _ibMemo（key=code+資料長度）
+     computeCrowding / renderCrowding  — 反明牌擁擠度雷達（含當沖note顯示）
+     checkETFRebalanceWindow          — ETF換股窗口概估
+     computeSmartStop                 — 結構停損 + 假跌破收回率
+     renderPlaybook                   — 進出場劇本卡（尾端掛日內型態）
+   ──────────────────────────────────────────────────────────────────
+   近期版本異動（v75起，供排雷定位用）：
+     v75 逐股α閘控雛形（後移至bingfa.js行為鏈）
+     v81 computeIntentBacktest 加記憶化 _ibMemo；margin/deep補繪掛勾橫幅刷新
+        （3處補繪點皆需 window._activeCode 權威校驗，勿裸接）
+     v85 renderPlaybook 尾端新增 computeIntradayProfile 區塊（見enhance.js）
+     v86 劇本文字/助言更新至24檔19年最終數據（5,111/1,509/1,288事件）
+   ⚠️ 已知地雷／注意事項：
+     - computeIntentBacktest 的「去重」用各判定獨立計數(lastCount物件)，
+       勿改回單一lastVerdict變數（曾因信心短暫跌破50重置導致同事件重複計數）
+     - 此檔記憶化變數(_ibMemo)為全域，若複製函式到別檔案(如backtest_standalone.js)
+       須確認測試環境有注入同名global，否則ReferenceError（純語法檢查抓不到）
+     - PSY歷史值一律用中性50，不可用當前PSY回填歷史（前視偏誤）
    ══════════════════════════════════════════════════════════════════════ */
 
 /* ══ A. OBV 能量潮 ════════════════════════════════════════════════════

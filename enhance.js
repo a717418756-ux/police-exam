@@ -10,6 +10,37 @@
    區塊 G：個股健康度體檢報告
    依賴：app.js($/fmt/fmtV)、formula.js、quant.js
    資料限制：主力(券商分點)、產業強弱 無免費API，未實作或以近似標註
+   ──────────────────────────────────────────────────────────────────
+   後續新增區塊（v64起，函式較長建議用函式名搜尋定位）：
+     computeRegime                    — Market Regime市場狀態辨識
+                                         （趨勢/盤整/高波動），驅動共振
+                                         動態權重+紀律門R1+橫幅警示
+     computeMoveStage / renderMoveStage — 行情溫度計（波段成熟度百分位，
+                                         ZigZag/ATR自適應），renderMoveStage
+                                         尾端掛computeSetupQuality顯示
+     computeSetupQuality               — 突破/拉回結構檢查清單(X/4非機率)
+     computeBreakoutStats              — 逐股突破成功率統計(False Breakout
+                                         Database)，有記憶化_bsMemo
+     computeIntradayProfile            — 日內型態（跳空方向→歷史條件頻率）
+   ──────────────────────────────────────────────────────────────────
+   近期版本異動：
+     v64  行情溫度計（逐股ZigZag波段百分位）首次加入
+     v82  突破/拉回結構檢查清單（誠實版：清單非機率），修過1次假突破情境雷
+          （price>hi20×0.995在平盤時恆真，已改為需真正站上/觸及前高）
+     v85  日內型態引擎（機率=該股自身歷史頻率，非模型預測）
+     v87  突破統計引擎首次加入；18檔2年小樣本曾誤判「帶量無鑑別力」
+     v88  19年3,934次驗證推翻v87結論：帶量確有鑑別力(+6.4pp)，已撤回修正
+          （本檔案第4次小樣本教訓，含此次共4例，詳見reader.md）
+     v89  computeBreakoutStats加isTW欄位，非台股不套用台股38.4%基準
+     v90  computeBreakoutStats加記憶化_bsMemo（4處呼叫共用同一結果）
+   ⚠️ 已知地雷／注意事項：
+     - computeBreakoutStats的_bsMemo為全域記憶化，測試環境需注入
+       global._bsMemo={k:null,v:null}才能eval測試，否則ReferenceError
+     - 任何「此股突破成功率」文字修改，須同步檢查banner/gate/temperature
+       card/support-resistance四處是否已對齊（v90前曾4處各講一次造成
+       訊息轟炸，現規則：溫度計卡=詳細版，其餘=一句話+門檻對齊48%）
+     - 小樣本教訓：本檔任何新統計結論在<100樣本時都應視為假說而非結論，
+       必須用backtest_standalone.js在19年24檔全量驗證後才能寫死進系統文字
    ══════════════════════════════════════════════════════════════════════ */
 
 /* ══ 區塊 H：ADX 市場狀態過濾器 ════════════════════════════════════════
@@ -546,7 +577,7 @@ function renderMoveStage(D) {
             bkNote = `<div style="margin-top:5px;padding:6px 8px;background:${col}10;border:1px dashed ${col};border-radius:6px;font-size:10px;color:var(--muted);line-height:1.55">
               📊 <b>此股歷史突破統計</b>：過去 ${bs.all.n} 次站上前高，<b style="color:${col}">成功率 ${bs.all.rate.toFixed(0)}%</b>（±${bs.all.ci.toFixed(0)}%）→ <b>假突破率 ${bs.fakeRate.toFixed(0)}%</b>
               ${bs.vol && bs.novol ? `<br>帶量突破 ${bs.vol.rate.toFixed(0)}%(${bs.vol.n}次) vs 無量 ${bs.novol.rate.toFixed(0)}%(${bs.novol.n}次)` : ''}
-              <br>台股基準：19年3,934次突破平均成功率僅 38.4%（假突破率61.6%）${bs.all.rate < 38 ? '<br>⚠️ 此股低於台股平均——追突破期望值明顯為負，寧可等回測前高不破再進' : bs.all.rate >= 48 ? '<br>✓ 此股突破品質優於台股平均' : ''}</div>`;
+              ${bs.tier !== 'high' ? `<br><span style="color:var(--warn)">⚠️ 樣本僅${bs.all.n}次（${bs.tier === 'low' ? '過少，此股數字參考價值低' : '可信度中等'}）${bs.isTW ? '，請以台股基準為主要依據' : '，請謹慎參考'}</span>` : ''}${bs.isTW ? `<br>台股基準：19年24檔3,934次突破平均成功率僅 38.4%（假突破率61.6%）${bs.tier === 'high' ? (bs.all.rate < 38 ? '<br>⚠️ 此股低於台股平均——追突破期望值明顯為負，寧可等回測前高不破再進' : bs.all.rate >= 48 ? '<br>✓ 此股突破品質優於台股平均' : '') : ''}` : '<br><span style="color:var(--muted2)">（38.4%為台股實證基準，不套用於非台股市場；此處僅呈現本股自身統計）</span>'}</div>`;
           }
         } catch (e2) {}
         qh += block(`📈 突破結構檢查（前高 ${fmt(sq.breakout.level)}）`, sq.breakout,
@@ -635,7 +666,7 @@ function computeSetupQuality(D) {
    ════════════════════════════════════════════════════════════════════ */
 function computeIntradayProfile(D) {
   const o = D.opens, c = D.closes;
-  if (!o || !c || c.length < 120 || o.length !== c.length) return null;
+  if (!o || !c || c.length < 200 || o.length !== c.length) return null;   // 新股/次新股（<200日）型態未定，不報
   const n = c.length;
   const gapOf = (i) => (o[i] - c[i - 1]) / c[i - 1] * 100;
   const dayOf = (i) => (c[i] - o[i]) / o[i] * 100;
@@ -673,10 +704,13 @@ function computeIntradayProfile(D) {
    整體成功率僅38.4%（假突破率61.6%——追突破期望值為負）；帶量40.9% vs 無量
    34.5%（+6.4個百分點，量能確有鑑別力，樣本2395/1539）。全部使用原始市價。
    ════════════════════════════════════════════════════════════════════ */
+const _bsMemo = { k: null, v: null };   // 突破統計記憶化：溫度計/橫幅/紀律門/線位共用同一結果，避免重複全歷史掃描
 function computeBreakoutStats(D) {
   const c = D.rawCloses || D.closes, h = D.rawHighs || D.highs, l = D.rawLows || D.lows;
   const v = D.volumes, n = c.length;
   if (n < 150) return null;
+  const _k = (D.code || '') + ':' + n;
+  if (_bsMemo.k === _k) return _bsMemo.v;
   const H = 5;
   const grp = { all: { n: 0, win: 0 }, vol: { n: 0, win: 0 }, novol: { n: 0, win: 0 } };
   let lastEvent = -99;
@@ -703,13 +737,21 @@ function computeBreakoutStats(D) {
     const g = heavy ? grp.vol : grp.novol;
     g.n++; g.win += win;
   }
-  if (grp.all.n < 8) return null;   // 樣本太少不報（避免小樣本假規律，本專案三次教訓）
+  // 通用性：2年資料下低波動/冷門股突破事件本就少，硬性隱藏會讓多數股票看不到此卡。
+  // 改為「分級誠實標註」：樣本足→以此股為準；樣本少→標明可信度低並以台股19年基準為主。
+  if (grp.all.n < 3) { _bsMemo.k = _k; _bsMemo.v = null; return null; }   // 少於3次連參考價值都沒有
   const rate = (g) => g.n ? g.win / g.n * 100 : null;
   const ci = (g) => g.n ? 1.96 * Math.sqrt(0.25 / g.n) * 100 : null;
-  return {
+  const tier = grp.all.n >= 15 ? 'high' : grp.all.n >= 8 ? 'mid' : 'low';
+  const _res = {
     all: { n: grp.all.n, rate: rate(grp.all), ci: ci(grp.all) },
     vol: grp.vol.n >= 5 ? { n: grp.vol.n, rate: rate(grp.vol), ci: ci(grp.vol) } : null,
     novol: grp.novol.n >= 5 ? { n: grp.novol.n, rate: rate(grp.novol), ci: ci(grp.novol) } : null,
     fakeRate: 100 - rate(grp.all),
+    tier,          // high=樣本≥15堪用｜mid=8~14參考｜low=3~7樣本過少
+    isTW: D.currency === 'TWD',   // 台股基準僅適用台股；美股/他市場不套用（跨市場套用＝錯誤外推）
+    twBase: 38.4,  // 台股19年24檔3,934次突破基準（僅供台股對照；樣本不足時以此為主）
   };
+  _bsMemo.k = _k; _bsMemo.v = _res;
+  return _res;
 }
