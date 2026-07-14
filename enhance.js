@@ -47,6 +47,10 @@
    機構73%使用：ADX 不告訴方向，而是告訴你「該用哪種策略」
    ADX>25 趨勢明確→用趨勢指標；ADX<20 盤整→用震盪指標或觀望
    ════════════════════════════════════════════════════════════════════ */
+/* ══ 【新增區塊 H】Market Regime 市場狀態辨識 ═══════════════════════════
+   趨勢盤/盤整盤/高波動 → 驅動：共振動態權重、紀律門R1、決策橫幅警示
+   ⚠️ 這不只是顯示用的分類，改動判定門檻會連動改變共振的指標權重分配
+   ════════════════════════════════════════════════════════════════════ */
 function computeRegime(D) {
   const dmi = calcDMI(D.highs, D.lows, D.closes, 14);
   const c = D.closes, n = c.length;
@@ -357,8 +361,8 @@ function renderPlaybook(D, atr) {
       </div>
     </div>`;
 
-  const noteL = smart ? `${smart.long.method}${smart.long.sweepRate!=null?`｜此股假跌破收回率 ${(smart.long.sweepRate*100).toFixed(0)}%`:''}` : `2×ATR 下方 ${stopPct}%`;
-  const noteS = smart ? `${smart.short.method}${smart.short.sweepRate!=null?`｜此股假突破收回率 ${(smart.short.sweepRate*100).toFixed(0)}%`:''}` : `2×ATR 上方 ${stopPct}%`;
+  const noteL = smart ? `${smart.long.method}${smart.long.sweepRate!=null?`｜此股「跌破支撐後又收回」比率 ${(smart.long.sweepRate*100).toFixed(0)}%（掃損特性，決定停損緩衝大小）`:''}` : `2×ATR 下方 ${stopPct}%`;
+  const noteS = smart ? `${smart.short.method}${smart.short.sweepRate!=null?`｜此股「突破壓力後又收回」比率 ${(smart.short.sweepRate*100).toFixed(0)}%（掃損特性，決定停損緩衝大小）`:''}` : `2×ATR 上方 ${stopPct}%`;
   document.getElementById('pb-rows').innerHTML =
     scenario('📈 做多劇本', 'var(--buy)', price, longStop, longTp1, longTp2, noteL) +
     scenario('📉 做空劇本', 'var(--sell)', price, shortStop, shortTp1, shortTp2, noteS) +
@@ -472,6 +476,11 @@ function renderHealthReport(ctx) {
    把「當前進行中波段」的幅度與天數，放進該股自己的歷史分布看百分位——
    幅度已超過歷史80%波段＝行情尾端，別追、持有者分批停利。
    全部用該股自身統計，無跨股魔術數字，天生逐股校準。
+   ════════════════════════════════════════════════════════════════════ */
+/* ══ 【新增區塊 I】行情溫度計（波段成熟度）═══════════════════════════════
+   ZigZag切波段 → 當前波段幅度/天數在該股歷史的百分位 → 初期/中期/尾端
+   ⚠️ 百分位基準用「該股自身歷史」，勿改成跨股統一門檻（逐股校準是設計核心）
+   ⚠️ 尾端判定會觸發：紀律門warn、決策橫幅警示、行為鏈時機條目(dir=0)
    ════════════════════════════════════════════════════════════════════ */
 function computeMoveStage(D) {
   const c = D.closes, n = c.length;
@@ -595,6 +604,12 @@ function renderMoveStage(D) {
    量價事實，合計 X/4 項通過。刻意不輸出「可信度%」：未經歷史校準的機率
    數字＝假精確（本系統19年驗證教訓）。價位一律原始市價。
    ════════════════════════════════════════════════════════════════════ */
+/* ══ 【新增區塊 J】突破/拉回 結構檢查清單 ════════════════════════════════
+   輸出 X/4 項可驗證的量價事實，刻意「不」輸出可信度%（未校準機率=假精確）
+   ⚠️ 突破情境判定需真正站上/觸及前高（v82修：曾用 price>hi20*0.995，
+      平盤時恆真，對沒突破的股票顯示假情境）
+   ⚠️ 量能項門檻1.5×有19年實證支撐（帶量40.9% vs 無量34.5%），勿隨意移除
+   ════════════════════════════════════════════════════════════════════ */
 function computeSetupQuality(D) {
   const c = D.rawCloses || D.closes, h = D.rawHighs || D.highs, l = D.rawLows || D.lows;
   const cc = D.closes, v = D.volumes, n = c.length;
@@ -664,6 +679,12 @@ function computeSetupQuality(D) {
    （跳空回補效應，方向與文獻一致）；台股整體「走低>走高」為隔夜漲日內跌
    的結構現象。gap用還原價比率（除息跨日有微小失真，一年僅數日）。
    ════════════════════════════════════════════════════════════════════ */
+/* ══ 【新增區塊 K】日內型態（Intraday Profile）════════════════════════════
+   今日開盤方向 → 此股歷史同型開局日的收盤走向頻率分布（含vs基準的位移）
+   ⚠️ 機率＝該股自身歷史條件頻率，非預測模型。勿改成「AI預測開高走低X%」
+      的形式（未經校準的機率是假精確，本專案已4次教訓）
+   ⚠️ 需要 D.opens（開盤價序列），後端主路徑有提供，缺少時安全退化為null
+   ════════════════════════════════════════════════════════════════════ */
 function computeIntradayProfile(D) {
   const o = D.opens, c = D.closes;
   if (!o || !c || c.length < 200 || o.length !== c.length) return null;   // 新股/次新股（<200日）型態未定，不報
@@ -709,7 +730,8 @@ function computeBreakoutStats(D) {
   const c = D.rawCloses || D.closes, h = D.rawHighs || D.highs, l = D.rawLows || D.lows;
   const v = D.volumes, n = c.length;
   if (n < 150) return null;
-  const _k = (D.code || '') + ':' + n;
+  // key含最後一根K棒指紋（理由同 mainforce.js 的 _ibMemo，v95修）
+  const _k = (D.code || '') + ':' + n + ':' + c[n - 1] + ':' + (v ? v[n - 1] : 0);
   if (_bsMemo.k === _k) return _bsMemo.v;
   const H = 5;
   const grp = { all: { n: 0, win: 0 }, vol: { n: 0, win: 0 }, novol: { n: 0, win: 0 } };

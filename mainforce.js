@@ -4,7 +4,10 @@
    A. OBV 能量潮 / MFI 資金流量（累積型量能，抓「偷跑」）
    B. 主力行為推估引擎：吸籌/洗盤/出貨/誘多/誘空/恐慌 分類 + 證據 + 信心
    C. 融資融券判讀（散戶槓桿 vs 主力）+ 券資比軋空偵測
-   D. 智慧停損：結構位停損 + 歷史假跌破收回率（防被洗掉後反向走）
+   D. 智慧停損：結構位停損 + 歷史「跌破後又收回」比率（防被洗掉後反向走）
+      ※此指標為「掃損特性」，與enhance.js的computeBreakoutStats「假突破率」
+        是兩件事：前者=結構位被刺穿後是否收回(給停損緩衝用)、後者=突破前高
+        後能否走出去(給追價決策用)。兩者數值不同屬正常，勿互相取代或合併
    依賴：smc.js(computeStructure)、enhance.js、app.js($/fmt/fmtV)
    注意：無逐根開盤價，影線分析以前收盤近似開盤（常用近似法，已標註）
    ──────────────────────────────────────────────────────────────────
@@ -16,7 +19,7 @@
                                          有記憶化 _ibMemo（key=code+資料長度）
      computeCrowding / renderCrowding  — 反明牌擁擠度雷達（含當沖note顯示）
      checkETFRebalanceWindow          — ETF換股窗口概估
-     computeSmartStop                 — 結構停損 + 假跌破收回率
+     computeSmartStop                 — 結構停損 + 「跌破後又收回」比率（掃損特性）
      renderPlaybook                   — 進出場劇本卡（尾端掛日內型態）
    ──────────────────────────────────────────────────────────────────
    近期版本異動（v75起，供排雷定位用）：
@@ -193,6 +196,12 @@ function computeMainForce(D, formulas) {
 /* ══ B2. 主力意圖研判引擎（洗盤 vs 出貨 vs 進貨的關鍵分岔）════════════
    解決「下跌到底是洗散戶、還是真出貨」的核心問題。
    多維證據交叉，輸出方向傾向 + 白話劇本，不再只給「弱勢」這種無用結論。
+   ════════════════════════════════════════════════════════════════════ */
+/* ══ 【區塊 B2】意圖研判（洗盤/出貨/進貨）════════════════════════════════
+   ⚠️ 19年7,908事件驗證：全域方向預測力≈0（出貨為反指標）。本判定的價值在
+      「量價結構描述」與「逐股α閘控後的個股投票」，不是方向預言。
+      任何把此判定改回無條件方向訊號的修改，都與實證證據相悖。
+   ⚠️ 洗盤時的「吸籌確認觸發價」用原始市價（可下單價位鐵律）
    ════════════════════════════════════════════════════════════════════ */
 function computeIntentAnalysis(D, formulas, mainForce) {
   const c = D.closes, h = D.highs, l = D.lows, v = D.volumes, n = c.length;
@@ -512,18 +521,34 @@ async function loadMarginCard(D) {
   }
   document.getElementById('margin-content').innerHTML = html;
   // 補繪前校驗：確認使用者還在看同一檔（防快速換股的 async 競爭導致張冠李戴）
-  if (window._activeCode === D.code) {
-    try { if (typeof renderCrowding === 'function' && window._lastD && window._lastD.code === D.code) renderCrowding(window._lastD, window._lastFormulas); } catch (e) {}
-    try { const ba = window._bannerArgs; if (ba && ba.D && ba.D.code === D.code && window._activeCode === D.code && typeof renderVerdictBanner === 'function') renderVerdictBanner(ba.shi, ba.tradeScore, ba.formulas, ba.marketScore, ba.res, ba.D, ba.regime, ba.mtf); } catch (e) {}
-    try { if (typeof renderTradeGate === 'function' && window._gateCtx && window._gateCtx.D && window._gateCtx.D.code === D.code) renderTradeGate(window._gateCtx); } catch (e) {}
-    try { if (typeof renderCrowding === 'function' && window._lastD && window._lastD.code === D.code) renderCrowding(window._lastD, window._lastFormulas); } catch (e) {}
-    try { const ba = window._bannerArgs; if (ba && ba.D && ba.D.code === D.code && window._activeCode === D.code && typeof renderVerdictBanner === 'function') renderVerdictBanner(ba.shi, ba.tradeScore, ba.formulas, ba.marketScore, ba.res, ba.D, ba.regime, ba.mtf); } catch (e) {}
-  }
+  refreshAsyncDependents(D.code);   // 統一補繪：擁擠度/行為鏈/紀律門/決策橫幅
 }
 
 /* ══ D. 智慧停損（防「停損完就反向走」）══════════════════════════════
    停損不放整數ATR位（主力最愛掃的位置），改放「結構位之外+緩衝」，
    並統計該股歷史「假跌破後收回率」——收回率越高，越要把停損放遠離結構位
+   ════════════════════════════════════════════════════════════════════ */
+
+/* ══ 【共用】非同步資料到達後的全鏈補繪 ═══════════════════════════════════
+   margin / deep 等後到的資料會改變：擁擠度、行為鏈(自營商票)、紀律門、
+   決策橫幅。此函式統一負責重繪這四處，避免各補繪點各寫一份（曾出現
+   同一函式被呼叫兩次、且行為鏈完全漏掉補繪的問題 → v95修）。
+   ⚠️ 所有補繪都必須先過 window._activeCode 校驗（防快速換股張冠李戴）
+   ══════════════════════════════════════════════════════════════════════ */
+function refreshAsyncDependents(code) {
+  if (window._activeCode !== code) return;   // 使用者已換股，放棄補繪
+  try { if (typeof renderCrowding === 'function' && window._lastD && window._lastD.code === code) renderCrowding(window._lastD, window._lastFormulas); } catch (e) {}
+  try { if (typeof renderBehaviorChain === 'function' && window._gateCtx && window._gateCtx.D && window._gateCtx.D.code === code) renderBehaviorChain(window._gateCtx); } catch (e) {}
+  try { if (typeof renderTradeGate === 'function' && window._gateCtx && window._gateCtx.D && window._gateCtx.D.code === code) renderTradeGate(window._gateCtx); } catch (e) {}
+  try { const ba = window._bannerArgs; if (ba && ba.D && ba.D.code === code && typeof renderVerdictBanner === 'function') renderVerdictBanner(ba.shi, ba.tradeScore, ba.formulas, ba.marketScore, ba.res, ba.D, ba.regime, ba.mtf); } catch (e) {}
+}
+
+/* ══ 【區塊 D】智慧停損 ═══════════════════════════════════════════════
+   結構位停損 + 此股假跌破收回率動態緩衝（越愛假跌破，緩衝越大）
+   ⚠️ sweepRate（假跌破收回率）與 enhance.js 的 breakoutStats.fakeRate
+      是「不同定義」：前者=跌破支撐後收回的比率（掃損特性，決定緩衝大小），
+      後者=突破前高後未走出去的比率（追價期望值）。勿混用或合併
+   ⚠️ 傳入的 atr 必須是原始價序列算出的（呼叫端負責，見bingfa.js區塊D）
    ════════════════════════════════════════════════════════════════════ */
 function computeSmartStop(D, atr) {
   // 停損是實際下單價位，全部改用未還原市價，避免與 computeStructure 的原始價結構混用基準
@@ -531,7 +556,7 @@ function computeSmartStop(D, atr) {
   const price = D.rawCloses ? D.rawCloses[D.rawCloses.length - 1] : D.price;
   const st = (typeof computeStructure === 'function') ? computeStructure(D) : null;
 
-  // 歷史假跌破/假突破收回率（近120日，20日滾動支撐/壓力）
+  // 歷史「結構位被刺穿後又收回」比率（近120日，20日滾動支撐/壓力）＝此股掃損特性
   let piercesL = 0, recoversL = 0, piercesS = 0, recoversS = 0;
   const start = Math.max(30, n - 120);
   for (let i = start; i < n - 2; i++) {
@@ -540,8 +565,8 @@ function computeSmartStop(D, atr) {
     if (l[i] < sup) { piercesL++; if (c[i+1] > sup || c[i+2] > sup) recoversL++; }
     if (h[i] > res) { piercesS++; if (c[i+1] < res || c[i+2] < res) recoversS++; }
   }
-  const sweepRateL = piercesL >= 3 ? recoversL / piercesL : null; // 假跌破收回率
-  const sweepRateS = piercesS >= 3 ? recoversS / piercesS : null; // 假突破收回率
+  const sweepRateL = piercesL >= 3 ? recoversL / piercesL : null; // 「跌破支撐後又收回」比率＝掃損特性（決定停損緩衝）；勿與enhance.js的breakoutStats假突破率混淆（後者=突破前高後未走出去，定義與用途皆不同）
+  const sweepRateS = piercesS >= 3 ? recoversS / piercesS : null; // 「突破壓力後又收回」比率＝掃損特性（空單停損緩衝用）
 
   // 緩衝：收回率越高（越愛洗），緩衝越大（0.5~1×ATR）
   const bufL = 0.5 + (sweepRateL != null ? sweepRateL * 0.5 : 0.25);
@@ -844,11 +869,7 @@ async function loadDeepChipCard(D) {
   html += `<div style="font-size:10px;color:var(--muted2);margin-top:10px;line-height:1.6">💡 部位背離是「統計優勢」不是無風險套利（零售層級不存在套利）。持股分級為週資料。資料來源：FinMind。</div>`;
   document.getElementById('deepchip-content').innerHTML = html;
   // 補繪前校驗代碼一致（防 async 競爭）
-  if (window._activeCode === D.code) {
-    try { if (typeof renderTradeGate === 'function' && window._gateCtx && window._gateCtx.D && window._gateCtx.D.code === D.code) renderTradeGate(window._gateCtx); } catch (e) {}
-    try { if (typeof renderCrowding === 'function' && window._lastD && window._lastD.code === D.code) renderCrowding(window._lastD, window._lastFormulas); } catch (e) {}
-    try { const ba = window._bannerArgs; if (ba && ba.D && ba.D.code === D.code && window._activeCode === D.code && typeof renderVerdictBanner === 'function') renderVerdictBanner(ba.shi, ba.tradeScore, ba.formulas, ba.marketScore, ba.res, ba.D, ba.regime, ba.mtf); } catch (e) {}
-  }
+  refreshAsyncDependents(D.code);   // 統一補繪：擁擠度/行為鏈/紀律門/決策橫幅
 }
 
 /* ══ 意圖引擎真實資料回測 ═══════════════════════════════════════════════
@@ -858,10 +879,19 @@ async function loadDeepChipCard(D) {
    PSY用中性值50固定（歷史PSY未逐日重算，寧可少一項證據也不引入前視偏誤）。
    ════════════════════════════════════════════════════════════════════ */
 const _ibMemo = { k: null, v: null };   // 回測記憶化：同股同資料長度只算一次（橫幅/行為鏈/意圖卡共用，避免一次查詢重跑5-6次×30ms）
+/* ══ 【區塊 B3】意圖引擎逐股回測（供α閘控使用）═══════════════════════════
+   逐日重演此股2年歷史，算各判定的α（命中率 - 該股基準漂移率）
+   ⚠️ 有記憶化 _ibMemo（key=code+資料長度），一次查詢被多處呼叫但只算一次
+   ⚠️ 去重用 lastCount 物件（各判定獨立計數），勿改回單一 lastVerdict 變數
+      （曾因信心短暫跌破50重置，導致同一事件被重複計數）
+   ⚠️ 歷史PSY一律用中性值50，不可用當前PSY回填（前視偏誤）
+   ════════════════════════════════════════════════════════════════════ */
 function computeIntentBacktest(D) {
   const n = D.closes.length;
   if (n < 130) return null;
-  const _k = (D.code || '') + ':' + n;
+  // key含最後一根K棒指紋：盤中同一天再查時資料長度不變但價量已更新，
+  // 若只用code+長度當key會回傳過期快取（v95修：同檔不同時間查詢結果不一致的主因之一）
+  const _k = (D.code || '') + ':' + n + ':' + D.closes[n - 1] + ':' + (D.volumes ? D.volumes[n - 1] : 0);
   if (_ibMemo.k === _k) return _ibMemo.v;
   const H2 = 10;   // 同時統計5日與10日：洗盤機制上需等測試完成才反彈，單一視窗有盲點，雙視窗不挑好看的報
   const stats = { '洗盤': { n: 0, sum5: 0, win5: 0, sum10: 0, win10: 0 }, '出貨': { n: 0, sum5: 0, win5: 0, sum10: 0, win10: 0 }, '進貨': { n: 0, sum5: 0, win5: 0, sum10: 0, win10: 0 } };

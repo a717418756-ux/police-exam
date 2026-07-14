@@ -41,6 +41,10 @@
      v90  橫幅與紀律門突破警示門檻對齊(48%)，避免同股同時被pass又warn；
           支撐壓力卡的重複假突破數字移除，改指向溫度計卡（單一真相來源）
    ⚠️ 已知地雷／注意事項：
+     - v93修復：本檔曾有獨立的_gateATR實作（簡單平均+還原價），與app.js的
+       calcATR（Wilder平滑+原始價）算出不同數值（實測2313差14.7%），導致
+       紀律門的停損/部位與執行計畫/劇本不一致。教訓：任何指標只能有一個
+       實作來源，不可為了「這裡方便」另寫簡化版——會產生前後矛盾的數字
      - renderVerdictBanner的空方判斷分支需要D參數(現價/PSY/乖離計算)，
        str_replace編輯此函式時務必確認函式簽名8個參數完整帶入
      - computeBehaviorSynthesis內任何新增behaviors.push()若與既有證據
@@ -54,6 +58,10 @@
    趨勢40% + 籌碼30% + 成交量20% + 產業10%(用RS近似)
    各子項標準化到 0~100，加權合計
    ──────────────────────────────────────────────────────────────── */
+/* ══ 【區塊 A】勢能與評分 ═══════════════════════════════════════════════
+   computeShiPower / computeTradeScore / computeBingfaExit / renderBingfa
+   ⚠️ 改動勢能公式會連動：決策橫幅的等級判定、紀律門的分級門檻
+   ════════════════════════════════════════════════════════════════════ */
 function computeShiPower(D, rsRating) {
   const c = D.closes, v = D.volumes;
   const price = D.price;
@@ -215,6 +223,12 @@ function renderBingfa(D, shi, tradeScore, exit) {
 }
 
 /* ── 綜合決策橫幅（整合兵法分級+健康度+崩跌風險，一句話結論）──────── */
+/* ══ 【區塊 B】決策橫幅 ═══════════════════════════════════════════════
+   全系統警示的唯一彙整出口。8參數缺一不可（D/regime/mtf為v78新增）。
+   ⚠️ 新增警示時：加在 warns 陣列並設優先序 pri，勿另開顯示區塊
+   ⚠️ 突破警示門檻(48%)須與區塊D紀律門保持一致，否則同股會被同時
+      pass又warn（v90修過此衝突）
+   ════════════════════════════════════════════════════════════════════ */
 function renderVerdictBanner(shi, tradeScore, formulas, marketScore, res, D, regime, mtf) {
   const banner = document.getElementById('verdict-banner');
   const inner = document.getElementById('vb-inner');
@@ -377,6 +391,11 @@ async function checkBingfaWarning() {
    把全站分析濃縮成多/空兩個裁決：🟢出手 / 🟡謹慎 / 🔴禁止 + 犯規清單。
    反其道核心：散戶看到訊號就進場；獵人等散戶停損被掃完才進場。
    ════════════════════════════════════════════════════════════════════ */
+/* ══ 【區塊 C】出手紀律門（計算層）═══════════════════════════════════
+   R1~R6 七道關卡，回傳 {pass[], warn[], fail[]}
+   ⚠️ fail = 禁止進場（紅燈），warn = 提醒但不擋，pass = 加分
+      新增規則前先確認該證據是否已被大樣本驗證（無證據的規則不該給 fail）
+   ════════════════════════════════════════════════════════════════════ */
 function computeTradeGate(ctx) {
   // ctx: { D, regime, mtf, res, formulas, shi }
   const { D, regime, mtf, res, formulas } = ctx;
@@ -511,14 +530,12 @@ function computeTradeGate(ctx) {
   return { long: judge(1), short: judge(-1), timing };
 }
 
-function _gateATR(D) {
-  const h = D.highs, l = D.lows, c = D.closes, n = c.length;
-  const m = Math.min(14, n - 1);
-  let s = 0;
-  for (let i = n - m; i < n; i++) s += Math.max(h[i] - l[i], Math.abs(h[i] - c[i-1]), Math.abs(l[i] - c[i-1]));
-  return s / m;
-}
-
+/* ══ 【區塊 D】出手紀律門（渲染層＋執行計畫）═══════════════════════════
+   ⚠️ ATR一律用 app.js 的 calcATR + 原始價序列（v93修：此處曾有獨立的
+      _gateATR，與執行計畫算出不同數值，導致停損/部位前後矛盾）
+   ⚠️ 部位/停損/停利/停損線位重疊警告 皆在此區塊，改動任一項須確認
+      與 mainforce.js 的 renderPlaybook（劇本卡）數值一致
+   ════════════════════════════════════════════════════════════════════ */
 function renderTradeGate(ctx) {
   const card = document.getElementById('gate-card');
   if (!card) return;
@@ -559,7 +576,10 @@ function renderTradeGate(ctx) {
     } else {
       const capital = parseFloat(document.getElementById('in-capital')?.value) || 1000000;
       const riskPct = parseFloat(document.getElementById('in-risk')?.value) || 1;
-      const atr = _gateATR(D);
+      // ATR統一用app.js的calcATR（Wilder平滑，業界標準）+原始市價序列（下單價位鐵律）
+      // v93修：原本此處有獨立的_gateATR（簡單平均+還原價），與執行計畫/劇本的calcATR
+      // 算出不同數值（實測2313差14.7%、2330差7.8%），導致停損價與部位大小前後不一致
+      const atr = calcATR(D.rawHighs || D.highs, D.rawLows || D.lows, D.rawCloses || D.closes, 14);
       let smart = null;
       try { if (typeof computeSmartStop === 'function') smart = computeSmartStop(D, atr); } catch (e) {}
       const entry = D.rawCloses ? D.rawCloses[D.rawCloses.length - 1] : D.price;
@@ -632,6 +652,14 @@ function renderTradeGate(ctx) {
    設計理念（使用者核心哲學）：每個指標都有用處，多個指標綜合出一個「行為」，
    多個行為判斷出「走向」。此引擎不計算任何新指標——純粹把既有模組的輸出
    組織成透明的三層推理過程，讓每一個結論都能往下追到原始指標。
+   ════════════════════════════════════════════════════════════════════ */
+/* ══ 【區塊 E】行為推理鏈 ═══════════════════════════════════════════════
+   指標 → 行為 → 走向 三層推理。每個 behaviors.push() 是一票。
+   ⚠️ 新增行為時必填 group（若與既有證據共用底層指標），否則同一份證據
+      會重複投票（v60共線折減機制依賴此欄位）
+   ⚠️ dir=0 表示「不投方向票」（如個股性格、行情階段），這是刻意設計，
+      因為它們是時機/統計描述而非方向證據
+   ⚠️ 主力意圖的方向票受逐股α閘控（v75）：貝氏收縮後α<2則自動停票
    ════════════════════════════════════════════════════════════════════ */
 function computeBehaviorSynthesis(ctx) {
   const { D, regime, mtf, res, formulas } = ctx;
