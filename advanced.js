@@ -40,7 +40,7 @@ async function fetchBenchmark(isTW) {
   if (_benchCache[key] && (Date.now() - _benchCache.time < CACHE_TTL)) return _benchCache[key];
   if (!GAS_URL || GAS_URL.indexOf('http') !== 0) return null;
   try {
-    const r = await fetch(`${GAS_URL}?action=benchmark&market=${key}`);
+    const r = await fetchT(`${GAS_URL}?action=benchmark&market=${key}`);
     const j = await r.json();
     if (j.ok && j.closes) {
       _benchCache[key] = j.closes;
@@ -478,7 +478,7 @@ async function loadFundamentalCard(D) {
   if (hit && Date.now() - hit.t < CACHE_TTL) f = hit.d;
   else {
     try {
-      const r = await fetch(`${GAS_URL}?action=fundamental&code=${encodeURIComponent(D.code)}`);
+      const r = await fetchT(`${GAS_URL}?action=fundamental&code=${encodeURIComponent(D.code)}`);
       const j = await r.json();
       if (j.ok) { f = j; _fundCache[D.code] = { d: j, t: Date.now() }; }
     } catch (e) { if (typeof ErrorLog !== 'undefined') ErrorLog.push('基本面', e); }

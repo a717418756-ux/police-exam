@@ -463,7 +463,7 @@ async function fetchMarginData(code) {
   if (hit && Date.now() - hit.t < CACHE_TTL) return hit.d;
   if (!GAS_URL || GAS_URL.indexOf('http') !== 0) return null;
   try {
-    const r = await fetch(`${GAS_URL}?action=margin&code=${encodeURIComponent(code)}`);
+    const r = await fetchT(`${GAS_URL}?action=margin&code=${encodeURIComponent(code)}`);
     const j = await r.json();
     if (j.ok) { _marginCache[code] = { d: j, t: Date.now() }; return j; }
   } catch (e) { if (typeof ErrorLog !== 'undefined') ErrorLog.push('融資融券', e); }
@@ -779,7 +779,7 @@ async function loadDeepChipCard(D) {
   if (hit && Date.now() - hit.t < CACHE_TTL) dc = hit.d;
   else {
     try {
-      const r = await fetch(`${GAS_URL}?action=deepchip&code=${encodeURIComponent(D.code)}&token=${encodeURIComponent(FINMIND_TOKEN)}`);
+      const r = await fetchT(`${GAS_URL}?action=deepchip&code=${encodeURIComponent(D.code)}&token=${encodeURIComponent(FINMIND_TOKEN)}`);
       const j = await r.json();
       if (j.ok) { dc = j; _deepCache[D.code] = { d: j, t: Date.now() }; }
     } catch (e) { if (typeof ErrorLog !== 'undefined') ErrorLog.push('主力縱深', e); }

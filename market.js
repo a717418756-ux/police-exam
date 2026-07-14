@@ -19,7 +19,7 @@
 async function fetchMarket() {
   if (!GAS_URL || GAS_URL.indexOf('http') !== 0) return null;
   try {
-    const r = await fetch(`${GAS_URL}?action=market`);
+    const r = await fetchT(`${GAS_URL}?action=market`);
     if (!r.ok) return null;
     const j = await r.json();
     return j.ok ? j : null;

@@ -49,7 +49,7 @@ async function fetchStock(code){
     return cached.data;
   }
   let r;
-  try{ r=await fetch(`${GAS_URL}?code=${encodeURIComponent(code)}`); }
+  try{ r=await fetchT(`${GAS_URL}?code=${encodeURIComponent(code)}`); }
   catch(e){ if(typeof ErrorLog!=='undefined')ErrorLog.push('fetchStock連線',e); throw new Error('無法連線到 GAS 後端。請到右下 📒 → 設定，確認已填入 GAS 網址並按「測試連線」'); }
   if(!r.ok) throw new Error(`後端回應錯誤（${r.status}）`);
   const j=await r.json();
@@ -487,7 +487,7 @@ async function aiAnalysis(D,trend,risk,sigs){
   const cur=D.currency==='TWD'?'NT$':'$';
   const sigSum=sigs.map(s=>`${s.name}:${s.s.toUpperCase()}`).join('、');
   try{
-    const res=await fetch('https://api.anthropic.com/v1/messages',{
+    const res=await fetchT('https://api.anthropic.com/v1/messages',{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1000,
         system:`你是頂尖短線交易員，奉行「風險優先、順勢操作、讓獲利奔跑」。請用繁體中文250字內，依分層邏輯給建議，不要廢話：
