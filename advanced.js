@@ -37,7 +37,7 @@ let _benchCache = { tw: null, us: null, time: 0 };
 async function fetchBenchmark(isTW) {
   const key = isTW ? 'tw' : 'us';
   // 快取 10 分鐘
-  if (_benchCache[key] && (Date.now() - _benchCache.time < 600000)) return _benchCache[key];
+  if (_benchCache[key] && (Date.now() - _benchCache.time < CACHE_TTL)) return _benchCache[key];
   if (!GAS_URL || GAS_URL.indexOf('http') !== 0) return null;
   try {
     const r = await fetch(`${GAS_URL}?action=benchmark&market=${key}`);
@@ -475,7 +475,7 @@ async function loadFundamentalCard(D) {
   if (D.currency !== 'TWD') { card.style.display = 'none'; return; }
   let f = null;
   const hit = _fundCache[D.code];
-  if (hit && Date.now() - hit.t < 600000) f = hit.d;
+  if (hit && Date.now() - hit.t < CACHE_TTL) f = hit.d;
   else {
     try {
       const r = await fetch(`${GAS_URL}?action=fundamental&code=${encodeURIComponent(D.code)}`);

@@ -460,7 +460,7 @@ function renderMainForce(D, formulas) {
 const _marginCache = {};
 async function fetchMarginData(code) {
   const hit = _marginCache[code];
-  if (hit && Date.now() - hit.t < 300000) return hit.d;
+  if (hit && Date.now() - hit.t < CACHE_TTL) return hit.d;
   if (!GAS_URL || GAS_URL.indexOf('http') !== 0) return null;
   try {
     const r = await fetch(`${GAS_URL}?action=margin&code=${encodeURIComponent(code)}`);
@@ -776,7 +776,7 @@ async function loadDeepChipCard(D) {
   if (D.currency !== 'TWD' || typeof FINMIND_TOKEN === 'undefined' || !FINMIND_TOKEN) { card.style.display = 'none'; return; }
   let dc = null;
   const hit = _deepCache[D.code];
-  if (hit && Date.now() - hit.t < 600000) dc = hit.d;
+  if (hit && Date.now() - hit.t < CACHE_TTL) dc = hit.d;
   else {
     try {
       const r = await fetch(`${GAS_URL}?action=deepchip&code=${encodeURIComponent(D.code)}&token=${encodeURIComponent(FINMIND_TOKEN)}`);

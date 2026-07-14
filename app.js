@@ -15,6 +15,11 @@
 //   v81  新增window._bannerArgs登記，margin/deep補繪3處掛勾橫幅刷新，
 //        全部加window._activeCode權威校驗（防遲到的舊股票回應閃現）
 // ⚠️ 已知地雷／注意事項：
+//   - v95修「同時段查同一檔結果不同」：根因是四個快取各自寫死不同TTL
+//     （股價5分/融資5分/大盤10分/主力縱深10分），導致重查時各層過期時機
+//     不同步，出現「股價已更新但大盤還是舊的」的混搭狀態，指標自然算出
+//     不同結果。已統一為 config.js 的 CACHE_TTL 單一常數。
+//     ★ 任何新增的資料快取一律使用 CACHE_TTL，不可另寫時間數字
 //   - 任何新增的非同步補繪邏輯，必須比對 window._activeCode === D.code
 //     才能渲染，否則使用者換股查詢時可能短暫看到上一檔的資料
 //   - 卡片重置清單（約464行的陣列）與layout.js分頁清單、index.html卡片id
@@ -38,7 +43,9 @@ async function fetchStock(code){
   if(GAS_URL.indexOf('http')!==0) throw new Error('尚未設定 GAS 網址，請先部署 Code.gs 並把 URL 填入設定');
   // 快取命中（5分鐘內）
   const cached=_stockCache[code];
-  if(cached && (Date.now()-cached.time<300000)){
+  if(cached && (Date.now()-cached.time < CACHE_TTL)){
+    window._dataFetchedAt = cached.time;   // v95：記錄資料實際抓取時刻（非查詢時刻），供UI透明顯示
+    window._dataFromCache = true;
     return cached.data;
   }
   let r;
@@ -49,6 +56,8 @@ async function fetchStock(code){
   if(!j.ok) throw new Error(j.error||'後端無法取得資料');
   if(!j.closes||j.closes.length<10) throw new Error(`${code} 歷史資料不足`);
   _stockCache[code]={data:j,time:Date.now()};
+  window._dataFetchedAt = Date.now();
+  window._dataFromCache = false;
   return j;
 }
 
@@ -527,7 +536,15 @@ async function go(){
     $('m-atr').textContent=fmt(atr);
     $('m-vol').textContent=(D.currency==='TWD'?fmtV(Math.round(D.volume/1000))+' 張':fmtV(D.volume)+' 股');
     $('stock-bar').style.display='block';
-    const now=new Date();const tp=$('time-pill');tp.textContent=`${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')} 更新`;tp.style.display='block';
+    // v95：顯示「資料實際抓取時刻」而非查詢時刻，並標示是否來自快取——
+    // 使用者反映「同時段查同一檔結果不同」，根因是各層快取TTL不一（已統一），
+    // 此處讓資料新鮮度透明可見，若看到「快取」字樣即知數字未變是正常的
+    const ft = window._dataFetchedAt ? new Date(window._dataFetchedAt) : new Date();
+    const tp=$('time-pill');
+    const ageSec = Math.round((Date.now() - (window._dataFetchedAt || Date.now())) / 1000);
+    tp.textContent=`${String(ft.getHours()).padStart(2,'0')}:${String(ft.getMinutes()).padStart(2,'0')} 資料${window._dataFromCache ? `（快取 ${ageSec}s）` : '（即時）'}`;
+    tp.style.display='block';
+    tp.title = window._dataFromCache ? `此結果使用 ${ageSec} 秒前抓取的資料（5分鐘內重查會沿用，確保結果可重現）。想強制更新請等快取過期或重新載入頁面。` : '此結果為剛抓取的即時資料';
 
     // 分層分析
     const trend=analyzeTrend(D);
