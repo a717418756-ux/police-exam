@@ -806,19 +806,28 @@ async function loadDeepChipCard(D) {
   }
 
   // ── ② 部位背離：法人借券 vs 散戶融券 ──
+  // 邏輯依據：借券賣出餘額「多數」是空方部位（含少量避險/套利，非100%方向單，
+  // 故文字用「偏空指標」而非斷言「法人一定在放空」）；散戶擁擠門檻與融券卡
+  // 對齊18%（原本此處用15%，與融券卡的18%不一致，會出現「這裡說擁擠、融券卡
+  // 卻說正常」的內部矛盾——v98校準）
   if (dc.lend) {
     const L = dc.lend;
     const m = _marginCache[D.code] ? _marginCache[D.code].d : null;
     let verdict, vCol;
     const instShortUp = L.chg5 >= 8, instShortDown = L.chg5 <= -8;
-    const retailShortUp = m && m.shortRatio >= 15;
-    if (instShortUp && !retailShortUp) { verdict = '🎯 法人借券空單增、散戶未跟——聰明錢在放空且不擁擠，你的空單有機構隊友（部位優勢站你這邊）'; vCol = 'var(--sell)'; }
-    else if (!instShortUp && retailShortUp) { verdict = '⚡ 散戶融券擁擠但法人借券不增——笨錢獨自看空=軋空燃料。此時進空單=跟散戶擠同邊，站到聰明錢對面了'; vCol = 'var(--warn)'; }
-    else if (instShortUp && retailShortUp) { verdict = '⚠️ 法人散戶同步看空——方向或許對，但空單全面擁擠，任何利多都可能連環軋空，部位務必縮小'; vCol = 'var(--warn)'; }
-    else if (instShortDown) { verdict = '📈 法人借券空單回補中——機構空方撤退，空單失去隊友，考慮跟著獲利了結'; vCol = 'var(--buy)'; }
-    else { verdict = '➖ 法人空單無明顯異動'; vCol = 'var(--muted)'; }
+    const instShortMild = L.chg5 >= 3 && L.chg5 < 8;   // 中間帶：有增加但未達顯著
+    const retailShortUp = m && m.shortRatio >= 18;      // 與融券卡的18%警戒線對齊
+    if (instShortUp && !retailShortUp) { verdict = '🎯 借券賣出餘額明顯增（≥8%）、散戶融券未擁擠——偏空的多為機構部位且不擁擠，你的空單方向有機構同行、被軋風險低（部位優勢偏你這邊）'; vCol = 'var(--sell)'; }
+    else if (!instShortUp && retailShortUp) { verdict = '⚡ 散戶融券擁擠（券資比≥18%）但借券餘額未增——散戶獨自看空=軋空燃料。此時進空單=跟散戶擠同邊，反而站到機構對面'; vCol = 'var(--warn)'; }
+    else if (instShortUp && retailShortUp) { verdict = '⚠️ 借券與散戶融券同步增——方向或許偏空，但空單全面擁擠，任何利多都可能連環軋空，部位務必縮小'; vCol = 'var(--warn)'; }
+    else if (instShortDown) { verdict = '📈 借券賣出餘額回補中（5日降逾8%）——偏空部位撤退，空單方向的機構支撐轉弱，考慮跟著獲利了結'; vCol = 'var(--buy)'; }
+    else if (instShortMild) { verdict = `➕ 借券賣出餘額5日增 ${L.chg5}%，屬小幅變化（未達「明顯」的8%門檻）——偏空力道還不強，可續觀察是否加速`; vCol = 'var(--muted)'; }
+    else if (L.chg5 <= -3) { verdict = `➖ 借券賣出餘額5日減 ${Math.abs(L.chg5)}%，屬小幅回補（未達顯著8%）——偏空力道略減，觀察中`; vCol = 'var(--muted)'; }
+    else { verdict = `➖ 借券賣出餘額5日變化 ${L.chg5 >= 0 ? '+' : ''}${L.chg5}%，接近持平——無明顯異動`; vCol = 'var(--muted)'; }
+    // 數字顏色與結論一致：達門檻才用紅/綠，中間帶用中性色（避免「紅字卻說沒事」的矛盾）
+    const numCol = L.chg5 >= 8 ? 'var(--sell)' : L.chg5 <= -8 ? 'var(--buy)' : 'var(--muted2)';
     html += `<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">⚔️ 部位背離（聰明錢 vs 笨錢空單）</div>
-    <div class="risk-box" style="margin-bottom:8px"><div class="rb-label">法人借券賣出餘額</div><div class="rb-value">${fmtV(L.bal)} 張</div><div class="rb-sub" style="color:${L.chg5>=0?'var(--sell)':'var(--buy)'}">5日 ${L.chg5>=0?'+':''}${L.chg5}%（外資放空主要管道）</div></div>
+    <div class="risk-box" style="margin-bottom:8px"><div class="rb-label">借券賣出餘額（每交易日更新）</div><div class="rb-value">${fmtV(L.bal)} 張</div><div class="rb-sub" style="color:${numCol}">5日 ${L.chg5>=0?'+':''}${L.chg5}%（＝vs 5交易日前餘額；借券賣出多為機構空方，含少量避險）</div></div>
     <div style="padding:9px 12px;background:${vCol}10;border:1px solid ${vCol}50;border-radius:8px;font-size:11px;color:var(--muted);line-height:1.6;margin-bottom:12px">${verdict}</div>`;
   }
 
