@@ -103,6 +103,11 @@ function computeChipHealth(chip, D) {
   let score = 50;
   const signals = [], warnings = [];
 
+  // v100防呆：顯示法人資料日期（T86為T+1盤後公布；日期若非最近交易日=資料延遲，一眼可辨）
+  if (chip.dataDate) {
+    const dd = String(chip.dataDate);
+    signals.push(`📅 法人資料日期：${dd.slice(4,6)}/${dd.slice(6,8)}（每交易日盤後更新）`);
+  }
   if (chip.foreign5 > 0) {
     score += 12;
     if (chip.foreignStreak >= 3) { score += 8; signals.push(`外資連買 ${chip.foreignStreak} 天，資金持續流入`); }

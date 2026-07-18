@@ -507,7 +507,7 @@ async function loadMarginCard(D) {
   </div>
   <div class="risk-grid">
     <div class="risk-box"><div class="rb-label">💳 融資餘額</div><div class="rb-value">${fmtV(Math.round(m.marginBal))} 張</div><div class="rb-sub">5日變化 ${mc>=0?'+':''}${mc.toFixed(1)}%（散戶槓桿指標）</div></div>
-    <div class="risk-box"><div class="rb-label">📉 融券餘額</div><div class="rb-value">${fmtV(Math.round(m.shortBal))} 張</div><div class="rb-sub">券資比 ${m.shortRatio.toFixed(1)}%</div></div>
+    <div class="risk-box"><div class="rb-label">📉 融券餘額${m.dataDate?`（${String(m.dataDate).slice(4,6)}/${String(m.dataDate).slice(6,8)}）`:''}</div><div class="rb-value">${fmtV(Math.round(m.shortBal))} 張</div><div class="rb-sub">券資比 ${m.shortRatio.toFixed(1)}%</div></div>
   </div>`;
 
   // 軋空偵測（對空方交易者最重要）

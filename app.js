@@ -542,7 +542,9 @@ async function go(){
     const ft = window._dataFetchedAt ? new Date(window._dataFetchedAt) : new Date();
     const tp=$('time-pill');
     const ageSec = Math.round((Date.now() - (window._dataFetchedAt || Date.now())) / 1000);
-    tp.textContent=`${String(ft.getHours()).padStart(2,'0')}:${String(ft.getMinutes()).padStart(2,'0')} 資料${window._dataFromCache ? `（快取 ${ageSec}s）` : '（即時）'}`;
+    const lastK = (window._lastD && window._lastD.lastDate) ? String(window._lastD.lastDate) : '';
+    const kTxt = lastK.length>=8 ? `K線至${lastK.slice(4,6)}/${lastK.slice(6,8)}｜` : '';
+    tp.textContent=`${kTxt}${String(ft.getHours()).padStart(2,'0')}:${String(ft.getMinutes()).padStart(2,'0')}抓取${window._dataFromCache ? `（快取${ageSec}s）` : '（即時）'}`;
     tp.style.display='block';
     tp.title = window._dataFromCache ? `此結果使用 ${ageSec} 秒前抓取的資料（5分鐘內重查會沿用，確保結果可重現）。想強制更新請等快取過期或重新載入頁面。` : '此結果為剛抓取的即時資料';
 

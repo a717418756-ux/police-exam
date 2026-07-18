@@ -11,7 +11,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 
 // ▼▼▼ 每次改版把這個數字 +1（例如 6 → 7），就會自動清除舊快取 ▼▼▼
-const APP_VERSION = 98;
+const APP_VERSION = 100;
 
 /* ── 快取存活時間（統一常數，v95）─────────────────────────────────────
    v95修：原本四個快取各自寫死不同TTL（股價5分/融資5分/大盤10分/縱深10分），
@@ -33,7 +33,10 @@ async function fetchT(url, opts = {}, ms = FE_TIMEOUT) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), ms);
   try {
-    return await fetch(url, { ...opts, signal: ctrl.signal });
+    // v99：cache:'no-store' 強制繞過瀏覽器HTTP快取。後端回應若無 no-store 標頭，
+    // 手機瀏覽器會以「完整網址」為key擅自快取GET回應，重新整理也殺不死——
+    // 曾導致法人資料頑固不更新，換FinMind token（網址變了）才被迫抓新，即此雷
+    return await fetch(url, { cache: 'no-store', ...opts, signal: ctrl.signal });
   } catch (e) {
     if (e.name === 'AbortError') throw new Error('後端回應超時（20秒）——可能是某個資料來源異常，請稍後再試');
     throw e;
