@@ -365,6 +365,53 @@ function computeIntentAnalysis(D, formulas, mainForce) {
   };
 }
 
+/* ══ 【區塊 A2】先行足跡偵測器（v101）════════════════════════════════════
+   「內線消息」的合法版：知情資金無法隱藏成交量與價量關係——腳印是T+0的，
+   比法人籌碼(T+1盤後)早一天可見。三種腳印全部只用今日已知資訊（防前視）：
+   ① 量增價滯：爆量但價不動＝有人在大量換手（吸或出，方向未知）
+   ② OBV先行背離：OBV創20日新高但價未創／價創高但OBV不跟（量先價行）
+   ③ 波動壓縮末端：ATR落入120日最低10%＝變盤前夕（方向未知，但先機在此）
+   ⚠️ 腳印≠方向。19年已證方向不可測——腳印的價值是「提早注意」，dir=0。
+   ════════════════════════════════════════════════════════════════════ */
+function computeEarlyFootprints(D) {
+  try {
+    const c = D.closes, h = D.highs, l = D.lows, v = D.volumes, n = c.length;
+    if (n < 150) return null;   // v102修：ATR百分位序列需往回134根，130~149日會產生NaN靜默失能
+    const fp = [];
+    const avg20 = v.slice(n - 21, n - 1).reduce((a, b) => a + b, 0) / 20;
+    // 盤中用推估全日量（同突破檢查的防呆）
+    let vT = v[n - 1];
+    let phTxt = '';
+    try { const ph = (D.currency === 'TWD' && typeof twMarketPhase === 'function') ? twMarketPhase() : null;
+      if (ph && ph.open && ph.elapsed >= 0.15) { vT = v[n - 1] / ph.elapsed; phTxt = '（盤中推估）'; }
+      else if (ph && ph.open) { return null; }   // v102修：開盤未滿40分鐘量推估雜訊過大，此時段不判足跡（寧可慢一步不誤報）
+    } catch (e) {}
+    const ret1 = Math.abs((c[n - 1] - c[n - 2]) / c[n - 2] * 100);
+    let atr = 0; for (let k = n - 14; k < n; k++) atr += Math.max(h[k] - l[k], Math.abs(h[k] - c[k - 1]), Math.abs(l[k] - c[k - 1])); atr /= 14;
+    const atrPct = atr / c[n - 1] * 100;
+    // ① 量增價滯
+    if (avg20 > 0 && vT > avg20 * 2 && ret1 < atrPct * 0.4) {
+      fp.push({ icon: '👣', txt: `量增價滯${phTxt}：量達20日均量${(vT / avg20).toFixed(1)}倍但價僅動${ret1.toFixed(1)}%——大量換手中（吸貨或出貨，方向未知），通常領先籌碼資料1天` });
+    }
+    // ② OBV 先行背離（20日窗）
+    const obv = []; let s = 0;
+    for (let i = 1; i < n; i++) { s += c[i] > c[i - 1] ? v[i] : c[i] < c[i - 1] ? -v[i] : 0; obv.push(s); }
+    const on = obv.length;
+    const obvWin = obv.slice(on - 21, on - 1);
+    const obvHi20 = Math.max(...obvWin), obvLo20 = Math.min(...obvWin);
+    const obvTol = Math.max((obvHi20 - obvLo20) * 0.03, 1);   // 容差=近20日OBV振幅的3%（絕對值，正負OBV皆正確；v102修：原×0.995在OBV為負時門檻方向顛倒，跌勢股會誤觸發誘多腳印）
+    const pHi20 = Math.max(...c.slice(n - 21, n - 1));
+    if (obv[on - 1] > obvHi20 + obvTol && c[n - 1] < pHi20 * 0.99) fp.push({ icon: '👣', txt: 'OBV創20日新高但價格未跟上——量先價行的吸籌腳印（歷史上OBV常領先價格）' });
+    else if (c[n - 1] > pHi20 && obv[on - 1] < obvHi20 - obvTol) fp.push({ icon: '⚠️', txt: '價創20日新高但OBV未創——上攻沒有量能支撐，誘多腳印，追高風險大' });
+    // ③ 波動壓縮末端（ATR 120日百分位）
+    const atrSeries = [];
+    for (let j = n - 120; j < n; j++) { let a2 = 0; for (let k = j - 13; k <= j; k++) a2 += Math.max(h[k] - l[k], Math.abs(h[k] - c[k - 1]), Math.abs(l[k] - c[k - 1])); atrSeries.push(a2 / 14); }
+    const below = atrSeries.filter(x => x <= atr).length / atrSeries.length;
+    if (below <= 0.10) fp.push({ icon: '🌀', txt: `波動壓縮至120日最低${Math.round(below * 100)}%分位——彈簧壓到底，變盤在即（方向未知，先機=提前佈好雙向劇本與停損）` });
+    return fp.length ? fp : null;
+  } catch (e) { return null; }
+}
+
 function renderMainForce(D, formulas) {
   const card = document.getElementById('mainforce-card');
   if (!card) return;
@@ -374,7 +421,19 @@ function renderMainForce(D, formulas) {
   const colMap = { 吸籌: 'var(--buy)', 洗盤: 'var(--warn)', 出貨: 'var(--sell)', 誘多: 'var(--sell)', 誘空: 'var(--warn)', 恐慌殺盤: 'var(--sell)', 無明顯主力行為: 'var(--muted)' };
   const col = colMap[mf.behavior] || 'var(--muted)';
 
-  let html = `<div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+  let html = '';
+  // 先行足跡（T+0）＋資訊時差圖例
+  try {
+    const fps = computeEarlyFootprints(D);
+    if (fps) {
+      html += `<div style="margin-bottom:12px;padding:8px 10px;background:var(--warn)08;border:1px dashed var(--warn);border-radius:8px">
+        <div style="font-size:10px;color:var(--warn);font-weight:700;margin-bottom:4px">⚡ 先行足跡（T+0價量，領先T+1籌碼一天）</div>
+        ${fps.map(f => `<div style="font-size:10px;color:var(--muted);line-height:1.55;margin-bottom:3px">${f.icon} ${f.txt}</div>`).join('')}
+        <div style="font-size:9px;color:var(--muted2);margin-top:4px">腳印≠方向（19年已證方向不可預測）——價值在「提早注意」：明天籌碼公布前，今天先看到有人在動。資訊時差：價量T+0｜法人/借券T+1盤後｜大戶持股週更</div>
+      </div>`;
+    }
+  } catch (e) {}
+  html += `<div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
     <div style="text-align:center;min-width:86px">
       <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">推估行為</div>
       <div style="font-size:22px;font-weight:800;color:${col};line-height:1.3">${mf.behavior}</div>

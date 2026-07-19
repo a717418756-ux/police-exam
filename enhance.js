@@ -633,7 +633,14 @@ function computeSetupQuality(D) {
     const touched = h[n - 1] > hi20 && c[n - 1] > hi20 * 0.98;   // 盤中觸及且收盤未大幅回落＝挑戰中
     if (brokeOut || touched) {
       const checks = [];
-      checks.push({ ok: v[n - 1] > vol20 * 1.5, txt: `量能 ${v[n-1] > 0 ? (v[n-1] / vol20).toFixed(1) : 0}×20日均量（需>1.5×；19年3,934次驗證：帶量突破成功率40.9% vs 無量34.5%，量能確有鑑別力）` });
+      // v101防誤判：盤中查詢時今日量是「部分天」，直接比全日均量必偏低——依已開盤比例推估全日量
+      let volEff = v[n - 1], volNote = '';
+      try {
+        const ph = (D.currency === 'TWD' && typeof twMarketPhase === 'function') ? twMarketPhase() : null;
+        if (ph && ph.open && ph.elapsed >= 0.15) { volEff = v[n - 1] / ph.elapsed; volNote = `｜盤中推估全日量（已開盤${Math.round(ph.elapsed * 100)}%，收盤前為估計值）`; }
+        else if (ph && ph.open) { volNote = '｜開盤未滿40分鐘，量能不推估（雜訊過大），此項以昨日以前判讀'; }
+      } catch (e2) {}
+      checks.push({ ok: volEff > vol20 * 1.5, txt: `量能 ${volEff > 0 ? (volEff / vol20).toFixed(1) : 0}×20日均量（需>1.5×；19年3,934次驗證：帶量40.9% vs 無量34.5%）${volNote}` });
       const range = h[n - 1] - l[n - 1] || 1;
       checks.push({ ok: (c[n - 1] - l[n - 1]) / range > 0.6, txt: '收在當日振幅上緣60%以上（收高=買方守住戰果，非只是勉強過半）' });
       checks.push({ ok: price - hi20 > atr * 0.5, txt: `突破幅度 ${(price - hi20).toFixed(2)}（需>0.5×ATR，貼著前高=易假突破）` });

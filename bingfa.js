@@ -281,6 +281,10 @@ function renderVerdictBanner(shi, tradeScore, formulas, marketScore, res, D, reg
         ? `正在突破：台股19年3,934次驗證，突破成功率僅38.4%（假突破率61.6%）——追突破期望值為負。此股樣本${bs3.all.n}次不足採信，請以台股基準判斷，帶量進場較佳`
         : `正在突破：此股樣本僅${bs3.all.n}次，統計參考價值低。追突破普遍假突破率偏高，務必設好停損`));
   } catch (e) {}
+  try {
+    const ph = (D && D.currency === 'TWD' && typeof twMarketPhase === 'function') ? twMarketPhase() : null;
+    if (ph && ph.open) addW(7, '⏱', `盤中查詢（已開盤${Math.round(ph.elapsed * 100)}%）：今日K線未完成——量能為推估、所有含今日的訊號收盤前都可能翻轉。奪先機的代價是雜訊，盤中進場部位建議再縮`);
+  } catch (e) {}
   try { const etf = (typeof checkETFRebalanceWindow === 'function') ? checkETFRebalanceWindow() : null; if (etf) addW(6, '📅', etf.text + '——留意搶跑效應（概估窗口）'); } catch (e) {}
   warns.sort((a, b) => a.pri - b.pri);
 
