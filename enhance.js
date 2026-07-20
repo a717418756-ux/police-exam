@@ -796,3 +796,36 @@ function computeBreakoutStats(D) {
   _bsMemo.k = _k; _bsMemo.v = _res;
   return _res;
 }
+
+
+/* ══ 【新增區塊 L】Amihud 非流動性比率（v105）═════════════════════════════
+   學術經典（Amihud 2002, J. Financial Markets；量化因子庫標配）：
+   ILLIQ = |日報酬%| / 當日成交金額 —— 每單位資金能推動多少價格。
+   值越高=流動性越稀薄=同樣賣壓造成更大跌幅=急跌與跳空的「放大器」。
+   逐股自我校準：取20日均值在自身120日歷史的百分位（同溫度計哲學）。
+   ⚠️ 風險指標非方向訊號（與ATR同車道），dir=0、不投任何票。
+   ════════════════════════════════════════════════════════════════════ */
+function computeAmihud(D) {
+  try {
+    const c = D.rawCloses || D.closes, v = D.volumes, n = c.length;
+    if (n < 150) return null;
+    const illiq = [];
+    for (let i = 1; i < n; i++) {
+      const dollar = c[i] * v[i];
+      if (dollar <= 0) { illiq.push(null); continue; }
+      illiq.push(Math.abs((c[i] - c[i - 1]) / c[i - 1] * 100) / (dollar / 1e8));   // 每億元成交推動的%
+    }
+    const valid = illiq.filter(x => x != null);
+    if (valid.length < 140) return null;
+    const ma20 = (arr, end) => { const s = arr.slice(end - 20, end).filter(x => x != null); return s.length >= 10 ? s.reduce((a, b) => a + b, 0) / s.length : null; };
+    const cur = ma20(illiq, illiq.length);
+    if (cur == null) return null;
+    const hist = [];
+    for (let e2 = illiq.length - 120; e2 <= illiq.length; e2++) { const m = ma20(illiq, e2); if (m != null) hist.push(m); }
+    const pct = hist.filter(x => x <= cur).length / hist.length * 100;
+    return { cur, pct,
+      level: pct >= 75 ? '稀薄' : pct <= 25 ? '充沛' : '正常',
+      note: pct >= 75 ? `流動性稀薄（自身120日第${Math.round(pct)}百分位）——同樣賣壓會造成更大跌幅，滑價與跳空的放大器：部位縮小、只用限價單、停損預期會有滑價` :
+            pct <= 25 ? `流動性充沛（第${Math.round(pct)}百分位）——市場吸收量能良好，進出滑價小` : null };
+  } catch (e) { return null; }
+}

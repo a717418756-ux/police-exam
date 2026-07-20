@@ -282,12 +282,23 @@ function renderVerdictBanner(shi, tradeScore, formulas, marketScore, res, D, reg
         : `正在突破：此股樣本僅${bs3.all.n}次，統計參考價值低。追突破普遍假突破率偏高，務必設好停損`));
   } catch (e) {}
   try {
+    const am2 = (D && typeof computeAmihud === 'function') ? computeAmihud(D) : null;
+    if (am2 && am2.level === '稀薄') addW(5, '💧', am2.note);
+  } catch (e) {}
+  try {
     const cp2 = (D && typeof computeCrashPhase === 'function') ? computeCrashPhase(D) : null;
     if (cp2) addW(cp2.phase === '急跌末端' ? 2 : 4, cp2.phase === '急跌末端' ? '🛑' : '🌊', cp2.note);
   } catch (e) {}
   try {
     const ph = (D && D.currency === 'TWD' && typeof twMarketPhase === 'function') ? twMarketPhase() : null;
     if (ph && ph.open) addW(7, '⏱', `盤中查詢（已開盤${Math.round(ph.elapsed * 100)}%）：今日K線未完成——量能為推估、所有含今日的訊號收盤前都可能翻轉。奪先機的代價是雜訊，盤中進場部位建議再縮`);
+  } catch (e) {}
+  try { const ew = (typeof checkEarningsWindow === 'function') ? checkEarningsWindow() : null; if (ew) addW(5, '📊', ew.text); } catch (e) {}
+  try {
+    // v104 營收公布窗口：台股上市櫃每月10日前須公布月營收——2-10日波段常跨到公布日，
+    // 營收意外=跳空，技術停損擋不住跳空。這是基本面對「短線」唯一的直接殺傷路徑
+    const d4 = new Date(), dom = d4.getDate();
+    if (dom >= 1 && dom <= 10) addW(5, '📊', `月營收公布窗口（每月10日前）：持單跨公布日有跳空風險，技術停損擋不住跳空——重倉單建議在公布前減碼或確認本月已公布（尤其空單遇營收意外年增=軋空跳空）`);
   } catch (e) {}
   try { const etf = (typeof checkETFRebalanceWindow === 'function') ? checkETFRebalanceWindow() : null; if (etf) addW(6, '📅', etf.text + '——留意搶跑效應（概估窗口）'); } catch (e) {}
   warns.sort((a, b) => a.pri - b.pri);
@@ -479,6 +490,11 @@ function computeTradeGate(ctx) {
       else if (crowd.crowdDir === dir && crowd.crowding >= 50) warn.push(`明牌偏擁擠（${crowd.crowding}）：預期先掃停損再走，進場點要選在掃盪後`);
       else pass.push('非擁擠明牌（人少的一邊，訊號含金量高）');
     }
+    // Amihud流動性聯動（v105）：稀薄=急跌/跳空放大器（風險車道，不分方向）
+    try {
+      const am = (typeof computeAmihud === 'function') ? computeAmihud(D) : null;
+      if (am && am.level === '稀薄') warn.push(`Amihud非流動性第${Math.round(am.pct)}百分位（自身120日）——${am.note}`);
+    } catch (e) {}
     // 急跌階段聯動（v103）：空方專屬風控
     try {
       const cp = computeCrashPhase(D);
