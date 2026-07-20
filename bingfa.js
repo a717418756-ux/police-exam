@@ -282,6 +282,10 @@ function renderVerdictBanner(shi, tradeScore, formulas, marketScore, res, D, reg
         : `正在突破：此股樣本僅${bs3.all.n}次，統計參考價值低。追突破普遍假突破率偏高，務必設好停損`));
   } catch (e) {}
   try {
+    const cp2 = (D && typeof computeCrashPhase === 'function') ? computeCrashPhase(D) : null;
+    if (cp2) addW(cp2.phase === '急跌末端' ? 2 : 4, cp2.phase === '急跌末端' ? '🛑' : '🌊', cp2.note);
+  } catch (e) {}
+  try {
     const ph = (D && D.currency === 'TWD' && typeof twMarketPhase === 'function') ? twMarketPhase() : null;
     if (ph && ph.open) addW(7, '⏱', `盤中查詢（已開盤${Math.round(ph.elapsed * 100)}%）：今日K線未完成——量能為推估、所有含今日的訊號收盤前都可能翻轉。奪先機的代價是雜訊，盤中進場部位建議再縮`);
   } catch (e) {}
@@ -400,6 +404,35 @@ async function checkBingfaWarning() {
    ⚠️ fail = 禁止進場（紅燈），warn = 提醒但不擋，pass = 加分
       新增規則前先確認該證據是否已被大樣本驗證（無證據的規則不該給 fail）
    ════════════════════════════════════════════════════════════════════ */
+/* ══ 【區塊 C0】急跌階段機（v103，空方戰情核心）════════════════════════
+   專業空頭鐵律：吃魚身、不追魚尾。三階段判定（全用T+0價量）：
+   急跌進行＝3日跌幅>2.5×ATR%且無承接棒 → 空單順風（移動停利保護利潤）
+   急跌末端＝急跌中出現「承接棒」（振幅>1.8×ATR、量>2×均量、收在當日
+   上半部）＝高潮量有人接貨 → 追空=撿人家出完的（19年實證背書：
+   FUSION≤-40後5日反彈率51.6%，跌深處統計偏反彈）
+   ⚠️ 此為風控/時機判定（本系統唯一有實證的車道），非方向預測
+   ════════════════════════════════════════════════════════════════════ */
+function computeCrashPhase(D) {
+  try {
+    const c = D.rawCloses || D.closes, h = D.rawHighs || D.highs, l = D.rawLows || D.lows, v = D.volumes, n = c.length;
+    if (n < 40) return null;
+    let atr = 0; for (let k = n - 14; k < n; k++) atr += Math.max(h[k] - l[k], Math.abs(h[k] - c[k - 1]), Math.abs(l[k] - c[k - 1])); atr /= 14;
+    const atrPct = atr / c[n - 1] * 100;
+    const drop3 = (c[n - 4] - c[n - 1]) / c[n - 4] * 100;
+    if (drop3 < atrPct * 2.5) return null;   // 未達急跌標準
+    // 承接棒：最近2日內有沒有高潮量收高
+    const avg20 = v.slice(n - 21, n - 1).reduce((a, b) => a + b, 0) / 20;
+    let absorb = false;
+    for (let k = n - 2; k < n; k++) {
+      const range = h[k] - l[k];
+      if (range > atr * 1.8 && avg20 > 0 && v[k] > avg20 * 2 && (c[k] - l[k]) / range >= 0.6) { absorb = true; break; }
+    }
+    return absorb
+      ? { phase: '急跌末端', note: `3日急跌${drop3.toFixed(1)}%後出現承接棒（高潮量、長下影收高）——有人在接貨。此處追空=撿人家出完的；已有空單=獲利保護優先` }
+      : { phase: '急跌進行', note: `3日急跌${drop3.toFixed(1)}%（>2.5×ATR）且未見承接——空單順風段（魚身），用移動停利鎖住利潤，出現爆量長下影即離場` };
+  } catch (e) { return null; }
+}
+
 function computeTradeGate(ctx) {
   // ctx: { D, regime, mtf, res, formulas, shi }
   const { D, regime, mtf, res, formulas } = ctx;
@@ -446,6 +479,14 @@ function computeTradeGate(ctx) {
       else if (crowd.crowdDir === dir && crowd.crowding >= 50) warn.push(`明牌偏擁擠（${crowd.crowding}）：預期先掃停損再走，進場點要選在掃盪後`);
       else pass.push('非擁擠明牌（人少的一邊，訊號含金量高）');
     }
+    // 急跌階段聯動（v103）：空方專屬風控
+    try {
+      const cp = computeCrashPhase(D);
+      if (cp && dir === -1) {
+        if (cp.phase === '急跌末端') warn.push(`⛔ ${cp.note}（19年實證：FUSION≤-40跌深處後5日反彈率51.6%）`);
+        else pass.push(`✓ ${cp.note}`);
+      }
+    } catch (e) {}
     // R6 方向限定風險
     // 突破統計聯動：追突破前先看此股歷史成功率（False Breakout Database）
     try {

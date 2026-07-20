@@ -108,6 +108,13 @@ function computeChipHealth(chip, D) {
     const dd = String(chip.dataDate);
     signals.push(`📅 法人資料日期：${dd.slice(4,6)}/${dd.slice(6,8)}（每交易日盤後更新）`);
   }
+  // v103 法人轉向日偵測：法人進出是分多天走的，等5日合計翻負已慢3-4天——
+  // 「連買陣中第一根大賣」（或連賣陣中第一根大買）就是轉向日，第一天最值錢
+  try {
+    const f5avg = Math.abs(chip.foreign5) / 5;
+    if (chip.foreign5 > 0 && chip.foreign1 < -Math.max(f5avg * 1.5, 500)) warnings.push(`⚡ 法人轉向日：外資5日累計買超但「今日」轉大賣${Math.abs(chip.foreign1)}張——法人出貨分多天走，第一天轉向最值錢，別等5日合計翻負才反應`);
+    else if (chip.foreign5 < 0 && chip.foreign1 > Math.max(f5avg * 1.5, 500)) signals.push(`⚡ 法人轉向日：外資5日累計賣超但「今日」轉大買${chip.foreign1}張——若隔日續買=空單的離場鬧鐘`);
+  } catch (e) {}
   if (chip.foreign5 > 0) {
     score += 12;
     if (chip.foreignStreak >= 3) { score += 8; signals.push(`外資連買 ${chip.foreignStreak} 天，資金持續流入`); }
