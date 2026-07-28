@@ -430,7 +430,12 @@ function computeCrashPhase(D) {
     let atr = 0; for (let k = n - 14; k < n; k++) atr += Math.max(h[k] - l[k], Math.abs(h[k] - c[k - 1]), Math.abs(l[k] - c[k - 1])); atr /= 14;
     const atrPct = atr / c[n - 1] * 100;
     const drop3 = (c[n - 4] - c[n - 1]) / c[n - 4] * 100;
-    if (drop3 < atrPct * 2.5) return null;   // 未達急跌標準
+    /* v109修：原本只比相對門檻(2.5×ATR)，當ATR≈0（停牌復牌、極低波動、資料異常）時
+       0 < 0 為 false 不會 return，導致完全沒跌的股票被判為「急跌進行0.0%」——
+       顯示明顯錯誤的資訊。加①ATR有效性檢查②絕對跌幅下限3%（短線的「急跌」
+       至少要有實質跌幅，否則低波動股的小跌也會誤觸發）。 */
+    if (!atr || atr <= 0 || !isFinite(atrPct) || atrPct <= 0) return null;
+    if (drop3 < atrPct * 2.5 || drop3 < 3) return null;   // 未達急跌標準（相對＋絕對雙門檻）
     // 承接棒：最近2日內有沒有高潮量收高
     const avg20 = v.slice(n - 21, n - 1).reduce((a, b) => a + b, 0) / 20;
     let absorb = false;
