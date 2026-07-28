@@ -544,9 +544,31 @@ async function go(){
     const ageSec = Math.round((Date.now() - (window._dataFetchedAt || Date.now())) / 1000);
     const lastK = (window._lastD && window._lastD.lastDate) ? String(window._lastD.lastDate) : '';
     const kTxt = lastK.length>=8 ? `K線至${lastK.slice(4,6)}/${lastK.slice(6,8)}｜` : '';
-    tp.textContent=`${kTxt}${String(ft.getHours()).padStart(2,'0')}:${String(ft.getMinutes()).padStart(2,'0')}抓取${window._dataFromCache ? `（快取${ageSec}s）` : '（即時）'}`;
+    tp.textContent=`v${APP_VERSION}｜${kTxt}${String(ft.getHours()).padStart(2,'0')}:${String(ft.getMinutes()).padStart(2,'0')}抓取${window._dataFromCache ? `（快取${ageSec}s）` : '（即時）'}`;
     tp.style.display='block';
     tp.title = window._dataFromCache ? `此結果使用 ${ageSec} 秒前抓取的資料（5分鐘內重查會沿用，確保結果可重現）。想強制更新請等快取過期或重新載入頁面。` : '此結果為剛抓取的即時資料';
+    /* v108 裝置診斷：同一檔在手機/電腦顯示不同數字，原因幾乎都是這四項之一——
+       ①版本不同（PWA快取住舊版）②資金設定不同 ③風險%設定不同 ④交易日誌未同步
+       （6%預算算本地日誌）。這些都存在各裝置本地，無法自動一致，但點一下就能比對。 */
+    tp.style.cursor = 'pointer';
+    tp.onclick = async () => {
+      const cap = document.getElementById('in-capital')?.value || '?';
+      const rsk = document.getElementById('in-risk')?.value || '?';
+      let jn = '?';
+      try { const ts = await dbGetAllTrades(); jn = `${ts.length}筆（真實${ts.filter(t => !t.sim).length}）`; } catch (e) {}
+      const rb = window._riskBudget;
+      const ftTxt = window._dataFetchedAt ? new Date(window._dataFetchedAt).toLocaleString('zh-TW') : '—';
+      alert(`【裝置診斷】兩台裝置數字不同時，逐項比對這裡\n\n` +
+        `版本：v${APP_VERSION}\n` +
+        `資金設定：${cap}\n` +
+        `單筆風險：${rsk}%\n` +
+        `交易日誌：${jn}\n` +
+        `本月風險預算：${rb ? rb.usedPct + '% 已用／剩 ' + rb.remainPct + '%' : '—'}\n` +
+        `K線最後日：${lastK ? lastK.slice(0,4)+'/'+lastK.slice(4,6)+'/'+lastK.slice(6,8) : '—'}\n` +
+        `資料抓取：${ftTxt}${window._dataFromCache ? '（快取）' : '（即時）'}\n\n` +
+        `※版本不同 → 手機請關閉PWA重開或清除站台資料\n` +
+        `※資金/風險/日誌不同 → 部位、停損金額、6%預算必然不同（設定與日誌存各裝置本地，需手動在設定頁同步）`);
+    };
 
     // 分層分析
     const trend=analyzeTrend(D);
@@ -868,5 +890,6 @@ async function init(){
     if(ftk) FINMIND_TOKEN=ftk;
   }catch(e){ console.warn('載入網址失敗',e); }
   await loadSettings();
+  try { if (typeof refreshRiskBudget === 'function') await refreshRiskBudget(); } catch (e) {}   // v107：載入時算好本月風險預算（2%/6%原則）
 }
 init();

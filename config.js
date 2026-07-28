@@ -11,7 +11,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 
 // ▼▼▼ 每次改版把這個數字 +1（例如 6 → 7），就會自動清除舊快取 ▼▼▼
-const APP_VERSION = 105;
+const APP_VERSION = 108;
 
 /* ── 快取存活時間（統一常數，v95）─────────────────────────────────────
    v95修：原本四個快取各自寫死不同TTL（股價5分/融資5分/大盤10分/縱深10分），
@@ -26,14 +26,29 @@ const APP_VERSION = 105;
    知道現在是否盤中、已開盤多少比例，據以「推估全日量」防呆。
    假設使用者在台灣時區（本專案使用者確定如此）。──────────────── */
 function twMarketPhase() {
-  const d = new Date();
+  /* v108修：原用 new Date().getHours()＝裝置本地時區——電腦若設非台北時區
+     （或使用者在國外），盤中判定會整個錯位，導致同一時刻手機說「盤中」、
+     電腦說「已收盤」，量能推估/先行足跡/盤中警示全部不同。
+     改為固定以台北時間(UTC+8)計算，與裝置時區設定無關。 */
+  const now = new Date();
+  const d = new Date(now.getTime() + (now.getTimezoneOffset() * 60000) + (8 * 3600000));
   const mins = d.getHours() * 60 + d.getMinutes();
-  const open = 9 * 60, close = 13 * 60 + 30;         // 09:00 ~ 13:30
+  const open = 9 * 60, close = 13 * 60 + 30;         // 09:00 ~ 13:30 台北時間
   const isWeekday = d.getDay() >= 1 && d.getDay() <= 5;
   if (!isWeekday || mins < open) return { open: false, elapsed: 0, phase: '未開盤' };
   if (mins >= close) return { open: false, elapsed: 1, phase: '已收盤' };
   return { open: true, elapsed: Math.max(0.05, (mins - open) / (close - open)), phase: '盤中' };
 }
+
+/* ── 倉位管理兩條鐵律（v106，Alexander Elder《Trading for a Living》）──
+   2%原則：單筆交易最大風險 ≤ 總資金2%（一次錯不致命）
+   6%原則：當月已實現虧損累計達6% → 本月停止開新倉（連錯不致命）
+   短線者尤其需要6%：2-10日週期交易頻繁，沒有月度剎車會在壞月份被凌遲。
+   心理學根據：虧損後的報復性加碼（loss-chasing）是散戶帳戶歸零的主因，
+   6%是「情緒失控前的硬煞車」——由規則停手，不靠意志力。
+   ★ 全系統唯一的部位/風險真相來源，任何計算一律引用此常數
+   ──────────────────────────────────────────────────────────────── */
+const RISK_RULE = { perTrade: 2, monthly: 6 };
 
 const CACHE_TTL = 300000;   // 5分鐘：所有資料層統一（股價/融資/大盤/主力縱深/基本面）
 

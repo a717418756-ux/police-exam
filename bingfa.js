@@ -658,42 +658,77 @@ function renderTradeGate(ctx) {
       } catch (e) {}
       const dist = Math.abs(entry - stop);
       const sgn = planSide === 'long' ? 1 : -1;
-      const tp1 = entry + sgn * 2 * dist, tp2 = entry + sgn * 3 * dist;
-      let riskAmt = capital * riskPct / 100;
-      if (half) riskAmt = riskAmt / 2;
+      const tp1 = entry + sgn * 2 * dist;   // v107：只保留2R單一目標（第二目標改為文字規則，見下方執行卡）
       const cur = D.currency === 'TWD' ? '' : '$';
-      let sizeTxt;
-      if (D.currency === 'TWD') {
-        const lots = dist > 0 ? Math.floor(riskAmt / (dist * 1000)) : 0;
-        sizeTxt = lots >= 1 ? lots + ' 張' : '不足1張（風險額太小或停損太遠）';
-      } else {
-        const sh = dist > 0 ? Math.floor(riskAmt / dist) : 0;
-        sizeTxt = sh >= 1 ? sh + ' 股' : '不足1股';
-      }
       const pc = planSide === 'long' ? 'var(--buy)' : 'var(--sell)';
-      html += `<div style="border:2px solid ${pc};border-radius:12px;padding:12px;margin-bottom:10px;background:${pc}0a">
+      /* ── v107 倉位管理兩條鐵律 + 數字整合 ──────────────────────────────
+         ① 2%原則：單筆風險超過2%即視為違規，強制以2%計算並警示
+         ② 6%原則：本月淨虧損達6%→本月停止開新倉（食人魚咬死帳戶的防線）
+         ③ 數字整合：原本部位/進場/停損/停利2R/3R 共5個數字，短線實戰
+            只需要「進場→停損→目標」三個，依執行順序排成一行；第二目標
+            改為文字規則不再給第二個價位（多一個價位=多一次猶豫）
+         ⚠️ 系統只回報預算狀態，不自動改任何參數（決策仍在人手上）
+         ──────────────────────────────────────────────────────────── */
+      const rb = window._riskBudget || null;
+      const rule2Violate = riskPct > 2;
+      const effRiskPct = Math.min(riskPct, 2);          // 2%原則硬上限
+      let riskAmt2 = capital * effRiskPct / 100;
+      if (half) riskAmt2 = riskAmt2 / 2;
+      const lots2 = (D.currency === 'TWD') ? (dist > 0 ? Math.floor(riskAmt2 / (dist * 1000)) : 0) : (dist > 0 ? Math.floor(riskAmt2 / dist) : 0);
+      /* v107修：不足1張時原本只說「不足1張」，但台股2020年起有盤中零股交易——
+         高價股在2%風險下算出0張是正常的（2330約74股），直接給零股數才可執行。
+         這是「符合現實」而非「數學上不足」：不給零股數等於逼使用者自己心算或超額下單。 */
+      const shr2 = dist > 0 ? Math.floor(riskAmt2 / dist) : 0;
+      const sizeTxt2 = D.currency === 'TWD'
+        ? (lots2 >= 1 ? lots2 + ' 張' + (shr2 - lots2 * 1000 >= 1 ? `（＋${shr2 - lots2 * 1000} 零股）` : '')
+                      : (shr2 >= 1 ? shr2 + ' 股（零股，2%風險下不足1張屬正常）' : '風險額不足最小單位——此股停損距離過大，跳過'))
+        : (shr2 >= 1 ? shr2 + ' 股' : '不足1股');
+
+      if (rb && rb.blocked) {
+        // 6%原則熔斷：本月已虧6%，停止開新倉
+        html += `<div style="border:2px solid var(--sell);border-radius:12px;padding:12px;margin-bottom:10px;background:var(--sell)12">
+          <div style="font-size:14px;font-weight:800;color:var(--sell);margin-bottom:6px">🛑 6%原則熔斷 — 本月停止開新倉</div>
+          <div style="font-size:11px;color:var(--muted);line-height:1.7">本月（${rb.ym}）真實單淨虧損已達 <b style="color:var(--sell)">${rb.usedPct}%</b>（${rb.trades}筆），觸及6%上限。<br>
+          Elder鐵律：連續小虧（食人魚）滅絕的帳戶遠多於單次大虧。此時最該做的不是找下一筆翻本，是<b>停手到月底、檢討這${rb.trades}筆的共通點</b>。<br>
+          既有部位照原計畫管理（停損不動、該停利就停利），但<b>不開新倉</b>。</div>
+        </div>`;
+      } else {
+        html += `<div style="border:2px solid ${pc};border-radius:12px;padding:12px;margin-bottom:10px;background:${pc}0a">
         <div style="font-size:13px;font-weight:800;color:${pc};margin-bottom:8px">🎯 執行計畫 — ${planSide==='long'?'做多':'做空'}${half?'（黃燈半量試單）':''}</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
-          <div class="risk-box"><div class="rb-label">部位</div><div class="rb-value">${sizeTxt}</div><div class="rb-sub">資金${(capital/10000).toFixed(0)}萬×風險${riskPct}%${half?'÷2':''}</div></div>
-          <div class="risk-box"><div class="rb-label">進場</div><div class="rb-value">${cur}${fmt(entry)}</div><div class="rb-sub">現價（可等${planSide==='long'?'回踩':'反彈'}）</div></div>
-          <div class="risk-box"><div class="rb-label">🛑 停損</div><div class="rb-value" style="color:var(--sell)">${cur}${fmt(stop)}</div><div class="rb-sub">${smart?smart[planSide].method:'2×ATR'}</div></div>
-          <div class="risk-box"><div class="rb-label">✅ 停利 2R/3R</div><div class="rb-value" style="color:var(--buy)">${cur}${fmt(tp1)} / ${fmt(tp2)}</div><div class="rb-sub">出50%/25%，剩25%續抱</div></div>
+        <div style="background:var(--bg);border:1px solid ${pc}40;border-radius:10px;padding:10px;margin-bottom:8px">
+          <div style="font-size:9px;color:var(--muted2);margin-bottom:6px">這筆交易只需要記住三個數字（依執行順序）</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:4px;font-family:var(--mono)">
+            <div style="text-align:center;flex:1"><div style="font-size:9px;color:var(--muted2)">進場</div><div style="font-size:15px;font-weight:800;color:var(--fg)">${cur}${fmt(entry)}</div></div>
+            <div style="color:var(--muted2);font-size:11px">→</div>
+            <div style="text-align:center;flex:1"><div style="font-size:9px;color:var(--muted2)">🛑 停損</div><div style="font-size:15px;font-weight:800;color:var(--sell)">${cur}${fmt(stop)}</div></div>
+            <div style="color:var(--muted2);font-size:11px">→</div>
+            <div style="text-align:center;flex:1"><div style="font-size:9px;color:var(--muted2)">✅ 目標</div><div style="font-size:15px;font-weight:800;color:var(--buy)">${cur}${fmt(tp1)}</div></div>
+          </div>
+          <div style="text-align:center;margin-top:8px;padding-top:8px;border-top:1px dashed var(--bd)">
+            <span style="font-size:9px;color:var(--muted2)">部位</span> <b style="font-size:14px;font-family:var(--mono);color:${pc}">${sizeTxt2}</b>
+            <span style="font-size:9px;color:var(--muted2)">（風險${effRiskPct}%${half?'÷2':''}＝${cur}${Math.round(riskAmt2).toLocaleString()}）</span>
+          </div>
+        </div>
+        <div style="font-size:10px;color:var(--muted);line-height:1.7">
+          📏 <b>目標為2R</b>（賺賠比1:2）：到價出50%、停損移至成本、剩餘用移動停利跟到走完——<b>不再給第二個價位，多一個數字就多一次猶豫</b><br>
+          ${rule2Violate ? `<span style="color:var(--sell)">⚠️ 你設定的風險 ${riskPct}% 超過2%原則上限，已強制以2%計算。單筆風險>2%＝一次重傷就打亂全年節奏</span><br>` : `✓ 2%原則：單筆風險 ${effRiskPct}%（上限2%）`}<span onclick="showHelp('riskrules')" style="cursor:pointer;color:var(--muted2);margin-left:4px">ⓘ</span>
+          ${rb ? `<br>${rb.warn ? '⚠️' : '✓'} <b>6%原則</b>：本月已用 <b style="color:${rb.warn ? 'var(--warn)' : 'var(--muted)'}">${rb.usedPct}%</b> / 6%（尚餘${rb.remainPct}%、${rb.trades}筆真實單）${rb.warn ? '——逼近熔斷，此時應降低頻率與部位，而非加碼翻本' : ''}` : ''}
         </div>${stopLineWarn}
         <div style="font-size:10px;color:var(--muted);margin-top:8px">⏱️ 時間停損：3~5日未朝預期發展即全撤，不等價格停損。${(function(){
           try{
             const cc=D.closes,nn=cc.length;if(nn<40)return '';
-            let s2=0,m2=0;const rets=[];
+            const rets=[];
             for(let i=nn-40;i<nn;i++){rets.push((cc[i]-cc[i-1])/cc[i-1]);}
             const mean=rets.reduce((a,b)=>a+b,0)/rets.length;
             const sd=Math.sqrt(rets.reduce((a,x)=>a+(x-mean)**2,0)/rets.length);
-            const lots2=(D.currency==='TWD'&&dist>0)?Math.floor(riskAmt/(dist*1000)):0;
-            const posVal=D.currency==='TWD'?lots2*1000*entry:Math.floor(dist>0?riskAmt/dist:0)*entry;
+            const posVal=D.currency==='TWD'?lots2*1000*entry:lots2*entry;
             if(!posVal)return '';
             const varAmt=Math.round(1.65*sd*posVal);
             return ' 此部位單日95%VaR≈'+(D.currency==='TWD'?'':'$')+varAmt.toLocaleString()+'（正常日95%機率虧損不超過此數，超過=異常日快跑）';
           }catch(e){return '';}
         })()}</div>
       </div>`;
+      }
     }
   } catch (e) { /* 執行計畫失敗不影響裁決顯示 */ }
 
