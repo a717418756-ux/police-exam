@@ -123,6 +123,7 @@
       </div>
       <div id="vb-metrics" style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"></div>
       <div id="vb-warns" style="margin-top:10px"></div>
+      <div style="text-align:right;margin-top:6px"><button onclick="showHelp('autolearn')" style="background:none;border:none;color:var(--muted2);font-size:10px;cursor:pointer;padding:2px 4px">🧠 系統如何自我校準？</button></div>
     </div>
   </div>
   <!-- 多維度共振確認 -->
@@ -354,9 +355,33 @@
 <footer>短線雷達 Pro <span id="ver-tag"></span>&nbsp;·&nbsp; 風險優先分層決策系統 &nbsp;·&nbsp; 僅供參考</footer>
 </div>
 <!-- 交易日誌浮動按鈕 -->
+<button id="scan-fab" onclick="openScan()" style="position:fixed;right:18px;bottom:84px;z-index:200;width:56px;height:56px;border-radius:16px;border:none;background:linear-gradient(135deg,#F59E0B,#EF4444);color:#fff;font-size:22px;cursor:pointer;box-shadow:0 4px 20px #F59E0B50" title="條件篩選器">🔍</button>
 <button id="journal-fab" onclick="openJournal()" style="position:fixed;right:18px;bottom:18px;z-index:200;width:56px;height:56px;border-radius:16px;border:none;background:linear-gradient(135deg,#A855F7,#3B82F6);color:#fff;font-size:22px;cursor:pointer;box-shadow:0 4px 20px #A855F750">📒</button>
 
 <!-- 交易日誌面板 -->
+<div id="scan-overlay" style="display:none;position:fixed;inset:0;z-index:290;background:var(--bg);overflow-y:auto;padding:16px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <div style="font-size:15px;font-weight:700">🔍 條件篩選器</div>
+    <button onclick="closeScan()" style="font-size:12px;padding:5px 12px;border-radius:6px;border:1px solid var(--line);background:transparent;color:var(--fg);cursor:pointer">關閉</button>
+  </div>
+  <div style="font-size:10px;color:var(--muted2);line-height:1.6;margin-bottom:10px;padding:8px 10px;background:var(--warn)08;border:1px dashed var(--warn);border-radius:7px">
+    這不是「推薦會漲跌的股票」——19年24檔7,908事件已證方向不可預測。此處是把你的觀察池逐檔跑完整引擎，依<b>風控與時機條件</b>（本系統唯一有實證的車道）排序，回答「哪幾檔目前的進場條件結構較好」。最終仍須逐檔看完整分析與出手紀律門。
+  </div>
+  <div style="margin-bottom:8px">
+    <div style="font-size:11px;color:var(--muted);margin-bottom:4px">觀察池代碼（空白或逗號分隔，上限60檔）</div>
+    <textarea id="scan-codes" rows="3" placeholder="2330 2317 2454 2603 3037 ..." style="width:100%;box-sizing:border-box;font-family:var(--mono);font-size:12px;padding:8px;border-radius:7px;border:1px solid var(--line);background:var(--card);color:var(--fg)"></textarea>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+    <select id="scan-dir" style="font-size:12px;padding:6px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--fg)">
+      <option value="short">做空條件</option>
+      <option value="long">做多條件</option>
+    </select>
+    <button id="scan-run" onclick="runScan()" style="font-size:12px;padding:6px 16px;border-radius:6px;border:1px solid var(--accent);background:var(--accent)20;color:var(--fg);cursor:pointer;font-weight:700">開始掃描</button>
+    <button id="scan-stop" onclick="stopScan()" style="display:none;font-size:12px;padding:6px 12px;border-radius:6px;border:1px solid var(--sell);background:transparent;color:var(--sell);cursor:pointer">停止</button>
+  </div>
+  <div id="scan-result"></div>
+</div>
+
 <div id="journal-overlay" style="display:none;position:fixed;inset:0;z-index:300;background:rgba(5,8,15,.7);backdrop-filter:blur(4px)" onclick="if(event.target===this)closeJournal()">
   <div style="max-width:560px;margin:30px auto;background:var(--surf);border:1px solid var(--bd);border-radius:18px;max-height:90vh;overflow-y:auto;padding:20px">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
@@ -498,6 +523,7 @@
 <script src="./bingfa.js"></script>
 <script src="./layout.js"></script>
 <script src="./journal.js"></script>
+<script src="./scan.js"></script>
 <script src="./app.js"></script>
 <script>document.getElementById('ver-tag').textContent='v'+APP_VERSION;</script>
 </body>
