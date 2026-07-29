@@ -367,18 +367,28 @@
   <div style="font-size:10px;color:var(--muted2);line-height:1.6;margin-bottom:10px;padding:8px 10px;background:var(--warn)08;border:1px dashed var(--warn);border-radius:7px">
     這不是「推薦會漲跌的股票」——19年24檔7,908事件已證方向不可預測。此處是把你的觀察池逐檔跑完整引擎，依<b>風控與時機條件</b>（本系統唯一有實證的車道）排序，回答「哪幾檔目前的進場條件結構較好」。最終仍須逐檔看完整分析與出手紀律門。
   </div>
-  <div style="margin-bottom:8px">
-    <div style="font-size:11px;color:var(--muted);margin-bottom:4px">觀察池代碼（空白或逗號分隔，上限60檔）</div>
-    <textarea id="scan-codes" rows="3" placeholder="2330 2317 2454 2603 3037 ..." style="width:100%;box-sizing:border-box;font-family:var(--mono);font-size:12px;padding:8px;border-radius:7px;border:1px solid var(--line);background:var(--card);color:var(--fg)"></textarea>
+  <!-- v114：主流程＝選方向就出結果，不必碰代碼。自訂清單降級為進階選項（預設收合） -->
+  <div style="display:flex;gap:10px;margin-bottom:12px">
+    <button id="scan-short" onclick="runScanAuto('short')" style="flex:1;padding:16px 8px;border-radius:10px;border:1px solid var(--sell);background:var(--sell)15;color:var(--fg);cursor:pointer;font-size:15px;font-weight:800">📉 找做空標的</button>
+    <button id="scan-long" onclick="runScanAuto('long')" style="flex:1;padding:16px 8px;border-radius:10px;border:1px solid var(--buy);background:var(--buy)15;color:var(--fg);cursor:pointer;font-size:15px;font-weight:800">📈 找做多標的</button>
   </div>
-  <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
-    <select id="scan-dir" style="font-size:12px;padding:6px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--fg)">
-      <option value="short">做空條件</option>
-      <option value="long">做多條件</option>
-    </select>
-    <button id="scan-run" onclick="runScan()" style="font-size:12px;padding:6px 16px;border-radius:6px;border:1px solid var(--accent);background:var(--accent)20;color:var(--fg);cursor:pointer;font-weight:700">開始掃描</button>
-    <button id="scan-stop" onclick="stopScan()" style="display:none;font-size:12px;padding:6px 12px;border-radius:6px;border:1px solid var(--sell);background:transparent;color:var(--sell);cursor:pointer">停止</button>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <span style="font-size:10px;color:var(--muted2)">掃描台股熱門池（台灣50＋中型100主要成分），約1分鐘</span>
+    <button id="scan-stop" onclick="stopScan()" style="display:none;font-size:11px;padding:5px 12px;border-radius:6px;border:1px solid var(--sell);background:transparent;color:var(--sell);cursor:pointer">停止</button>
   </div>
+  <details style="margin-bottom:10px">
+    <summary style="font-size:11px;color:var(--muted2);cursor:pointer">進階：改用自己的清單</summary>
+    <div style="margin-top:6px">
+      <textarea id="scan-codes" rows="3" placeholder="留空＝用內建熱門池；也可貼自己的代碼，空白或逗號分隔（上限130檔）" style="width:100%;box-sizing:border-box;font-family:var(--mono);font-size:12px;padding:8px;border-radius:7px;border:1px solid var(--line);background:var(--card);color:var(--fg)"></textarea>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+        <select id="scan-dir" style="font-size:12px;padding:6px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--fg)">
+          <option value="short">做空條件</option>
+          <option value="long">做多條件</option>
+        </select>
+        <button id="scan-run" onclick="runScan()" style="font-size:12px;padding:6px 16px;border-radius:6px;border:1px solid var(--accent);background:var(--accent)20;color:var(--fg);cursor:pointer;font-weight:700">用此清單掃描</button>
+      </div>
+    </div>
+  </details>
   <div id="scan-result"></div>
 </div>
 

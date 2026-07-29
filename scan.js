@@ -133,22 +133,29 @@ function evalScanConditions(D, dir) {
 
 /* 掃描主流程：分批取K線 → 逐檔評估 → 排序顯示 */
 
-/* 一鍵載入內建池（按方向自動填入，使用者不必自己準備清單） */
-function fillPool() {
+/* v114 主入口：選方向就直接掃內建池，使用者完全不必碰代碼。
+   （舊的 runScan 保留給「進階：自訂清單」使用，兩者共用同一套掃描核心） */
+async function runScanAuto(dirStr) {
   const ta = document.getElementById('scan-codes');
-  if (!ta) return;
-  ta.value = TW_POOL.join(' ');
-  try { localStorage.setItem('scanPool', ta.value); } catch (e) {}
-  const box = document.getElementById('scan-result');
-  if (box) box.innerHTML = `<div style="font-size:11px;color:var(--muted)">已載入內建池 ${TW_POOL.length} 檔（台灣50＋中型100主要成分，流動性佳＝借券容易、滑價小）。<br>按「開始掃描」即可，預估 ${Math.ceil(TW_POOL.length / 20) * 8}~${Math.ceil(TW_POOL.length / 20) * 15} 秒。</div>`;
+  if (ta) ta.value = TW_POOL.join(' ');          // 自動填入內建池
+  const sel = document.getElementById('scan-dir');
+  if (sel) sel.value = dirStr;                    // 同步方向
+  document.getElementById('scan-short').disabled = true;
+  document.getElementById('scan-long').disabled = true;
+  try { await runScan(); }
+  finally {
+    document.getElementById('scan-short').disabled = false;
+    document.getElementById('scan-long').disabled = false;
+  }
 }
 
 async function runScan() {
   const raw = document.getElementById('scan-codes').value || '';
-  const codes = raw.split(/[\s,，、]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
+  let codes = raw.split(/[\s,，、]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
+  if (!codes.length) codes = TW_POOL.slice();   // v114：留空＝自動用內建熱門池（使用者不必準備清單）
   const dir = document.getElementById('scan-dir').value === 'short' ? -1 : 1;
   const box = document.getElementById('scan-result');
-  if (!codes.length) { box.innerHTML = '<div style="color:var(--warn);font-size:12px">請先輸入股票代碼（空白或逗號分隔）</div>'; return; }
+  if (!codes.length) { box.innerHTML = '<div style="color:var(--warn);font-size:12px">內建池異常且未輸入代碼——請於「進階」貼上股票代碼</div>'; return; }   // TW_POOL 異常時的最後防線
   if (codes.length > 130) { box.innerHTML = '<div style="color:var(--warn);font-size:12px">一次最多130檔（避免後端負擔過重與等待過久）</div>'; return; }
 
   saveScanPool();   // v113：掃描前存檔（使用者常編輯後直接掃，不關面板）
