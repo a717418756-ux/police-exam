@@ -11,7 +11,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 
 // ▼▼▼ 每次改版把這個數字 +1（例如 6 → 7），就會自動清除舊快取 ▼▼▼
-const APP_VERSION = 117;
+const APP_VERSION = 119;
 
 /* ── 快取存活時間（統一常數，v95）─────────────────────────────────────
    v95修：原本四個快取各自寫死不同TTL（股價5分/融資5分/大盤10分/縱深10分），
@@ -30,8 +30,12 @@ function twMarketPhase() {
      （或使用者在國外），盤中判定會整個錯位，導致同一時刻手機說「盤中」、
      電腦說「已收盤」，量能推估/先行足跡/盤中警示全部不同。
      改為固定以台北時間(UTC+8)計算，與裝置時區設定無關。 */
-  const now = new Date();
-  const d = new Date(now.getTime() + (now.getTimezoneOffset() * 60000) + (8 * 3600000));
+  /* v119修：原寫法 getTime() + getTimezoneOffset()*60000 + 8h 是重複校正——
+     getTime() 已是 UTC 毫秒，再加 offset 等於多轉一次時區。在台北裝置上會把
+     10:30 算成 02:30，導致「盤中」永遠判定為非盤中：v101 起的盤中量能推估、
+     先行足跡、盤中警示等功能，在實機上從未真正生效（容器為UTC故測不出）。
+     正確：UTC毫秒 + 8小時 = 台北時間。 */
+  const d = new Date(Date.now() + 8 * 3600000);
   const mins = d.getHours() * 60 + d.getMinutes();
   const open = 9 * 60, close = 13 * 60 + 30;         // 09:00 ~ 13:30 台北時間
   const isWeekday = d.getDay() >= 1 && d.getDay() <= 5;
@@ -49,6 +53,44 @@ function twMarketPhase() {
    ★ 全系統唯一的部位/風險真相來源，任何計算一律引用此常數
    ──────────────────────────────────────────────────────────────── */
 const RISK_RULE = { perTrade: 2, monthly: 6 };
+
+/* ── 資料落後主動偵測（v118）───────────────────────────────────────────
+   問題：畫面只顯示「資料日期07/14」，使用者得自己心算現在是幾號、
+   該不該有更新的資料——容易被忽略，誤把舊資料當最新判斷。
+   這裡直接算出「最近一個應該有資料的交易日」，逐一比對法人/融資/借券
+   的實際資料日，超過門檻就主動標紅警示，不用使用者自己算。
+   時程依據：T86/MI_MARGN 約當日下午公布；SBL(借券)按慣例T+1公布。
+   ──────────────────────────────────────────────────────────────── */
+function expectedTradeDate(lagDays) {
+  lagDays = lagDays || 0;
+  /* v119修：原寫法 Date.now() + getTimezoneOffset()*60000 + 8h 是「重複校正」——
+     Date.now() 本身已是 UTC 毫秒，再加 offset 等於多轉一次時區。
+     在台北裝置(offset=-480)上會把台北16:00算成08:00，整整差8小時，
+     導致「現在該不該有今天的資料」判斷全錯（誤報落後或漏報落後）。
+     容器測試是UTC(offset=0)所以測不出來，只在實機發作。
+     正確：UTC毫秒 + 8小時 = 台北時間，與 worker.js 的 _tpeDateStr 寫法一致。 */
+  const d = new Date(Date.now() + 8 * 3600000);
+  const hour = d.getUTCHours();
+  // 台股約15:30~16:00後T86/MI_MARGN才公布完整，之前只能拿到前一交易日
+  let back = (hour < 16) ? 1 : 0;
+  back += lagDays;
+  let day = new Date(d.getTime() - back * 86400000);
+  while (day.getUTCDay() === 0 || day.getUTCDay() === 6) day = new Date(day.getTime() - 86400000);
+  const y = day.getUTCFullYear(), m = String(day.getUTCMonth() + 1).padStart(2, '0'), dd = String(day.getUTCDate()).padStart(2, '0');
+  return `${y}${m}${dd}`;
+}
+function checkDataFreshness(dataDate, lagDays) {
+  if (!dataDate) return null;
+  const ds = String(dataDate);
+  if (!/^\d{8}$/.test(ds)) return null;   // v118修：格式異常(非8位數字)時安全跳過，不誤判為「正常」
+  const expected = expectedTradeDate(lagDays);
+  if (ds >= expected) return { stale: false, expected };
+  // 算落後幾個交易日（粗估，僅供顯示嚴重程度）
+  const d1 = new Date(+ds.slice(0,4), +ds.slice(4,6)-1, +ds.slice(6,8));
+  const d2 = new Date(+expected.slice(0,4), +expected.slice(4,6)-1, +expected.slice(6,8));
+  const gapDays = Math.round((d2 - d1) / 86400000);
+  return { stale: true, expected, gapDays };
+}
 
 const CACHE_TTL = 300000;   // 5分鐘：所有資料層統一（股價/融資/大盤/主力縱深/基本面）
 
