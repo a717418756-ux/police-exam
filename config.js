@@ -11,7 +11,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 
 // ▼▼▼ 每次改版把這個數字 +1（例如 6 → 7），就會自動清除舊快取 ▼▼▼
-const APP_VERSION = 119;
+const APP_VERSION = 120;
 
 /* ── 快取存活時間（統一常數，v95）─────────────────────────────────────
    v95修：原本四個快取各自寫死不同TTL（股價5分/融資5分/大盤10分/縱深10分），
@@ -35,10 +35,15 @@ function twMarketPhase() {
      10:30 算成 02:30，導致「盤中」永遠判定為非盤中：v101 起的盤中量能推估、
      先行足跡、盤中警示等功能，在實機上從未真正生效（容器為UTC故測不出）。
      正確：UTC毫秒 + 8小時 = 台北時間。 */
+  /* v120修：v119 改用「Date.now()+8h」造出台北時間戳是對的，但下面卻用
+     getHours()/getDay()（本地時區方法）去讀——在台北裝置上等於再加8小時，
+     變成 UTC+16，台北10:30被讀成18:00，盤中判定依然全錯。
+     ★ 鐵律：用「+8h 的時間戳」時，一律搭配 getUTC* 系列方法讀取，
+       兩者必須成對，混用即錯。（worker.js 的 _tpeDateStr 已是此正確寫法） */
   const d = new Date(Date.now() + 8 * 3600000);
-  const mins = d.getHours() * 60 + d.getMinutes();
+  const mins = d.getUTCHours() * 60 + d.getUTCMinutes();
   const open = 9 * 60, close = 13 * 60 + 30;         // 09:00 ~ 13:30 台北時間
-  const isWeekday = d.getDay() >= 1 && d.getDay() <= 5;
+  const isWeekday = d.getUTCDay() >= 1 && d.getUTCDay() <= 5;
   if (!isWeekday || mins < open) return { open: false, elapsed: 0, phase: '未開盤' };
   if (mins >= close) return { open: false, elapsed: 1, phase: '已收盤' };
   return { open: true, elapsed: Math.max(0.05, (mins - open) / (close - open)), phase: '盤中' };
