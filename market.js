@@ -56,7 +56,8 @@ function renderMarket(m) {
     if (pcr > 120) { tone = 'good'; desc = `PCR ${pcr.toFixed(0)}% 偏高，賣權避險濃，散戶恐慌，常為反指標（物極必反偏多）`; }
     else if (pcr < 80) { tone = ''; desc = `PCR ${pcr.toFixed(0)}% 偏低，市場樂觀，留意過熱`; }
     else { desc = `PCR ${pcr.toFixed(0)}%，選擇權多空情緒中性`; }
-    boxes.push({ cls: tone, label: '⚖️ PCR 賣權買權比(未平倉)', value: `${pcr.toFixed(0)}%`, valCls: tone === 'good' ? 'buy' : 'warn', sub: desc });
+    // v123：PCR 原本後端有抓 pcrDate 卻從未顯示——使用者無從判斷這是哪天的情緒指標
+    boxes.push({ cls: tone, label: '⚖️ PCR 賣權買權比(未平倉)', value: `${pcr.toFixed(0)}%`, valCls: tone === 'good' ? 'buy' : 'warn', sub: desc + (t.pcrDate ? `｜資料日 ${t.pcrDate}` : '') });
   }
   // 類股廣度（假強/假弱偵測：指數與廣度背離）
   const bw = (m.tw && m.tw.breadth) ? m.tw.breadth : null;

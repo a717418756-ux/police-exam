@@ -602,6 +602,73 @@ function computeTradeGate(ctx) {
    ⚠️ 部位/停損/停利/停損線位重疊警告 皆在此區塊，改動任一項須確認
       與 mainforce.js 的 renderPlaybook（劇本卡）數值一致
    ════════════════════════════════════════════════════════════════════ */
+/* ══ 【區塊 C3】實際可達目標（MFE分析，v124）═══════════════════════════
+   問題：原本停利用固定 R 倍數（R=停損距離），2R/3R 對短線根本達不到——
+   實測2313的2R目標是28.5%，但歷史上持有5日達成率 0.0%、10日僅 1.0%。
+   使用者總是「還沒到目標就先出場或被停損」，因為目標本身就不切實際。
+
+   專業做法（機構常用的 MFE / Maximum Favorable Excursion 分析）：
+   統計此股歷史上「進場後 N 日內最大有利偏移」的分布，用實際分位數當目標，
+   而不是用公式推算。中位數＝一半機率能達到，75分位＝約1/4機率。
+   同時檢查風報比：若「中位可達幅度 < 停損距離」，這筆交易的結構就是不利的，
+   無論方向看得多準都難獲利——這是短線最常見卻最少人算的致命點。
+   ⚠️ 逐日重演僅用當日之後的實際走勢，不含任何未來資訊以外的推測。
+   ════════════════════════════════════════════════════════════════════ */
+function computeRealisticTargets(D, dir, stopDistPct) {
+  try {
+    const c = D.rawCloses || D.closes, h = D.rawHighs || D.highs, l = D.rawLows || D.lows;
+    const n = c.length;
+    if (n < 120) return null;
+    const price = D.price || c[n - 1];
+    const horizons = [1, 2, 5, 10];
+    const out = [];
+    for (const H of horizons) {
+      const mfes = [];
+      for (let i = 60; i < n - H; i++) {
+        const entry = c[i];
+        if (!entry) continue;
+        let ext = entry;
+        for (let k = i + 1; k <= i + H; k++) {
+          ext = dir === -1 ? Math.min(ext, l[k]) : Math.max(ext, h[k]);
+        }
+        const mfe = dir === -1 ? (entry - ext) / entry * 100 : (ext - entry) / entry * 100;
+        if (isFinite(mfe) && mfe >= 0) mfes.push(mfe);
+      }
+      if (mfes.length < 50) continue;
+      mfes.sort((a, b) => a - b);
+      const q = (p) => mfes[Math.floor(mfes.length * p)];
+      const med = q(0.5), p75 = q(0.75);
+      const rr = stopDistPct > 0 ? med / stopDistPct : null;   // 風報比＝中位可達 ÷ 停損距離
+      out.push({
+        days: H, n: mfes.length,
+        medPct: med, p75Pct: p75,
+        medPrice: dir === -1 ? price * (1 - med / 100) : price * (1 + med / 100),
+        p75Price: dir === -1 ? price * (1 - p75 / 100) : price * (1 + p75 / 100),
+        rr,
+      });
+    }
+    if (!out.length) return null;
+    // 現行R倍數目標的歷史達成率（用來揭穿不切實際的目標）
+    const rTargets = [2, 3].map(mult => {
+      const tgtPct = stopDistPct * mult;
+      const res = horizons.map(H => {
+        const mfes = [];
+        for (let i = 60; i < n - H; i++) {
+          const entry = c[i]; if (!entry) continue;
+          let ext = entry;
+          for (let k = i + 1; k <= i + H; k++) ext = dir === -1 ? Math.min(ext, l[k]) : Math.max(ext, h[k]);
+          const mfe = dir === -1 ? (entry - ext) / entry * 100 : (ext - entry) / entry * 100;
+          if (isFinite(mfe)) mfes.push(mfe);
+        }
+        const hit = mfes.length ? mfes.filter(x => x >= tgtPct).length / mfes.length * 100 : null;
+        return { days: H, hit };
+      });
+      return { mult, tgtPct, res };
+    });
+    return { rows: out, rTargets, price, stopDistPct, dir };
+  } catch (e) { return null; }
+}
+
 function renderTradeGate(ctx) {
   const card = document.getElementById('gate-card');
   if (!card) return;
@@ -715,7 +782,26 @@ function renderTradeGate(ctx) {
           </div>
         </div>
         <div style="font-size:10px;color:var(--muted);line-height:1.7">
-          📏 <b>目標為2R</b>（賺賠比1:2）：到價出50%、停損移至成本、剩餘用移動停利跟到走完——<b>不再給第二個價位，多一個數字就多一次猶豫</b><br>
+          ${(() => {
+            /* v124：把「目標為2R」改成此股歷史實際可達的目標。
+               原本的R倍數目標對短線不切實際（實測2313的2R=28.5%，5日達成率0.0%），
+               使用者永遠「還沒到目標就先出場或被停損」。改用MFE分位數＋風報比檢查。 */
+            try {
+              const stopPct = dist / entry * 100;
+              const rt = computeRealisticTargets(D, planSide === 'long' ? 1 : -1, stopPct);
+              if (!rt) return `📏 <b>目標為2R</b>（賺賠比1:2）：到價出50%、停損移至成本、剩餘用移動停利<br>`;
+              const pick = rt.rows.find(r => r.days === 5) || rt.rows[rt.rows.length - 1];
+              const r2 = (rt.rTargets.find(x => x.mult === 2) || {}).res || [];
+              const hit5 = (r2.find(x => x.days === 5) || {}).hit;
+              const rr = pick.rr;
+              const rrCol = rr >= 1.5 ? 'var(--buy)' : rr >= 1 ? 'var(--warn)' : 'var(--sell)';
+              return `📏 <b>此股歷史實際可達</b>（非公式推算，逐日重演${pick.n}個樣本）：
+                ${rt.rows.map(r => `${r.days}日 ${r.medPct.toFixed(1)}%→${cur}${fmt(r.medPrice)}`).join('｜')}<br>
+                <span style="color:${rrCol}">${rr >= 1.5 ? '✓' : '⚠️'} <b>風報比 ${rr.toFixed(2)}</b>（5日中位可達${pick.medPct.toFixed(1)}% ÷ 停損${stopPct.toFixed(1)}%）${rr < 1 ? '——結構不利：即使方向做對，賺的也少於做錯時賠的。建議跳過此檔，或縮短為當沖/隔日沖並改用更近停損（但留意易被雜訊掃損）' : rr < 1.5 ? '——勉強可做，務必嚴守停損與時間停損' : '——結構有利'}</span><br>
+                ${hit5 != null && hit5 < 10 ? `<span style="color:var(--muted2)">（參考：傳統2R目標${(stopPct * 2).toFixed(1)}%在此股5日內的歷史達成率僅 ${hit5.toFixed(1)}%，故不採用）</span><br>` : ''}
+                到價出50%、停損移至成本、剩餘用移動停利跟到走完<br>`;
+            } catch (e) { return `📏 目標：到價出50%、停損移至成本、剩餘移動停利<br>`; }
+          })()}
           ${rule2Violate ? `<span style="color:var(--sell)">⚠️ 你設定的風險 ${riskPct}% 超過2%原則上限，已強制以2%計算。單筆風險>2%＝一次重傷就打亂全年節奏</span><br>` : `✓ 2%原則：單筆風險 ${effRiskPct}%（上限2%）`}<span onclick="showHelp('riskrules')" style="cursor:pointer;color:var(--muted2);margin-left:4px">ⓘ</span>
           ${rb ? `<br>${rb.warn ? '⚠️' : '✓'} <b>6%原則</b>：本月已用 <b style="color:${rb.warn ? 'var(--warn)' : 'var(--muted)'}">${rb.usedPct}%</b> / 6%（尚餘${rb.remainPct}%、${rb.trades}筆真實單）${rb.warn ? '——逼近熔斷，此時應降低頻率與部位，而非加碼翻本' : ''}` : ''}
         </div>${stopLineWarn}

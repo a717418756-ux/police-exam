@@ -506,6 +506,7 @@ async function loadFundamentalCard(D) {
   const box = (label, val, sub) => `<div class="risk-box"><div class="rb-label">${label}</div><div class="rb-value">${val}</div><div class="rb-sub">${sub}</div></div>`;
   let html = `<div class="risk-grid">
     ${box('📈 月營收 YoY', f.revYoY != null ? (f.revYoY >= 0 ? '+' : '') + f.revYoY.toFixed(1) + '%' : '—', f.revMonth ? '資料月份 ' + f.revMonth : '去年同月比')}
+    ${f.valDate ? `<div style="grid-column:1/-1;font-size:9px;color:var(--muted2);margin-top:2px">估值(PE/PB/殖利率)資料日：${String(f.valDate).slice(4,6)}/${String(f.valDate).slice(6,8)}${(() => { try { const fr = (typeof checkDataFreshness === 'function') ? checkDataFreshness(f.valDate, 0) : null; return (fr && fr.stale) ? ` <span style="color:var(--sell)">⚠️ 落後約${fr.gapDays}個交易日</span>` : ''; } catch (e) { return ''; } })()}</div>` : ''}
     ${box('📊 月營收 MoM', f.revMoM != null ? (f.revMoM >= 0 ? '+' : '') + f.revMoM.toFixed(1) + '%' : '—', '上月比較')}
     ${box('💰 本益比', f.pe != null && f.pe > 0 ? f.pe.toFixed(1) : (f.pe === 0 ? '虧損' : '—'), 'PE')}
     ${box('🏦 股價淨值比', f.pb != null && f.pb > 0 ? f.pb.toFixed(2) : '—', 'PB')}
