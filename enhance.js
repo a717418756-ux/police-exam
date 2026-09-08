@@ -106,7 +106,18 @@ function computeChipHealth(chip, D) {
   // v100防呆：顯示法人資料日期（T86為T+1盤後公布；日期若非最近交易日=資料延遲，一眼可辨）
   if (chip.dataDate) {
     const dd = String(chip.dataDate);
-    signals.push(`📅 法人資料日期：${dd.slice(4,6)}/${dd.slice(6,8)}（每交易日盤後更新）`);
+    let freshTxt = `📅 法人資料日期：${dd.slice(4,6)}/${dd.slice(6,8)}（每交易日盤後更新）`;
+    try {
+      // v121：先看是不是「抓取失敗」造成的假舊資料（headMiss>0＝最近幾天沒抓到）
+      if (chip.headMiss > 0) {
+        warnings.push(`⚠️ 籌碼抓取不完整：最近6個交易日有 ${chip.headMiss} 天沒取到（TWSE 限流或逾時）——目前顯示的 ${String(chip.dataDate).slice(4,6)}/${String(chip.dataDate).slice(6,8)} 可能不是真正的最新日。請重新查詢一次；若反覆如此，代表 TWSE 該時段連線不穩`);
+      }
+      const fr = (typeof checkDataFreshness === 'function') ? checkDataFreshness(chip.dataDate, 0) : null;
+      if (fr && fr.stale) {
+        warnings.push(`⚠️ 法人資料落後：目前顯示 ${dd.slice(4,6)}/${dd.slice(6,8)}，預期應有 ${fr.expected.slice(4,6)}/${fr.expected.slice(6,8)} 的資料（約差${fr.gapDays}個交易日）——可能是TWSE尚未公布、後端快取未更新，或非交易時段查詢。此處籌碼判斷請暫緩採信，建議稍後重查`);
+      }
+    } catch (e2) {}
+    signals.push(freshTxt);
   }
   // v103 法人轉向日偵測：法人進出是分多天走的，等5日合計翻負已慢3-4天——
   // 「連買陣中第一根大賣」（或連賣陣中第一根大買）就是轉向日，第一天最值錢
@@ -609,6 +620,11 @@ function renderMoveStage(D) {
       if (qh) document.getElementById('movestage-content').innerHTML += `<div style="font-size:9px;color:var(--muted2);margin-top:6px"></div>` + qh + `<div style="font-size:9px;color:var(--muted2);margin-top:4px">檢查清單＝可驗證的量價事實，非機率預測（未經校準的「可信度%」是假精確，本系統不產出）。</div>`;
     }
   } catch (e) {}
+  // v117：多日素質演變（掛在溫度計卡末尾——同屬「時機」類，對照今日快照看條件強弱變化）
+  try {
+    const qt = (typeof renderQualityTrend === 'function') ? renderQualityTrend(D) : '';
+    if (qt) document.getElementById('movestage-content').innerHTML += qt;
+  } catch (e) {}
 }
 
 /* ══ 突破/拉回 結構品質檢查（誠實版：清單非機率）═══════════════════════
@@ -828,4 +844,84 @@ function computeAmihud(D) {
       note: pct >= 75 ? `流動性稀薄（自身120日第${Math.round(pct)}百分位）——同樣賣壓會造成更大跌幅，滑價與跳空的放大器：部位縮小、只用限價單、停損預期會有滑價` :
             pct <= 25 ? `流動性充沛（第${Math.round(pct)}百分位）——市場吸收量能良好，進出滑價小` : null };
   } catch (e) { return null; }
+}
+/* ══ 【新增區塊 M】多日素質演變（v117）═══════════════════════════════════
+   解決「所有卡片都是今日快照，看不出條件在改善還是惡化」的缺口。
+   對最近5個交易日逐日重算關鍵指標——每日只用「截至該日」的資料
+   （slice 截斷，嚴守防前視偏誤，與意圖回測同一原則）。
+   顯示的是「條件的方向」而非預測：勢能在升或降、FUSION在修復或惡化、
+   環境是否翻轉。短線最需要的判斷是「我進場的理由今天比昨天更強還是更弱」。
+   ⚠️ 這仍不是方向預測（19年已證不可測），是條件變化的事實紀錄。
+   ⚠️ 成本：5日回算約60ms（手機約240ms），已實測可接受。
+   ════════════════════════════════════════════════════════════════════ */
+function computeQualityTrend(D, days = 5) {
+  try {
+    const n0 = D.closes.length;
+    if (n0 < 130) return null;
+    const rows = [];
+    for (let back = days - 1; back >= 0; back--) {
+      const n = n0 - back;
+      const sub = {
+        code: D.code, currency: D.currency,
+        closes: D.closes.slice(0, n), highs: D.highs.slice(0, n), lows: D.lows.slice(0, n),
+        volumes: D.volumes.slice(0, n), opens: D.opens ? D.opens.slice(0, n) : undefined,
+        rawCloses: (D.rawCloses || D.closes).slice(0, n),
+        rawHighs: (D.rawHighs || D.highs).slice(0, n),
+        rawLows: (D.rawLows || D.lows).slice(0, n),
+        price: D.closes[n - 1],
+      };
+      let shi = null, fus = null, rg = null;
+      try { shi = computeShiPower(sub, 50); } catch (e) {}
+      try {
+        const sti = calcSTI(sub), mfd = calcMFD(sub), eco = calcECO(sub);
+        fus = calcFusion(sti, mfd, eco, calcCrashAlert(sub, sti, mfd, eco));
+      } catch (e) {}
+      try { rg = computeRegime(sub); } catch (e) {}
+      rows.push({
+        offset: back, close: D.closes[n - 1],
+        chgPct: n >= 2 ? (D.closes[n - 1] - D.closes[n - 2]) / D.closes[n - 2] * 100 : 0,
+        longShi: shi ? shi.shi : null, shortShi: shi ? shi.shortShi : null,
+        fusion: fus ? fus.value : null, regime: rg ? rg.regime : null,
+      });
+    }
+    // 變化摘要（首日 vs 末日）
+    const a = rows[0], b = rows[rows.length - 1];
+    const d = (x, y) => (x == null || y == null) ? null : y - x;
+    return { rows, days,
+      dShort: d(a.shortShi, b.shortShi), dLong: d(a.longShi, b.longShi), dFusion: d(a.fusion, b.fusion),
+      regimeFlip: a.regime && b.regime && a.regime !== b.regime ? `${a.regime} → ${b.regime}` : null };
+  } catch (e) { return null; }
+}
+
+function renderQualityTrend(D) {
+  try {
+    const q = computeQualityTrend(D, 5);
+    if (!q) return '';
+    const arrow = (v) => v == null ? '' : v > 2 ? `<span style="color:var(--buy)">▲${v.toFixed(0)}</span>` : v < -2 ? `<span style="color:var(--sell)">▼${Math.abs(v).toFixed(0)}</span>` : `<span style="color:var(--muted2)">→</span>`;
+    const cell = (v, col) => v == null ? '—' : `<span style="color:${col || 'var(--fg)'}">${typeof v === 'number' ? v.toFixed(0) : v}</span>`;
+    let h = `<div style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
+      <div style="font-size:11px;font-weight:700;margin-bottom:6px">📊 近${q.days}日素質演變（每日只用當日以前資料重算，防前視偏誤）</div>
+      <table style="width:100%;font-size:10px;font-family:var(--mono);border-collapse:collapse">
+        <tr style="color:var(--muted2)"><td>日</td><td style="text-align:right">收盤</td><td style="text-align:right">漲跌%</td><td style="text-align:right">多勢能</td><td style="text-align:right">空勢能</td><td style="text-align:right">FUSION</td><td style="text-align:right">環境</td></tr>`;
+    for (const r of q.rows) {
+      const lbl = r.offset === 0 ? '今日' : `T-${r.offset}`;
+      const chgCol = r.chgPct >= 0 ? 'var(--buy)' : 'var(--sell)';
+      h += `<tr style="border-top:1px solid var(--line)20">
+        <td style="color:${r.offset === 0 ? 'var(--accent)' : 'var(--muted)'};font-weight:${r.offset === 0 ? 700 : 400}">${lbl}</td>
+        <td style="text-align:right">${fmt(r.close)}</td>
+        <td style="text-align:right;color:${chgCol}">${r.chgPct >= 0 ? '+' : ''}${r.chgPct.toFixed(1)}</td>
+        <td style="text-align:right">${cell(r.longShi)}</td>
+        <td style="text-align:right">${cell(r.shortShi)}</td>
+        <td style="text-align:right;color:${r.fusion == null ? 'var(--fg)' : r.fusion >= 0 ? 'var(--buy)' : 'var(--sell)'}">${r.fusion == null ? '—' : r.fusion.toFixed(0)}</td>
+        <td style="text-align:right;font-size:9px;color:var(--muted)">${r.regime || '—'}</td></tr>`;
+    }
+    h += `</table>
+      <div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.6">
+        ${q.days}日變化：多勢能 ${arrow(q.dLong)}｜空勢能 ${arrow(q.dShort)}｜FUSION ${arrow(q.dFusion)}
+        ${q.regimeFlip ? `<br><b style="color:var(--warn)">⚠️ 環境已翻轉：${q.regimeFlip}</b>——原本的進場理由可能已不成立` : ''}
+      </div>
+      <div style="font-size:9px;color:var(--muted2);margin-top:4px">用途：判斷「進場理由今天比幾天前更強還是更弱」。這是條件變化的事實，非漲跌預測。</div>
+    </div>`;
+    return h;
+  } catch (e) { return ''; }
 }

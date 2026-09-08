@@ -567,6 +567,8 @@ async function loadMarginCard(D) {
   <div class="risk-grid">
     <div class="risk-box"><div class="rb-label">💳 融資餘額</div><div class="rb-value">${fmtV(Math.round(m.marginBal))} 張</div><div class="rb-sub">5日變化 ${mc>=0?'+':''}${mc.toFixed(1)}%（散戶槓桿指標）</div></div>
     <div class="risk-box"><div class="rb-label">📉 融券餘額${m.dataDate?`（${String(m.dataDate).slice(4,6)}/${String(m.dataDate).slice(6,8)}）`:''}</div><div class="rb-value">${fmtV(Math.round(m.shortBal))} 張</div><div class="rb-sub">券資比 ${m.shortRatio.toFixed(1)}%</div></div>
+    ${m.headMiss > 0 ? `<div style="grid-column:1/-1;font-size:10px;color:var(--sell);margin-top:4px">⚠️ 融資融券抓取不完整：最近5個交易日有 ${m.headMiss} 天沒取到（TWSE限流/逾時）——顯示的日期可能不是最新，建議重查</div>` : ''}
+    ${(() => { try { const fr = (typeof checkDataFreshness === 'function' && m.dataDate) ? checkDataFreshness(m.dataDate, 0) : null; return (fr && fr.stale) ? `<div style="grid-column:1/-1;font-size:10px;color:var(--sell);margin-top:4px">⚠️ 融資融券資料落後約${fr.gapDays}個交易日（顯示${String(m.dataDate).slice(4,6)}/${String(m.dataDate).slice(6,8)}，預期${fr.expected.slice(4,6)}/${fr.expected.slice(6,8)}）——請暫緩採信，稍後重查</div>` : ''; } catch (e) { return ''; } })()}
   </div>`;
 
   // 軋空偵測（對空方交易者最重要）
@@ -668,6 +670,35 @@ function computeSmartStop(D, atr) {
    公告到生效的空窗期是市場最敏感階段（搶跑效應：法人/自營商提前買賣即將納入/剔除的股票）。
    本功能僅做「日期窗口」提醒，不臆測個股是否為成分股（無可靠免費即時資料源可查證個股名單）。
    ════════════════════════════════════════════════════════════════════ */
+/* ══ 事件風險窗口（v104）════════════════════════════════════════════════
+   EPS/營收與股價的比例關係是「長期錨」，2-10日尺度上基本面幾乎不動，
+   不能當短線方向訊號——但「公布日」本身是短線事件風險：
+   台股月營收每月10日前公布、財報截止3/31(年)/5/15(Q1)/8/14(Q2)/11/14(Q3)。
+   短線部位跨過公布日＝承受跳空風險（空單尤防營收驚喜軋空）。
+   純日期計算、確定性、零API。──────────────────────────────────────── */
+function checkEarningsWindow() {
+  try {
+    const now = new Date(); const y = now.getFullYear();
+    const today = now.getTime();
+    const events = [];
+    // 月營收：每月10日截止（多數公司壓線公布）
+    let rev = new Date(y, now.getMonth(), 10);
+    if (rev.getTime() < today - 86400000) rev = new Date(y, now.getMonth() + 1, 10);
+    events.push({ name: '月營收公布期（10日截止）', d: rev });
+    // 財報截止日
+    [[2, 31, '年報截止'], [4, 15, 'Q1財報截止'], [7, 14, 'Q2財報截止'], [10, 14, 'Q3財報截止']].forEach(([mo, dd, nm]) => {
+      let e = new Date(y, mo, dd);
+      if (e.getTime() < today - 86400000) e = new Date(y + 1, mo, dd);
+      events.push({ name: nm, d: e });
+    });
+    events.sort((a, b) => a.d - b.d);
+    const nearest = events[0];
+    const days = Math.round((nearest.d.getTime() - today) / 86400000);
+    if (days <= 7) return { days, name: nearest.name, text: `${days <= 0 ? '今天是' : days + '天後為'}${nearest.name}——2-10日部位會跨事件日：公布=跳空風險（空單尤防營收驚喜軋空、多單防不如預期摜殺）。跨事件的部位建議縮小或事前調整` };
+    return null;
+  } catch (e) { return null; }
+}
+
 function checkETFRebalanceWindow() {
   const today = new Date();
   const y = today.getFullYear();
