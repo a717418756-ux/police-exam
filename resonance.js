@@ -36,7 +36,8 @@ function computeAutocorrelation(closes, lookback = 60) {
   const n = c.length;
   if (n < lookback + 2) return null;
   const rets = [];
-  for (let i = n - lookback; i < n; i++) rets.push((c[i] - c[i-1]) / c[i-1]);
+  // v125：自相關為統計檢定，改用對數報酬（可加、對稱、常態近似較佳）
+  for (let i = n - lookback; i < n; i++) { const lr = Math.log(c[i] / c[i-1]); if (isFinite(lr)) rets.push(lr); }
   const m = rets.length;
   const mean = rets.reduce((a,b)=>a+b,0) / m;
   let num = 0, den = 0;

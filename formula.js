@@ -153,8 +153,13 @@ function calcECO(D){
   const N=Math.min(20,c.length-1);
   if(N<8)return{value:0,signal:'hold',formula:'ECO',detail:'資料不足'};
 
+  /* v125：改用對數報酬 ln(Pt/Pt-1)。金融計量標準做法，理由：
+     ①可加性——多日累積報酬＝各日對數報酬直接相加（簡單報酬不可加）
+     ②對稱性——+10%與-10%在對數下絕對值相等（簡單報酬下漲10%再跌10%≠0）
+     ③常態近似更好，熵/偏度/峰度等高階統計量才不會被大幅波動扭曲
+     對小幅變動兩者近似，但在急漲急跌時差異明顯——正是本系統最在意的極端情境。 */
   const rets=[];
-  for(let i=c.length-N;i<c.length;i++)rets.push((c[i]-c[i-1])/c[i-1]);
+  for(let i=c.length-N;i<c.length;i++){ const r=Math.log(c[i]/c[i-1]); if(isFinite(r))rets.push(r); }
 
   // 分5桶（強跌/弱跌/平/弱漲/強漲）
   const bins=[0,0,0,0,0];
@@ -273,9 +278,9 @@ function calcPSY(D){
   const N=Math.min(20,c.length-1);
   if(N<10) return {value:50,signal:'hold',skew:0,kurt:0,formula:'PSY',detail:'資料不足'};
 
-  // 近 N 日報酬
+  // 近 N 日對數報酬（v125：偏度/峰度屬高階動差，對報酬定義敏感，統一用對數報酬）
   const rets=[];
-  for(let i=c.length-N;i<c.length;i++) rets.push((c[i]-c[i-1])/c[i-1]);
+  for(let i=c.length-N;i<c.length;i++){ const r=Math.log(c[i]/c[i-1]); if(isFinite(r))rets.push(r); }
   const mean=rets.reduce((a,b)=>a+b,0)/rets.length;
   const sd=Math.sqrt(rets.reduce((a,r)=>a+(r-mean)**2,0)/rets.length)||1e-9;
 

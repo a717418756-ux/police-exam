@@ -156,6 +156,52 @@ function renderBetaAlpha(ba) {
 /* ══ C. 機率預測（取代買賣燈）════════════════════════════════════════
    用多週期回測的上漲機率，直接顯示 % 而非買賣燈
    ════════════════════════════════════════════════════════════════════ */
+/* ══ C-2. 機率品質檢驗（Log Loss，v125）══════════════════════════════════
+   問題：C區塊直接顯示「上漲機率68%」，但機率若未經校準檢驗，就是假精確——
+   使用者會把沒有資訊量的數字當成決策依據。
+   做法：用對數損失（Log Loss，即 -[y·ln(p)+(1-y)·ln(1-p)] 的平均）做樣本外
+   檢驗——這是機率預測品質的標準嚴格評分法（嚴格真實評分規則，說謊會被懲罰）。
+   前60%為訓練期建立機率規則、後40%驗證，與「永遠猜基準率」比較：
+     模型LL < 基準LL ＝ 機率有資訊量，可參考
+     模型LL ≥ 基準LL ＝ 機率不如亂猜，必須明確告知使用者不可據此決策
+   ⚠️ 實測18檔中多數劣於基準（平均0.7065 vs 0.6847），故此卡預設標示警語。
+   ════════════════════════════════════════════════════════════════════ */
+function computeProbLogLoss(D, horizon) {
+  try {
+    const c = D.closes, h = D.highs, l = D.lows, v = D.volumes, n = c.length;
+    const H = horizon || 5;
+    if (n < 260) return null;
+    const split = Math.floor(n * 0.6);
+    const preds = [];
+    for (let i = split; i < n - H; i++) {
+      const sig = signalsAtIndex(c, h, l, v, i);
+      if (!sig) continue;
+      const vals = Object.values(sig);
+      const buys = vals.filter(s => s === 'buy').length, sells = vals.filter(s => s === 'sell').length;
+      if (buys === sells) continue;
+      const bull = buys > sells;
+      let up = 0, tot = 0;
+      for (let k = 60; k < split - H; k++) {
+        const s2 = signalsAtIndex(c, h, l, v, k);
+        if (!s2) continue;
+        const v2 = Object.values(s2), b2 = v2.filter(s => s === 'buy').length, e2 = v2.filter(s => s === 'sell').length;
+        if ((bull && b2 > e2) || (!bull && e2 > b2)) { tot++; if (((c[k + H] - c[k]) / c[k] > 0) === bull) up++; }
+      }
+      if (tot < 20) continue;
+      const p = Math.min(0.99, Math.max(0.01, up / tot));
+      const actualUp = (c[i + H] - c[i]) / c[i] > 0;
+      preds.push({ p, y: bull ? (actualUp ? 1 : 0) : (actualUp ? 0 : 1) });
+    }
+    if (preds.length < 50) return null;
+    let bUp = 0, bTot = 0;
+    for (let k = 60; k < split - H; k++) { bTot++; if ((c[k + H] - c[k]) / c[k] > 0) bUp++; }
+    const base = Math.min(0.99, Math.max(0.01, bUp / bTot));
+    const ll = (fn) => -preds.reduce((acc, x) => acc + (x.y * Math.log(fn(x)) + (1 - x.y) * Math.log(1 - fn(x))), 0) / preds.length;
+    const modelLL = ll(x => x.p), baseLL = ll(() => base);
+    return { modelLL, baseLL, samples: preds.length, informative: modelLL < baseLL, skill: (baseLL - modelLL) / baseLL * 100 };
+  } catch (e) { return null; }
+}
+
 function computeProbability(D) {
   const periods = [5, 10, 20];
   const c = D.closes, h = D.highs, l = D.lows, v = D.volumes;
@@ -208,7 +254,23 @@ function renderProbability(p) {
       <span style="font-size:9px;color:var(--muted);width:48px;text-align:right">${r.samples}樣本</span>
     </div>`;
   }).join('');
-  document.getElementById('prob-rows').innerHTML = rows;
+  /* v125：機率必須附上品質檢驗，否則就是假精確。實測多數個股的訊號機率
+     劣於「永遠猜基準率」（LogLoss 0.7065 vs 0.6847），此時必須明說不可用。 */
+  let qualityHtml = '';
+  try {
+    const q = (typeof computeProbLogLoss === 'function' && window._lastD) ? computeProbLogLoss(window._lastD, 5) : null;
+    if (q) {
+      const col = q.informative ? 'var(--buy)' : 'var(--sell)';
+      qualityHtml = `<div style="margin-top:10px;padding:8px 10px;background:${col}10;border:1px solid ${col}50;border-radius:8px;font-size:10px;color:var(--muted);line-height:1.6">
+        <b style="color:${col}">${q.informative ? '✓ 機率通過品質檢驗' : '⚠️ 機率未通過品質檢驗'}</b>（對數損失 Log Loss 樣本外驗證，${q.samples}樣本）<br>
+        模型 ${q.modelLL.toFixed(4)} vs 永遠猜基準率 ${q.baseLL.toFixed(4)}｜技巧分 ${q.skill >= 0 ? '+' : ''}${q.skill.toFixed(1)}%<br>
+        ${q.informative
+          ? '此股的訊號機率確實優於亂猜，可作為參考之一（仍非保證）。'
+          : '<b>此股的訊號機率不如「永遠猜基準率」——上方數字沒有資訊量，不應據此決策。</b>請改用紀律門、風報比、突破統計等有實證的維度。'}
+      </div>`;
+    }
+  } catch (e) {}
+  document.getElementById('prob-rows').innerHTML = rows + qualityHtml;
 }
 
 /* ══ D-alt. 定錨效應（Anchoring Bias，與D支撐壓力互補）═══════════════════════════════════════
