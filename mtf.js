@@ -171,8 +171,25 @@ function computeBayesProb(D, horizon = 5) {
   }
   if (!parts.length) return null;
   let prob = 1 / (1 + Math.exp(-logit));
-  prob = Math.min(0.95, Math.max(0.05, prob));  // 誠實上下限：市場沒有100%
-  return { prob, horizon, parts, base: p0 };
+  /* v127 校準修正：樣本外檢驗（8檔×後40%）揭露此機率的真實表現——
+     中間區間(40~70%)校準良好，但極端區間嚴重偏離：
+       宣稱10~20% → 實際上漲64%（方向完全相反，22次）
+       宣稱30~40% → 實際53%（183次）
+       宣稱70~80% → 實際59%（154次，高估11個百分點）
+     整體 Log Loss 0.7119 vs 基準 0.6904，8檔中7檔劣於「永遠猜基準率」。
+     成因：多訊號 logit 累加即使已折減0.6，仍會把機率推向極端，
+     但這些極端訊號在樣本外並不成立（過度自信 overconfidence）。
+     處理：把輸出壓縮回校準可信的區間(25%~75%)，並回傳校準警示旗標。
+     不直接刪除的理由：中間區間確有校準價值，且訊號明細具描述用途。 */
+  prob = Math.min(0.95, Math.max(0.05, prob));
+  const rawProb = prob;
+  const extreme = prob < 0.30 || prob > 0.70;
+  // 極端值向中心壓縮（保留方向傾向，但不宣稱超出實證支撐的信心）
+  prob = 0.5 + (prob - 0.5) * (extreme ? 0.5 : 1);
+  return { prob, rawProb, extreme, horizon, parts, base: p0,
+    calibNote: extreme
+      ? `原始估計 ${(rawProb * 100).toFixed(0)}% 落在歷史校準不佳的極端區間（實測宣稱10~20%時實際上漲64%、宣稱70~80%時實際59%），已壓縮至 ${(prob * 100).toFixed(0)}%。此數字僅供參考，不應作為進場依據。`
+      : `落在歷史校準良好的中間區間（實測宣稱40~70%時實際52~64%，誤差在可接受範圍）。仍須配合紀律門與風報比判斷。` };
 }
 
 /* ══ C. 波動壓縮指數（大變盤前兆）════════════════════════════════════
@@ -206,6 +223,8 @@ function renderBayes(D) {
   const b = computeBayesProb(D, 5);
   if (!b) { box.innerHTML = ''; return; }
   const up = b.prob * 100, down = 100 - up;
+  // v127：附上校準檢驗說明（極端值已壓縮，並明說原因）
+  const calibHtml = b.calibNote ? `<div style="margin-top:8px;padding:7px 9px;background:${b.extreme ? 'var(--sell)' : 'var(--muted)'}10;border:1px solid ${b.extreme ? 'var(--sell)' : 'var(--bd)'}60;border-radius:7px;font-size:10px;color:var(--muted);line-height:1.6">${b.extreme ? '⚠️' : '✓'} <b>校準檢驗</b>：${b.calibNote}</div>` : '';
   const col = up >= 58 ? 'var(--buy)' : up <= 42 ? 'var(--sell)' : 'var(--warn)';
   box.innerHTML = `<div style="padding:12px;background:var(--bg);border:1px solid ${col}50;border-radius:10px;margin-bottom:12px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
@@ -217,6 +236,7 @@ function renderBayes(D) {
       <div style="flex:1;height:10px;background:var(--sell-d);border-radius:99px;overflow:hidden"><div style="height:100%;width:${up}%;background:${col}"></div></div>
       <span style="font-size:11px;color:var(--muted)">跌 ${down.toFixed(0)}%</span>
     </div>
-    <div style="font-size:10px;color:var(--muted2);margin-top:6px;line-height:1.5">用該股歷史「各訊號的實際命中率」做貝氏更新（基礎率 ${(b.base*100).toFixed(0)}%），非人工權重。上限95%——市場沒有百分之百。</div>
+    <div style="font-size:10px;color:var(--muted2);margin-top:6px;line-height:1.5">用該股歷史「各訊號的實際命中率」做貝氏更新（基礎率 ${(b.base*100).toFixed(0)}%），非人工權重。</div>
+    ${calibHtml}
   </div>`;
 }

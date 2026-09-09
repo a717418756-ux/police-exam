@@ -285,14 +285,54 @@ function analyzeRisk(D,atr){
   const positionValue=shares*price;
   const positionPct=positionValue/capital*100;
 
-  // 凱利公式：f = (bp - q)/b，b=盈虧比(這裡用1:2→b=2)
-  const b=2; // 以風報比1:2為基準
+  /* 凱利公式：f = (bp - q)/b，b=盈虧比
+     v128修：原本固定 b=2（假設風報比1:2），但 v124 的 MFE 實證顯示這個假設
+     對短線嚴重失真——2313 的停損14.3% vs 5日中位可達3.1%，真實 b 僅 0.21。
+     用虛高的 b 會把凱利比例算得過大，直接導致部位過重。
+     改為：若能取得此股的實際 MFE 風報比就用實際值，取不到才退回保守的 b=1。
+     （b=1 比原本的 b=2 保守，符合「寧可低估也不高估部位」的風控原則） */
+  let b = 1;   // 保守預設（原為2，已證實過度樂觀）
+  let bSource = '保守預設1:1（未取得此股實測風報比）';
+  try {
+    if (typeof computeRealisticTargets === 'function' && stopPct > 0) {
+      const rt = computeRealisticTargets(D, -1, stopPct);
+      const row5 = rt && rt.rows ? rt.rows.find(r => r.days === 5) : null;
+      if (row5 && row5.rr > 0) { b = row5.rr; bSource = `此股實測（5日中位可達 ${row5.medPct.toFixed(1)}% ÷ 停損 ${stopPct.toFixed(1)}%）`; }
+    }
+  } catch (e) {}
   const q=1-winRate;
-  const kellyFull=(b*winRate-q)/b;
+  const kellyFull=Math.max(0,(b*winRate-q)/b);   // 負值代表此結構不該下注，夾為0
   const kellyHalf=kellyFull/2;
   const kellyQuarter=kellyFull/4;
+  /* v129：只顯示「凱利=0」使用者會困惑，補上可行動的資訊——
+     損益兩平勝率 = 1/(1+b)：以此股風報比，勝率要超過這個值才值得下注。
+     這是專業交易的核心概念：風報比越差，需要的勝率越高。
+     例：b=0.36（2330實測）→ 需勝率>73.5%；b=2 → 只需>33.3%。
+     短線做空最常見的死因就是「風報比0.2卻用50%勝率的心態下注」。 */
+  const breakevenWR = 1 / (1 + b);
+  /* v129：只說「需82%勝率」還是死路，要給出路。
+     實測所有標的的損益兩平勝率都落在70~82%（因為2×ATR停損對短線太寬），
+     代表問題不在選股而在「進場位置」——停損寬窄由「進場價距離關鍵位多遠」決定。
+     這裡反推：若要把門檻降到合理的55%勝率，停損必須縮到多少。
+     這正是「等回測支撐/壓力再進場」的真正價值：不是為了方向更準，
+     而是為了讓停損能放得夠近，把數學結構從負期望值扭轉為正。 */
+  let fixSuggestion = null;
+  try {
+    if (typeof computeRealisticTargets === 'function' && stopPct > 0) {
+      const rt2 = computeRealisticTargets(D, -1, stopPct);
+      const r5 = rt2 && rt2.rows ? rt2.rows.find(r => r.days === 5) : null;
+      if (r5 && breakevenWR > 0.6) {
+        const bNeed = (1 - 0.55) / 0.55;              // 目標：55%勝率即可獲利
+        const stopNeed = r5.medPct / bNeed;           // 反推所需停損距離%
+        if (stopNeed > 0 && stopNeed < stopPct) {
+          fixSuggestion = { stopNeedPct: stopNeed, curStopPct: stopPct, medPct: r5.medPct,
+            shrink: (1 - stopNeed / stopPct) * 100 };
+        }
+      }
+    }
+  } catch (e) {}
 
-  return{capital,riskPct,winRate,atr,stopLoss,stopPct,stopDist,chandelier,tp2,tp3,stopNote,
+  return{capital,riskPct,winRate,atr,stopLoss,stopPct,stopDist,chandelier,tp2,tp3,stopNote,b,bSource,breakevenWR,fixSuggestion,
     riskAmount,shares,positionValue,positionPct,
     kellyFull:Math.max(0,kellyFull),kellyHalf:Math.max(0,kellyHalf),kellyQuarter:Math.max(0,kellyQuarter),
     currency:D.currency};
@@ -442,7 +482,7 @@ function renderRisk(r){
     {cls:'good',label:'🎯 停利價 1:3 風報比',value:cur+fmt(r.tp3),valCls:'buy',sub:`理想風報比，讓獲利奔跑`},
     {cls:'warn',label:'🪜 移動停利 (Chandelier)',value:cur+fmt(r.chandelier),valCls:'warn',sub:`最高價-3×ATR，股價創高就上移，保護獲利`},
     {cls:'',label:'📦 建議部位（固定風險法）',value:`${fmt(r.shares,0)} ${r.currency==='TWD'?'股':'股'}`,valCls:'',sub:`單筆風險 ${cur}${fmtV(Math.round(r.riskAmount))}（資金${r.riskPct}%），佔總資金 ${r.positionPct.toFixed(1)}%`},
-    {cls:'warn',label:'🎲 凱利建議比例',value:`${(r.kellyHalf*100).toFixed(1)}%`,valCls:'warn',sub:`半凱利（保守）。全凱利 ${(r.kellyFull*100).toFixed(1)}%／四分之一凱利 ${(r.kellyQuarter*100).toFixed(1)}%。基於你填的勝率 ${(r.winRate*100).toFixed(0)}%、風報比1:2`},
+    {cls:'warn',label:'🎲 凱利建議比例',value:`${(r.kellyHalf*100).toFixed(1)}%`,valCls:'warn',sub:`半凱利（保守）。全凱利 ${(r.kellyFull*100).toFixed(1)}%／四分之一凱利 ${(r.kellyQuarter*100).toFixed(1)}%。風報比 1:${r.b.toFixed(2)}（${r.bSource}）｜<b>損益兩平勝率 ${(r.breakevenWR*100).toFixed(0)}%</b>——你的勝率需高於此才值得下注，目前填 ${(r.winRate*100).toFixed(0)}%${r.kellyFull<=0?`。<span style="color:var(--sell)">⚠️ 凱利=0：以此風報比，${(r.winRate*100).toFixed(0)}%勝率是負期望值，這筆不該做</span>`:''}${r.fixSuggestion?`<br><span style="color:var(--warn)">🔧 <b>出路</b>：問題在進場位置不在選股。若停損能從 ${r.fixSuggestion.curStopPct.toFixed(1)}% 縮到 <b>${r.fixSuggestion.stopNeedPct.toFixed(1)}%</b>（縮 ${r.fixSuggestion.shrink.toFixed(0)}%），損益兩平勝率就降到55%。做法：等價格回測到關鍵壓力/支撐附近再進場，把停損貼在該結構外緣——這才是「等回測」的真正價值，不是方向更準，而是讓數學結構由負轉正。</span>`:''}`},
   ];
   $('risk-grid').innerHTML=boxes.map(x=>`<div class="risk-box ${x.cls}"><div class="rb-label">${x.label}</div><div class="rb-value ${x.valCls}">${x.value}</div><div class="rb-sub">${x.sub}</div></div>`).join('');
 }
