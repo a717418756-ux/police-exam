@@ -763,14 +763,21 @@ function renderQuant(score,contra){
   $('q-up-conf').textContent=`${score.upMax} 個看漲訊號參與`+(contra&&contra.upAdj?`（含反指標+${contra.upAdj}）`:'');
   $('q-down-conf').textContent=`${score.downMax} 個看跌訊號參與`+(contra&&contra.downAdj?`（含反指標+${contra.downAdj}）`:'');
 
-  // 綜合判斷
+  /* v126：移除方向宣稱——樣本外實測揭穿了這張卡
+     ・大漲分數≥40：315次、命中53.7% vs 基準58.0% → α = -4.4（負值＝反指標）
+     ・大跌分數≥40：8檔全部從未觸發 → 對做空者是死功能
+     原本卻輸出「🟢強烈偏漲訊號／🔴強烈偏跌訊號」，是全系統最不誠實的一處。
+     改為純描述「指標一致度」：只陳述有幾項指標同向，不宣稱方向會如何。
+     指標貢獻明細保留（有描述價值：知道當下哪些指標處於什麼狀態）。 */
   const v=$('q-verdict');
   const diff=upFinal-downFinal;
-  if(upFinal>=65&&diff>=20){v.textContent='🟢 強烈偏漲訊號（多項高命中指標共振）';v.style.background='var(--buy-d)';v.style.color='var(--buy)';}
-  else if(downFinal>=65&&diff<=-20){v.textContent='🔴 強烈偏跌訊號（多項高命中指標共振）';v.style.background='var(--sell-d)';v.style.color='var(--sell)';}
-  else if(Math.abs(diff)<15){v.textContent='⚪ 多空分數接近，方向不明確，觀望';v.style.background='var(--warn-d)';v.style.color='var(--warn)';}
-  else if(diff>0){v.textContent='🟡 偏漲，但訊號強度中等';v.style.background='var(--warn-d)';v.style.color='var(--warn)';}
-  else{v.textContent='🟡 偏跌，但訊號強度中等';v.style.background='var(--warn-d)';v.style.color='var(--warn)';}
+  const agree=Math.max(score.upMax||0,score.downMax||0);
+  v.textContent=`📊 指標一致度：${agree} 項同向（偏多${score.upMax||0}／偏空${score.downMax||0}）——僅為當下指標狀態描述，非方向預測`;
+  v.style.background='var(--bg2)'; v.style.color='var(--muted)';
+  const note=$('q-evidence');
+  if(note){
+    note.innerHTML=`⚠️ <b>實證結果</b>：本卡分數經樣本外檢驗（8檔×後40%資料）——「大漲分數≥40」共315次，命中53.7% 對比該股基準58.0%，<b>α = -4.4（負值，即略帶反指標性質）</b>；「大跌分數≥40」則從未觸發。<br>故此處<b>不再輸出方向結論</b>，僅保留指標狀態描述。方向判斷請改用出手紀律門、風報比、突破統計等有實證支撐的維度。`;
+  }
 
   // 權重明細
   if(score.contrib.length===0){
