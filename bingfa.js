@@ -366,6 +366,98 @@ function renderVerdictBanner(shi, tradeScore, formulas, marketScore, res, D, reg
     (mkt != null ? chip('大盤', mkt, mkt >= 55 ? 'var(--buy)' : mkt <= 45 ? 'var(--sell)' : 'var(--warn)') : '') +
     (confidence != null ? chip('信心', confidence, confidence >= 60 ? 'var(--buy)' : confidence >= 30 ? 'var(--warn)' : 'var(--sell)') : '');
 
+  /* ══ v133 綜合研判：依證據等級加權，把散落判斷收斂成一句明確結論 ═════
+     原本的「信心指數」只算各維度的共識度，把「已證偽的指標」與「通過
+     19年驗證的指標」當等值票在算，信心因此失真。
+     改為：只有 EVIDENCE 登記為 A/B 級的項目才計入，X 級（已除權）完全
+     不參與；並依 w 加權。同時明確報告「用了幾項證據、缺哪些、衝突幾項」，
+     讓使用者知道這個結論建立在什麼之上——而不是一個來路不明的分數。 */
+  const judgeEl = document.getElementById('vb-judgement');
+  if (judgeEl) {
+    try {
+      const EV = (typeof EVIDENCE !== 'undefined') ? EVIDENCE : {};
+      const items = [];   // {key, dir(-1/0/1), label}
+      const push = (key, dir, label) => { const e = EV[key]; if (e && e.tier !== 'X') items.push({ key, dir, label, w: e.w, tier: e.tier }); };
+
+      if (regime) push('regime', regime.regime === '多頭趨勢' ? 1 : regime.regime === '空頭趨勢' ? -1 : 0, `環境${regime.regime}`);
+      if (ms && ms.maturity != null) push('moveStage', ms.maturity >= 75 ? 0 : ms.dir, `波段${ms.maturity.toFixed(0)}%`);
+      if (syn) push('behavior', syn.score >= 20 ? 1 : syn.score <= -20 ? -1 : 0, `行為結構${syn.score >= 0 ? '+' : ''}${syn.score}`);
+      try { const bsJ = (typeof computeBreakoutStats === 'function') ? computeBreakoutStats(D) : null;
+        if (bsJ && bsJ.tier === 'high') push('breakout', 0, `突破成功率${bsJ.all.rate.toFixed(0)}%`); } catch (e) {}
+      try { const amJ = (typeof computeAmihud === 'function') ? computeAmihud(D) : null;
+        if (amJ) push('amihud', 0, `流動性${amJ.level}`); } catch (e) {}
+      try { const cwJ = (typeof computeCrowding === 'function') ? computeCrowding(D) : null;
+        if (cwJ && cwJ.score != null) push('crowding', 0, `擁擠度${cwJ.score}`); } catch (e) {}
+
+      if (items.length) {
+        const dirW = items.reduce((a, x) => a + x.dir * x.w, 0);
+        const totW = items.reduce((a, x) => a + x.w, 0);
+        const lean = totW > 0 ? dirW / totW : 0;                       // -1~1
+        const directional = items.filter(x => x.dir !== 0);
+        const conflict = directional.length > 1 && directional.some(x => x.dir > 0) && directional.some(x => x.dir < 0);
+        const aCount = items.filter(x => x.tier === 'A').length;
+        const excluded = Object.values(EV).filter(e => e.tier === 'X').length;
+        const conf = Math.round(Math.min(100, Math.abs(lean) * 100 * (conflict ? 0.5 : 1) * (aCount >= 3 ? 1 : 0.7)));
+        const verdictTxt = conflict ? '證據互相衝突，不給方向——觀望'
+          : Math.abs(lean) < 0.25 ? '證據分散，無主導方向——多看少做'
+          : lean < 0 ? '偏空條件較集中' : '偏多條件較集中';
+        const col = conflict || Math.abs(lean) < 0.25 ? 'var(--warn)' : lean < 0 ? 'var(--sell)' : 'var(--buy)';
+        judgeEl.innerHTML = `<div style="margin-top:10px;padding:9px 11px;background:${col}0d;border:1px solid ${col}55;border-radius:9px">
+          <div style="font-size:12px;font-weight:700;color:${col};margin-bottom:4px">🎯 綜合研判：${verdictTxt}（信心 ${conf}）</div>
+          <div style="font-size:10px;color:var(--muted);line-height:1.6">
+            採計 ${items.length} 項證據（其中 A 級可決策 ${aCount} 項）：${items.map(x => x.label).join('、')}<br>
+            <span style="color:var(--muted2)">已排除 ${excluded} 項未通過檢驗的指標（專屬分數α=-4.4、機率卡LogLoss劣於基準、貝氏極端區偏離、意圖方向α≈0）——它們仍顯示在各自卡片供參考，但不計入本結論。</span>
+            ${conflict ? '<br><span style="color:var(--warn)">⚠️ 偵測到方向證據互相衝突，信心已折半</span>' : ''}
+            ${aCount < 3 ? '<br><span style="color:var(--warn)">⚠️ A級證據不足3項，信心已下調</span>' : ''}
+          </div></div>`;
+      } else judgeEl.innerHTML = '';
+    } catch (e) { judgeEl.innerHTML = ''; }
+  }
+
+  /* ══ v132 趨勢敘事鏈：把並列的指標串成因果邏輯 ══════════════════════
+     問題：橫幅原本只並列「勢能71｜階段初期｜崩跌30」等數字，使用者看完
+     仍不知道「這檔現在到底什麼狀況、走到哪、什麼時候該改變看法」。
+     這裡不新增任何計算，只把既有結果依交易邏輯順序串起來：
+       環境 → 走到哪 → 誰在動 → 結構是否支持 → 何時翻盤
+     最後一項「翻盤條件」是專業交易最重要卻最常缺的：事先寫下
+     「什麼證據出現代表我錯了」，避免事後找理由凹單。 */
+  const narrEl = document.getElementById('vb-narrative');
+  if (narrEl) {
+    try {
+      const seg = [];
+      const dirTxt = regime && regime.regime === '多頭趨勢' ? '多' : '空';
+      // ① 環境
+      if (regime) seg.push({ k: '環境', v: `${regime.regime}${regime.regime === '盤整' || regime.regime === '過渡帶' ? '——波段勝率低，僅適合區間短打' : `——順${dirTxt}方操作為順風，逆向是散戶最常見死法`}` });
+      // ② 走到哪（溫度計＋持續天數）
+      if (ms && ms.maturity != null) {
+        seg.push({ k: '進程', v: `${ms.dirTxt}波段已走 ${ms.maturity.toFixed(0)}%${ms.maturity >= 75 ? '——接近尾端，此時追單是接最後一棒' : ms.maturity <= 30 ? '——仍在初期，空間相對完整' : '——中段，續走與反轉機率相當'}` });
+      }
+      // ③ 誰在動（行為結構）
+      if (syn) seg.push({ k: '參與者', v: `行為結構 ${syn.score >= 0 ? '+' : ''}${syn.score}${syn.conflict && syn.conflict.length ? `，但有 ${syn.conflict.length} 項證據互相衝突——分歧時勿重倉` : syn.score >= 20 ? '，多方證據集中' : syn.score <= -20 ? '，空方證據集中' : '，證據分散無主導方' }` });
+      // ④ 結構是否支持（風報比＝能不能賺）
+      try {
+        const atrN = calcATR(D.rawHighs || D.highs, D.rawLows || D.lows, D.rawCloses || D.closes, 14);
+        const stopPctN = atrN * 2 / (D.price || 1) * 100;
+        const rtN = (typeof computeRealisticTargets === 'function') ? computeRealisticTargets(D, dirTxt === '空' ? -1 : 1, stopPctN) : null;
+        const r5N = rtN && rtN.rows ? rtN.rows.find(r => r.days === 5) : null;
+        if (r5N) seg.push({ k: '結構', v: `以2×ATR停損計，風報比 1:${r5N.rr.toFixed(2)}${r5N.rr < 1 ? `——即使方向做對也難獲利，需等回測關鍵位讓停損變近（見風險卡「出路」）` : '——結構可接受'}` });
+      } catch (e) {}
+      // ⑤ 翻盤條件（最關鍵：事先寫下我錯了的證據）
+      const inval = [];
+      if (regime && (regime.regime === '多頭趨勢' || regime.regime === '空頭趨勢')) inval.push(`Regime 由「${regime.regime}」轉為其他狀態`);
+      if (ms && ms.maturity != null && ms.maturity < 75) inval.push(`波段成熟度突破75%（進入尾端）`);
+      if (syn) inval.push(`行為結構分數翻過 ${syn.score >= 0 ? '-20' : '+20'}`);
+      if (inval.length) seg.push({ k: '翻盤條件', v: inval.join('｜') + ' —— 出現任一項即重新評估，不凹單' });
+
+      narrEl.innerHTML = seg.length ? `<div style="margin-top:10px;padding:9px 11px;background:var(--bg);border:1px solid var(--bd);border-radius:9px">
+        <div style="font-size:10px;color:var(--muted2);margin-bottom:5px">🔗 趨勢邏輯鏈（同一組數據，依交易順序串起）</div>
+        ${seg.map((s, i) => `<div style="font-size:11px;color:var(--muted);line-height:1.65;display:flex;gap:6px">
+          <span style="color:${s.k === '翻盤條件' ? 'var(--warn)' : 'var(--muted2)'};min-width:52px;font-weight:700">${s.k}</span>
+          <span>${s.v}</span></div>`).join('')}
+      </div>` : '';
+    } catch (e) { narrEl.innerHTML = ''; }
+  }
+
   // ══ 避險警示區（最多3條，其餘計數；無警示顯示綠色安心線）══
   const wEl = document.getElementById('vb-warns');
   if (wEl) {
