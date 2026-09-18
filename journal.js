@@ -322,6 +322,7 @@ async function addTradeFromForm() {
   msg.textContent = '✅ 已新增！' + autoNote; msg.style.color = 'var(--buy)';
   await refreshJournal();
   await syncWinRateToMain();
+  await refreshRiskBudget();
 }
 
 let _journalFilter = 'all'; // all / real / sim
@@ -387,9 +388,21 @@ async function delTrade(id) {
   await dbDeleteTrade(id);
   await refreshJournal();
   await syncWinRateToMain();
+  await refreshRiskBudget();
 }
 
 // 真實勝率（≥5筆）自動帶回主頁凱利欄
+/* v107：刷新風險預算（2%/6%原則）到全域，供紀律門讀取。
+   時機：載入時＋每次新增/刪除交易後（與syncWinRateToMain同步呼叫）。
+   只讀不寫任何參數——系統只回報狀態，決策仍在人手上。 */
+async function refreshRiskBudget() {
+  try {
+    const capital = parseFloat(document.getElementById('in-capital')?.value) || 1000000;
+    const trades = await dbGetAllTrades();
+    window._riskBudget = (typeof computeRiskBudget === 'function') ? computeRiskBudget(trades, capital) : null;
+  } catch (e) { window._riskBudget = null; }
+}
+
 async function syncWinRateToMain() {
   const allTrades = await dbGetAllTrades();
   const trades = allTrades.filter(t => !t.sim); // 凱利公式只用真實單，模擬單不污染實戰勝率
@@ -490,6 +503,14 @@ async function exportMarkdown() {
     md += `| 指標 | 數值 |\n|------|------|\n`;
     md += `| 總交易筆數 | ${s.count} |\n`;
     md += `| **帳面勝率**（含凹單僥倖） | ${(s.winRate*100).toFixed(1)}%${s.ci95?` （95% CI: ${(s.ci95.low*100).toFixed(0)}~${(s.ci95.high*100).toFixed(0)}%）`:''} |\n`;
+    /* v135：勝率可信度已有Wilson區間，但決定賺不賺錢的是「每筆平均損益」。
+       這裡加上單樣本t檢定，誠實回答「目前成績能否證明你有優勢，還是只是運氣」。 */
+    if (s.expTest && s.expTest.enough) {
+      const e = s.expTest;
+      md += `| **每筆平均損益** | ${e.mean >= 0 ? '+' : ''}${e.mean.toFixed(3)}%（95% CI: ${e.ciLow.toFixed(3)}% ~ ${e.ciHigh.toFixed(3)}%） |\n`;
+      md += `| **優勢是否統計顯著** | t = ${e.t.toFixed(2)}　${e.significant ? '✓ 顯著（|t|>1.96，這不是運氣）' : `✗ 不顯著——目前 ${e.n} 筆無法證明你有優勢${e.needN && e.needN < 1e6 ? `，需約 ${e.needN.toLocaleString()} 筆` : ''}`} |\n`;
+      if (!e.significant) md += `\n> ⚠️ 信賴區間${e.ciLow < 0 && e.ciHigh > 0 ? '橫跨零' : ''}，代表真實期望值可能是負的。此階段請勿因短期成績加大部位——這正是多數人爆倉的起點。\n\n`;
+    }
     md += `| **真實勝率**（扣除判斷錯誤） | ${(s.trueWinRate*100).toFixed(1)}%${s.trueCi95?` （95% CI: ${(s.trueCi95.low*100).toFixed(0)}~${(s.trueCi95.high*100).toFixed(0)}%）`:''} |\n`;
     md += `| 判斷錯誤筆數（凹單/MAE超停損） | ${s.misjudged} |\n`;
     md += `| 盈虧比（平均賺/平均賠） | ${s.payoff.toFixed(2)} |\n`;

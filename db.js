@@ -91,7 +91,7 @@ async function dbGetAllTrades() {
 
 /* ── 由交易紀錄計算真實統計 ──────────────────────────────────────────── */
 function computeStats(trades) {
-  if (!trades.length) return { count:0,wins:0,losses:0,winRate:0,avgWin:0,avgLoss:0,payoff:0,expectancy:0,totalPnl:0,trueWinRate:0,trueWins:0,misjudged:0,ci95:null };
+  if (!trades.length) return { count:0,wins:0,losses:0,winRate:0,avgWin:0,avgLoss:0,payoff:0,expectancy:0,totalPnl:0,trueWinRate:0,trueWins:0,misjudged:0,ci95:null, expTest:{ n:0, enough:false } };
 
   // Wilson score 信賴區間：樣本越少，區間越寬（誠實揭露「這個勝率有多可信」）
   function wilsonCI(wins, n) {
@@ -102,6 +102,31 @@ function computeStats(trades) {
     const margin = z * Math.sqrt(p * (1 - p) / n + z * z / (4 * n * n));
     return { low: Math.max(0, (center - margin) / denom), high: Math.min(1, (center + margin) / denom) };
   }
+  /* ── 期望值顯著性檢定（v135）────────────────────────────────────────
+     Wilson區間檢驗的是「勝率」，但決定賺不賺錢的是「每筆平均損益」。
+     高勝率可以是負期望值（實測：目標0.5%/停損5%→勝率81%但每筆-0.945%）。
+     這裡用單樣本 t 檢定：t = 平均 ÷ (標準差/√N)，|t|>1.96 才算統計顯著。
+     ★ 本系統自身的回測實證：最佳參數組合每筆+0.0198%，但 t=0.098、
+       95%CI=[-0.375%,+0.414%] 橫跨零——需60,823筆(約507年)才能證明非零。
+       這說明短線的邊際優勢極易被雜訊淹沒，任何「看起來有效」都必須過此關。
+     ★ 用途：當你累積實單後，這裡會誠實告訴你「目前的成績能不能證明
+       你有優勢，還是只是運氣」——避免用20筆的好運說服自己去加大部位。
+     ──────────────────────────────────────────────────────────────── */
+  function expectancyTest(list) {
+    const arr = list.map(t => Number(t.pnlPct != null ? t.pnlPct : (t.pnl || 0))).filter(x => isFinite(x));
+    const n = arr.length;
+    if (n < 5) return { n, enough: false };
+    const mean = arr.reduce((a, b) => a + b, 0) / n;
+    const sd = Math.sqrt(arr.reduce((a, x) => a + (x - mean) ** 2, 0) / (n - 1));
+    if (!(sd > 0)) return { n, enough: false };
+    const se = sd / Math.sqrt(n), t = mean / se;
+    const needN = Math.abs(mean) > 0 ? Math.ceil((1.96 * sd / Math.abs(mean)) ** 2) : null;
+    return { n, enough: true, mean, sd, se, t,
+      ciLow: mean - 1.96 * se, ciHigh: mean + 1.96 * se,
+      significant: Math.abs(t) > 1.96, needN };
+  }
+  const expTest = expectancyTest(trades);
+
   const wins   = trades.filter(t => t.result === 'win');
   const losses = trades.filter(t => t.result === 'loss');
   const sumWin  = wins.reduce((a, t) => a + Math.abs(t.pnl || 0), 0);
@@ -133,7 +158,7 @@ function computeStats(trades) {
     totalPnl: trades.reduce((a, t) => a + (t.pnl || 0), 0),
     trueWinRate, trueWins, misjudged,
     avgPnlPct, netAvgPnlPct, netWinRate, costPct: cost,
-    ci95, trueCi95 };
+    ci95, trueCi95, expTest };
 }
 
 /* ── 進階統計（給 Markdown 匯出用）──────────────────────────────────── */
@@ -239,4 +264,34 @@ async function cloudLoad() {
     await importBackup({ app: 'StockRadarPro', trades: data.trades || [], settings: data.settings || {} });
   }
   return data;
+}
+
+
+/* ══ 倉位管理兩條鐵律（v107）══════════════════════════════════════════
+   Alexander Elder《Come Into My Trading Room》兩條鐵律，機構風控的個人版：
+   ① 2%原則（防鯊魚咬）：單筆交易最大風險≤總資金2%——一次重傷不致命
+   ② 6%原則（防食人魚）：當月已實現虧損達總資金6%即停止開新倉到月底
+      ——連續小虧比單次大虧更常滅絕帳戶，這是強制冷靜的斷路器
+   本函式只統計「真實單」（sim=false），模擬單不佔用風險預算。
+   ⚠️ 只讀不寫：不自動改任何參數，只回報狀態供紀律門判斷（人決策原則）
+   ════════════════════════════════════════════════════════════════════ */
+function computeRiskBudget(trades, capital) {
+  try {
+    if (!capital || capital <= 0) return null;
+    const now = new Date();
+    const ym = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+    const real = (trades || []).filter(t => !t.sim && t.date && String(t.date).slice(0, 7) === ym);
+    const lossSum = real.filter(t => (t.pnl || 0) < 0).reduce((a, t) => a + Math.abs(t.pnl), 0);
+    const winSum = real.filter(t => (t.pnl || 0) > 0).reduce((a, t) => a + t.pnl, 0);
+    const netPnl = winSum - lossSum;
+    // 6%原則採「淨虧損」計算（獲利可回補預算，符合Elder原意：保護的是帳戶淨值）
+    const usedPct = netPnl < 0 ? Math.abs(netPnl) / capital * 100 : 0;
+    return {
+      ym, trades: real.length, lossSum, winSum, netPnl,
+      usedPct: Math.round(usedPct * 100) / 100,
+      remainPct: Math.round(Math.max(0, 6 - usedPct) * 100) / 100,
+      blocked: usedPct >= 6,
+      warn: usedPct >= 4 && usedPct < 6,
+    };
+  } catch (e) { return null; }
 }
