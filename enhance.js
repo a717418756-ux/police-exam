@@ -71,10 +71,10 @@ function computeRegime(D) {
     advice = `波動位於近半年前 ${100-volPct}% 極端區且20日回撤 ${dd20.toFixed(1)}% → 恐慌/劇烈換手狀態。此狀態下所有技術指標可靠度大降，首要任務是「降部位保本金」，不是找進場點。歷史上多數大虧發生在硬要在這種盤操作。`;
   } else if (dmi.adx >= 25 && dmi.pdi > dmi.ndi) {
     regime = '多頭趨勢'; icon = '📈'; cls = 'bull';
-    advice = `ADX ${dmi.adx.toFixed(0)} 多方主導 → 信「順勢工具」：均線、突破、MACD、MTF。RSI超買會鈍化（強勢股一直超買），別逆勢摸頭放空。`;
+    advice = `ADX ${dmi.adx.toFixed(0)} 多方主導 → 趨勢明確，RSI超買會鈍化（強勢股一直超買）。註：19年實測順勢、逆勢的期望值沒有差異，本狀態只作背景，不作方向依據。`;
   } else if (dmi.adx >= 25 && dmi.ndi >= dmi.pdi) {
     regime = '空頭趨勢'; icon = '📉'; cls = 'bear';
-    advice = `ADX ${dmi.adx.toFixed(0)} 空方主導 → 反彈是出場/進空點而非買點。RSI超賣會鈍化（弱勢股一直超賣），別逆勢接刀。做空順勢但注意軋空風險。`;
+    advice = `ADX ${dmi.adx.toFixed(0)} 空方主導 → 趨勢明確，RSI超賣會鈍化（弱勢股一直超賣）。註：19年實測順勢、逆勢的期望值沒有差異，本狀態只作背景，不作方向依據。`;
   } else if (dmi.adx < 20) {
     regime = '盤整'; icon = '🔄'; cls = 'neutral';
     advice = `ADX ${dmi.adx.toFixed(0)} 無趨勢 → 信「震盪工具」：RSI/KD高賣低買、支撐壓力區間操作。追突破易被巴。搭配下方壓縮指數：極度壓縮時準備迎接變盤。`;

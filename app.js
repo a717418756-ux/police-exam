@@ -530,8 +530,8 @@ async function aiAnalysis(D,trend,risk,sigs){
     const res=await fetchT('https://api.anthropic.com/v1/messages',{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1000,
-        system:`你是頂尖短線交易員，奉行「風險優先、順勢操作、讓獲利奔跑」。請用繁體中文250字內，依分層邏輯給建議，不要廢話：
-1.🚦趨勢結論：能不能做（趨勢過濾優先）
+        system:`你是頂尖短線交易員，奉行「風險優先、成本優先、不做負期望值的交易」。請用繁體中文250字內，依分層邏輯給建議，不要廢話：
+1.🚦能不能做：以紀律門、期望值與停損距離為準，趨勢只作背景
 2.🎯關鍵訊號：最重要2~3個（背離、量能、Squeeze優先於一般指標）
 3.🛡️風險紀律：根據ATR停損與風報比，提醒部位與停損
 4.🧠心理提醒：點出當下最該避免的人性陷阱

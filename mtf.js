@@ -82,9 +82,9 @@ function computeMTF(D) {
   // 教科書型態偵測（大週期方向 + 小週期回檔 = 順勢進場點）
   let setup = null;
   if (mScore.score >= 60 && wScore.score >= 60 && dScore.score <= 45) {
-    setup = { type: 'long', text: '⭐ 教科書買點型態：月週多頭+日線拉回——順勢等止跌訊號進多，勝率遠高於追高' };
+    setup = { type: 'long', text: '⭐ 教科書買點型態：月週多頭+日線拉回——19年實測「多頭排列拉回」期望值與隨機進場相當（α≈0），只是較不追高' };
   } else if (mScore.score <= 40 && wScore.score <= 40 && dScore.score >= 55) {
-    setup = { type: 'short', text: '⭐ 教科書空點型態：月週空頭+日線反彈——順勢等反彈衰竭進空，勝率遠高於追殺' };
+    setup = { type: 'short', text: '⭐ 教科書空點型態：月週空頭+日線反彈——19年實測「空頭排列反彈」期望值與隨機進場相當（α≈0），只是較不追殺' };
   } else if (dScore.score >= 60 && wScore.score <= 35) {
     setup = { type: 'trap', text: '⚠️ 週線仍空但日線轉強——逆大週期的反彈，做多是搶反彈不是波段，快進快出' };
   }

@@ -379,7 +379,6 @@ function renderVerdictBanner(shi, tradeScore, formulas, marketScore, res, D, reg
       const items = [];   // {key, dir(-1/0/1), label}
       const push = (key, dir, label) => { const e = EV[key]; if (e && e.tier !== 'X') items.push({ key, dir, label, w: e.w, tier: e.tier }); };
 
-      if (regime) push('regime', regime.regime === '多頭趨勢' ? 1 : regime.regime === '空頭趨勢' ? -1 : 0, `環境${regime.regime}`);
       if (ms && ms.maturity != null) push('moveStage', ms.maturity >= 75 ? 0 : ms.dir, `波段${ms.maturity.toFixed(0)}%`);
       if (syn) push('behavior', syn.score >= 20 ? 1 : syn.score <= -20 ? -1 : 0, `行為結構${syn.score >= 0 ? '+' : ''}${syn.score}`);
       try { const bsJ = (typeof computeBreakoutStats === 'function') ? computeBreakoutStats(D) : null;
@@ -411,6 +410,19 @@ function renderVerdictBanner(shi, tradeScore, formulas, marketScore, res, D, reg
             ${aCount < 3 ? '<br><span style="color:var(--warn)">⚠️ A級證據不足3項，信心已下調</span>' : ''}
           </div></div>`;
       } else judgeEl.innerHTML = '';
+      const cev = computeCondEV(D, regime);
+      if (cev) {
+        const pc = v => `${v[0] >= 0 ? '+' : ''}${v[0].toFixed(2)}%/筆（${v[1].toLocaleString()}筆）`;
+        const line = (lbl, s) => s.setups.length
+          ? `${lbl}｜今日型態 ${s.setups.map(x => `「${x.name}」${x.rg === '全部' ? '（此盤勢樣本不足，用全盤勢）' : ''} ${pc(x.v)}`).join('、')}；同盤勢任意日 ${pc(s.base)}`
+          : `${lbl}｜今日無已回測型態；同盤勢任意日 ${pc(s.base)}`;
+        const best = Math.max(cev.long.base[0], cev.short.base[0], ...cev.long.setups.map(x => x.v[0]), ...cev.short.setups.map(x => x.v[0]));
+        judgeEl.innerHTML += `<div style="margin-top:8px;padding:9px 11px;background:var(--bg);border:1px solid var(--bd);border-radius:9px;font-size:10px;color:var(--muted);line-height:1.7">
+          <div style="font-size:12px;font-weight:700;color:${best < 0 ? 'var(--warn)' : 'var(--buy)'};margin-bottom:4px">💰 期望值（19年24檔，盤勢：${cev.rg}，已含成本與滑價）</div>
+          ${line('做多', cev.long)}<br>${line('做空', cev.short)}<br>
+          ${best < 0 ? '<b>兩邊皆為負：不交易（期望值 0）是數學上最好的選擇。</b>若仍要做，視為付費換經驗——最小部位、當沖稅率或議價手續費，並嚴守紀律門與停損。' : '有非負格子，但仍須通過紀律門與停損檢查。'}
+          <br><span style="color:var(--muted2)">出場固定為 1×ATR 停損／1.5×ATR 目標／最多10日；上方「綜合研判」只代表條件集中度，不改變這裡的期望值。</span></div>`;
+      }
     } catch (e) { judgeEl.innerHTML = ''; }
   }
 
@@ -427,7 +439,7 @@ function renderVerdictBanner(shi, tradeScore, formulas, marketScore, res, D, reg
       const seg = [];
       const dirTxt = regime && regime.regime === '多頭趨勢' ? '多' : '空';
       // ① 環境
-      if (regime) seg.push({ k: '環境', v: `${regime.regime}${regime.regime === '盤整' || regime.regime === '過渡帶' ? '——波段勝率低，僅適合區間短打' : `——順${dirTxt}方操作為順風，逆向是散戶最常見死法`}` });
+      if (regime) seg.push({ k: '環境', v: regime.regime === '高波動危險' ? '高波動危險——19年實測此時放空每筆約虧1.4~1.8%，不進場' : `${regime.regime}——僅作背景：19年實測順勢、逆勢的期望值沒有差異` });
       // ② 走到哪（溫度計＋持續天數）
       if (ms && ms.maturity != null) {
         seg.push({ k: '進程', v: `${ms.dirTxt}波段已走 ${ms.maturity.toFixed(0)}%${ms.maturity >= 75 ? '——接近尾端，此時追單是接最後一棒' : ms.maturity <= 30 ? '——仍在初期，空間相對完整' : '——中段，續走與反轉機率相當'}` });
@@ -444,7 +456,6 @@ function renderVerdictBanner(shi, tradeScore, formulas, marketScore, res, D, reg
       } catch (e) {}
       // ⑤ 翻盤條件（最關鍵：事先寫下我錯了的證據）
       const inval = [];
-      if (regime && (regime.regime === '多頭趨勢' || regime.regime === '空頭趨勢')) inval.push(`Regime 由「${regime.regime}」轉為其他狀態`);
       if (ms && ms.maturity != null && ms.maturity < 75) inval.push(`波段成熟度突破75%（進入尾端）`);
       if (syn) inval.push(`行為結構分數翻過 ${syn.score >= 0 ? '-20' : '+20'}`);
       if (inval.length) seg.push({ k: '翻盤條件', v: inval.join('｜') + ' —— 出現任一項即重新評估，不凹單' });
@@ -515,6 +526,34 @@ async function checkBingfaWarning() {
    FUSION≤-40後5日反彈率51.6%，跌深處統計偏反彈）
    ⚠️ 此為風控/時機判定（本系統唯一有實證的車道），非方向預測
    ════════════════════════════════════════════════════════════════════ */
+/* v139 期望值整合：偵測今日符合哪個已回測型態（定義與 backtest_conditional.js 相同，原始價），
+   查 COND_EV 取「同盤勢×同型態」的19年實測每筆淨期望值；無型態時用同盤勢任意日基準。 */
+function computeCondEV(D, regime) {
+  try {
+    if (typeof COND_EV === 'undefined') return null;
+    const c = D.rawCloses || D.closes, h = D.rawHighs || D.highs, l = D.rawLows || D.lows, i = c.length - 1;
+    if (i < 70) return null;
+    const hi = (a, b) => Math.max(...h.slice(a, b + 1)), lo = (a, b) => Math.min(...l.slice(a, b + 1));
+    const ma = n => c.slice(i - n + 1, i + 1).reduce((s, v) => s + v, 0) / n;
+    const m5 = ma(5), m20 = ma(20), m60 = ma(60);
+    const hit = {
+      '突破20日高': c[i] > hi(i - 20, i - 1) && c[i - 1] <= hi(i - 21, i - 2),
+      '多頭排列拉回': m5 > m20 && m20 > m60 && c[i] <= lo(i - 5, i - 1) * 1.015,
+      '空頭排列反彈': m5 < m20 && m20 < m60 && c[i] >= hi(i - 5, i - 1) * 0.985,
+      '跌破20日低': c[i] < lo(i - 20, i - 1) && c[i - 1] >= lo(i - 21, i - 2),
+      '假突破回落': c[i - 1] > hi(i - 21, i - 2) && c[i] < hi(i - 21, i - 2),
+    };
+    const rg = ({ 多頭趨勢: '多頭', 空頭趨勢: '空頭', 盤整: '盤整', 過渡帶: '過渡', 高波動危險: '高波動' })[regime && regime.regime] || '全部';
+    const side = dir => {
+      const base = COND_EV.base[dir][rg] || COND_EV.base[dir]['全部'];
+      const m = Object.entries(COND_EV.setups).filter(([k, s]) => s.dir === dir && hit[k])
+        .map(([k, s]) => ({ name: k, v: s[rg] || s['全部'], rg: s[rg] ? rg : '全部' }));
+      return { base, setups: m };
+    };
+    return { rg, long: side(1), short: side(-1) };
+  } catch (e) { return null; }
+}
+
 function computeCrashPhase(D) {
   try {
     const c = D.rawCloses || D.closes, h = D.rawHighs || D.highs, l = D.rawLows || D.lows, v = D.volumes, n = c.length;
@@ -556,10 +595,9 @@ function computeTradeGate(ctx) {
     const pass = [], fail = [], warn = [];
     // R1 市場環境（總開關）
     if (regime) {
-      if (regime.regime === '高波動危險') fail.push('高波動危險態：保本金優先，此狀態禁止進場');
-      else if (regime.regime === '盤整') warn.push('盤整態：波段勝率低，僅限區間短打、小部位');
-      else if ((regime.regime === '多頭趨勢' && dir === 1) || (regime.regime === '空頭趨勢' && dir === -1)) pass.push(`環境順風（${regime.regime}）`);
-      else if (regime.regime === '多頭趨勢' || regime.regime === '空頭趨勢') fail.push(`環境逆風（${regime.regime}）：逆環境操作是散戶最常見的死法`);
+      /* v138：19年實測順勢/逆勢/盤整的期望值無差異，只保留有數據支持的高波動禁令
+         （高波動時放空每筆−1.4~−1.8%，t≈−4.5；做多較不差但仍為負且不顯著） */
+      if (regime.regime === '高波動危險') fail.push(dir === -1 ? '高波動危險態：19年實測此時放空每筆約虧1.4~1.8%，禁止進場' : '高波動危險態：保本金優先，此狀態禁止進場');
     }
     // R2 大週期 MTF
     if (mtf) {
@@ -1076,13 +1114,12 @@ function computeBehaviorSynthesis(ctx) {
 
   // ── 行為⑥ 市場環境行為（Regime）──
   if (regime && regime.regime) {
-    const rDir = regime.regime === '多頭趨勢' ? 1 : regime.regime === '空頭趨勢' ? -1 : 0;
     behaviors.push({
       name: `環境：${regime.regime}`, actor: '市場',
-      dir: rDir, strength: regime.regime === '高波動危險' ? 30 : 55,
+      dir: 0, strength: regime.regime === '高波動危險' ? 30 : 55,   // v138：順逆勢期望值無差異，不投方向票
       basis: ['ADX趨勢強度', '均線排列', '波動率'],
       read: regime.regime === '高波動危險' ? '此環境所有訊號可靠度大降，部位減半' :
-            regime.regime === '盤整' ? '區間市，追突破易被巴，高賣低買' : `順著${regime.regime}方向操作勝率較高`,
+            '背景資訊：19年實測順勢、逆勢的期望值沒有差異，不作方向依據',
     });
   }
 

@@ -14,7 +14,11 @@
    ⚠️ 條件分數 ≠ 勝率 ≠ 預測。它是「通過幾項風控條件」的計數。
    ══════════════════════════════════════════════════════════════════════ */
 
-const SCAN_BATCH = 15;          // 每批檔數（後端上限20，留餘裕）
+/* v115修：前端原送15檔/批，但 Code.gs（GAS後端）上限只取前10檔——
+   使用GAS的人每批會默默遺失5檔（不成功也不算失敗，直接消失，總數對不上）。
+   統一降為10檔，同時相容 worker.js(上限20) 與 Code.gs(上限10)。
+   代價是批次數增加，但正確性優先。 */
+const SCAN_BATCH = 10;          // 兩種後端的共同安全值
 
 /* ── 內建掃描池（v111）─────────────────────────────────────────────────
    使用者要的是「按一鍵就給代碼」，不必自己貼清單。此池以台灣50＋中型100
@@ -93,13 +97,8 @@ function evalScanConditions(D, dir) {
   try { cp = computeCrashPhase(D); } catch (e) {}
   try { shi = computeShiPower(D, 50); } catch (e) {}
 
-  // ① 環境順風（順勢原則，19年結構性證據：逆環境操作是最常見死法）
-  if (regime) {
-    if (regime.regime === '高波動危險') fail.push('高波動危險態');
-    else if ((dir === -1 && regime.regime === '空頭趨勢') || (dir === 1 && regime.regime === '多頭趨勢')) pass.push(`環境順風（${regime.regime}）`);
-    else if (regime.regime === '盤整') fail.push('盤整態（波段勝率低）');
-    else fail.push(`環境逆風（${regime.regime}）`);
-  }
+  // ① 環境：v138 實測順勢/逆勢/盤整期望值無差異，只保留高波動禁令（高波動放空每筆約−1.4~−1.8%）
+  if (regime && regime.regime === '高波動危險') fail.push('高波動危險態');
   // ② 波段未到尾端（避免追殺魚尾／追高買在頭部）
   if (ms) {
     const sameDir = (dir === -1 && ms.dir === -1) || (dir === 1 && ms.dir === 1);
@@ -171,9 +170,20 @@ async function runScan() {
     box.innerHTML = `<div style="font-size:12px;color:var(--muted)">掃描中… ${Math.min(i + SCAN_BATCH, codes.length)}/${codes.length} 檔（已耗時 ${((Date.now() - t0) / 1000).toFixed(0)}秒）</div>`;
     try {
       const r = await fetchT(`${GAS_URL}?action=scan&codes=${encodeURIComponent(batch.join(','))}`, {}, 60000);
-      const j = await r.json();
+      /* v116：原本直接 r.json()，後端若回 404 或 HTML 錯誤頁會拋出
+         「Unexpected token <」這種無用訊息。先看 HTTP 狀態、再確認是不是 JSON，
+         讓錯誤訊息直接指向真正的原因（端點不存在／未部署／回傳非JSON）。 */
+      if (!r.ok) throw new Error(`後端 HTTP ${r.status}${r.status === 404 ? '（找不到端點——後端未部署或網址錯誤）' : ''}`);
+      const txt = await r.text();
+      let j;
+      try { j = JSON.parse(txt); }
+      catch (pe) { throw new Error(`後端回傳的不是 JSON（開頭：${txt.slice(0, 40).replace(/</g, '&lt;')}…）——多半是後端未部署 scan 端點，或 GAS 部署權限設定錯誤`); }
       if (!j.ok) throw new Error(j.error || '後端錯誤');
       if (!Array.isArray(j.results)) throw new Error('後端無 results 欄位——你的後端（Cloudflare Worker / GAS）可能尚未更新到含 scan 端點的版本，請重新部署 worker.js 或 Code.gs');
+      if (j.results.length < batch.length) {
+        const got = new Set(j.results.map(x => x.code));
+        batch.filter(c => !got.has(c)).forEach(c => rows.push({ code: c, err: true, errMsg: `後端未回傳此檔（送出${batch.length}檔僅回${j.results.length}檔，可能後端批次上限較低）` }));
+      }
       for (const item of (j.results || [])) {
         if (!item.ok) { rows.push({ code: item.code, err: true }); continue; }
         const D = {
@@ -207,6 +217,23 @@ function renderScanResult(rows, dir, secs) {
   const dirTxt = dir === -1 ? '做空' : '做多';
   let h = `<div style="font-size:11px;color:var(--muted);margin-bottom:8px">
     ${dirTxt}條件掃描完成｜${good.length} 檔通過前置${filt.length ? ` / ${filt.length} 檔被門檻擋下` : ''}${errs.length ? ` / ${errs.length} 檔失敗` : ''}｜耗時 ${secs} 秒
+    ${(() => {
+      /* v115：以前只顯示「N檔失敗」，使用者無從得知原因。這裡把後端實際回傳的
+         錯誤攤開——全部失敗且耗時極短，幾乎都是後端沒有 scan 端點（未重新部署）。 */
+      const msgs = [...new Set(errs.map(e => e.errMsg).filter(Boolean))];
+      if (!errs.length) return '';
+      const allFail = good.length === 0 && filt.length === 0;
+      return `<div style="margin-top:6px;padding:8px 10px;background:var(--sell)10;border:1px solid var(--sell);border-radius:7px;font-size:10px;color:var(--muted);line-height:1.6">
+        <b style="color:var(--sell)">失敗原因</b>：${msgs.length ? msgs.map(m => `<div>・${m}</div>`).join('') : '<div>・後端回傳 ok:false 或該檔資料不足60日</div>'}
+        ${allFail ? `<div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--line)">
+          <b>全部失敗且耗時 ${secs} 秒（極短）＝請求被立即拒絕</b>，最常見原因：<br>
+          ① <b>後端尚未重新部署</b>：scan 是新端點，舊版 worker.js / Code.gs 不認得 action=scan，會直接回錯。單筆查詢正常不代表後端是新版（單筆走的是另一條路由）。<br>
+          ② 檢查方式：把這個網址貼到瀏覽器看回傳內容 →<br>
+          <span style="font-family:var(--mono);font-size:9px;word-break:break-all;color:var(--accent)">${(typeof GAS_URL !== 'undefined' ? GAS_URL : '{你的後端網址}')}?action=scan&codes=2330</span><br>
+          回傳含 <b>"results"</b> ＝後端已是新版；若回傳錯誤或一般股票資料 ＝ 需重新部署。
+        </div>` : ''}
+      </div>`;
+    })()}
     <div style="font-size:10px;color:var(--muted2);margin-top:4px">依「通過條件數 − 未通過數」排序。<b>這不是漲跌預測</b>——19年7,908事件已證方向不可測；此處排的是「目前進場的條件結構」，最終仍須逐檔開啟完整分析與紀律門確認。</div>
   </div>`;
 
@@ -221,7 +248,7 @@ function renderScanResult(rows, dir, secs) {
       </div>
       ${r.pass.map(p => `<div style="font-size:10px;color:var(--buy);line-height:1.5">✓ ${p}</div>`).join('')}
       ${r.fail.map(f => `<div style="font-size:10px;color:var(--sell);line-height:1.5">✗ ${f}</div>`).join('')}
-      <div style="margin-top:5px"><button onclick="document.getElementById('code').value='${r.code}';closeScan();go();" style="font-size:10px;padding:3px 9px;border-radius:5px;border:1px solid var(--line);background:transparent;color:var(--fg);cursor:pointer">開啟完整分析 →</button></div>
+      <div style="margin-top:5px"><button onclick="document.getElementById('ticker-input').value='${r.code}';closeScan();go();" style="font-size:10px;padding:3px 9px;border-radius:5px;border:1px solid var(--line);background:transparent;color:var(--fg);cursor:pointer">開啟完整分析 →</button></div>
     </div>`;
   });
 
