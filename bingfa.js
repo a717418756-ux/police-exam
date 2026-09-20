@@ -612,18 +612,17 @@ function computeTradeGate(ctx) {
       else if ((dir === 1 && c <= -25) || (dir === -1 && c >= 25)) fail.push(`共振反向（共識度 ${c}）：多數維度不站你這邊`);
       else warn.push('共振中性：維度分歧，等更明確');
     }
-    // R4 順公式（你的實戰數據教訓）
-    if (dir === 1 && fusion >= 40) warn.push(`FUSION極強區（+${fusion}）：19年116,759樣本驗證，極端強勢後5日上漲率反低於基準（α-2.5）——動能極端≠續漲，不給多單加分，防追高`);
-    else if (dir === -1 && fusion <= -40) warn.push(`FUSION極弱區（${fusion}）：19年驗證此區後5日51%反而上漲——不給空單加分，防追殺低點`);
-    else if ((dir === 1 && fusion >= 20) || (dir === -1 && fusion <= -20)) pass.push(`順公式（FUSION ${fusion >= 0 ? '+' : ''}${fusion}）`);
-    else if ((dir === 1 && fusion <= -20) || (dir === -1 && fusion >= 20)) fail.push(`逆公式（FUSION ${fusion >= 0 ? '+' : ''}${fusion}）：你的實戰統計顯示逆公式進場 MAE 深 2~4 倍`);
-    else warn.push('公式中性：FUSION 未同向確認');
+    /* R4 公式（v140）：FUSION 已列 X 級，不再給綠燈；極端區依19年116,759樣本不構成反向禁令
+       （≥40 後5日上漲率47.3%、≤-40 後51.6%），中段逆向僅依使用者早期實戰小樣本，只給提醒不給紅燈 */
+    if (dir === 1 && fusion >= 40) warn.push(`FUSION極強區（+${fusion}）：19年驗證極端強勢後5日上漲率反低於基準（α-2.5），防追高`);
+    else if (dir === -1 && fusion <= -40) warn.push(`FUSION極弱區（${fusion}）：19年驗證此區後5日51.6%反而上漲，防追殺低點`);
+    else if ((dir === 1 && fusion <= -20 && fusion > -40) || (dir === -1 && fusion >= 20 && fusion < 40)) warn.push(`逆公式（FUSION ${fusion >= 0 ? '+' : ''}${fusion}）：早期實戰小樣本顯示逆公式進場 MAE 較深（未經大樣本驗證）`);
     // R5 反明牌（別站人多的一邊）
     if (crowd) {
       if (crowd.trap && ((crowd.trap.type === 'bull' && dir === 1) || (crowd.trap.type === 'bear' && dir === -1))) fail.push('明牌陷阱警報：教科書訊號與你同向但主力反向，你正要跟散戶擠同一邊');
       else if (crowd.crowdDir === dir && crowd.crowding >= 70) fail.push(`明牌極度擁擠（${crowd.crowding}）：這個結論所有AI散戶都看到了`);
       else if (crowd.crowdDir === dir && crowd.crowding >= 50) warn.push(`明牌偏擁擠（${crowd.crowding}）：預期先掃停損再走，進場點要選在掃盪後`);
-      else pass.push('非擁擠明牌（人少的一邊，訊號含金量高）');
+      else pass.push('非擁擠明牌（人少的一邊，停損較不易被集中掃）');
     }
     // Amihud流動性聯動（v105）：稀薄=急跌/跳空放大器（風險車道，不分方向）
     try {
@@ -860,7 +859,10 @@ function renderTradeGate(ctx) {
       } catch (e) {}
       const dist = Math.abs(entry - stop);
       const sgn = planSide === 'long' ? 1 : -1;
-      const tp1 = entry + sgn * 2 * dist;   // v107：只保留2R單一目標（第二目標改為文字規則，見下方執行卡）
+      /* v140：目標改為此股5日MFE中位可達價（原本卡片仍顯示2R，與下方「2R不採用」的說明矛盾）；資料不足才退回2R */
+      const rtT = computeRealisticTargets(D, sgn, dist / entry * 100);
+      const pickT = rtT ? (rtT.rows.find(r => r.days === 5) || rtT.rows[rtT.rows.length - 1]) : null;
+      const tp1 = pickT ? pickT.medPrice : entry + sgn * 2 * dist;
       const cur = D.currency === 'TWD' ? '' : '$';
       const pc = planSide === 'long' ? 'var(--buy)' : 'var(--sell)';
       /* ── v107 倉位管理兩條鐵律 + 數字整合 ──────────────────────────────
@@ -904,13 +906,18 @@ function renderTradeGate(ctx) {
             <div style="color:var(--muted2);font-size:11px">→</div>
             <div style="text-align:center;flex:1"><div style="font-size:9px;color:var(--muted2)">🛑 停損</div><div style="font-size:15px;font-weight:800;color:var(--sell)">${cur}${fmt(stop)}</div></div>
             <div style="color:var(--muted2);font-size:11px">→</div>
-            <div style="text-align:center;flex:1"><div style="font-size:9px;color:var(--muted2)">✅ 目標</div><div style="font-size:15px;font-weight:800;color:var(--buy)">${cur}${fmt(tp1)}</div></div>
+            <div style="text-align:center;flex:1"><div style="font-size:9px;color:var(--muted2)">✅ 目標${pickT ? `（${pickT.days}日中位）` : '（2R）'}</div><div style="font-size:15px;font-weight:800;color:var(--buy)">${cur}${fmt(tp1)}</div></div>
           </div>
           <div style="text-align:center;margin-top:8px;padding-top:8px;border-top:1px dashed var(--bd)">
             <span style="font-size:9px;color:var(--muted2)">部位</span> <b style="font-size:14px;font-family:var(--mono);color:${pc}">${sizeTxt2}</b>
             <span style="font-size:9px;color:var(--muted2)">（風險${effRiskPct}%${half?'÷2':''}＝${cur}${Math.round(riskAmt2).toLocaleString()}）</span>
           </div>
         </div>
+        ${(() => {
+          const ce = computeCondEV(D, ctx.regime); if (!ce) return '';
+          const s = planSide === 'long' ? ce.long : ce.short, v = s.setups.length ? s.setups[0].v : s.base;
+          return `<div style="font-size:10px;margin-bottom:6px;color:${v[0] < 0 ? 'var(--warn)' : 'var(--buy)'}">💰 此情境19年實測期望值 <b>${v[0] >= 0 ? '+' : ''}${v[0].toFixed(2)}%/筆</b>（${s.setups.length ? '型態「' + s.setups[0].name + '」' : '無已回測型態，用同盤勢任意日'}，${v[1].toLocaleString()}筆，已含成本滑價）${v[0] < 0 ? '——紀律門放行只代表沒有明顯禁忌，不代表期望值為正' : ''}</div>`;
+        })()}
         <div style="font-size:10px;color:var(--muted);line-height:1.7">
           ${(() => {
             /* v124：把「目標為2R」改成此股歷史實際可達的目標。
@@ -918,7 +925,7 @@ function renderTradeGate(ctx) {
                使用者永遠「還沒到目標就先出場或被停損」。改用MFE分位數＋風報比檢查。 */
             try {
               const stopPct = dist / entry * 100;
-              const rt = computeRealisticTargets(D, planSide === 'long' ? 1 : -1, stopPct);
+              const rt = rtT;
               if (!rt) return `📏 <b>目標為2R</b>（賺賠比1:2）：到價出50%、停損移至成本、剩餘用移動停利<br>`;
               const pick = rt.rows.find(r => r.days === 5) || rt.rows[rt.rows.length - 1];
               const r2 = (rt.rTargets.find(x => x.mult === 2) || {}).res || [];
@@ -978,7 +985,7 @@ function renderTradeGate(ctx) {
     一、只在紀律門全綠時出手——沒有交易也是一種部位<br>
     二、進場點選在散戶停損被掃之後，不在訊號剛亮時（訊號亮=散戶進場=主力的貨源）<br>
     三、出場出給追價的人——擁擠度/過熱升高時分批獲利了結，把股票賣給看到明牌的散戶<br>
-    四、沒有必勝法，只有正期望值：贏在「不出手的紀律」+「順公式的統計優勢」+「停損放在掃不到的地方」
+    四、沒有必勝法：19年實測常見短線型態扣成本後皆為負，贏在「不出手的紀律」+「壓低成本」+「停損放在掃不到的地方」
   </div>`;
   document.getElementById('gate-content').innerHTML = html;
   // 行為推理鏈與紀律門共用 ctx，掛在此處＝margin/deepchip 非同步補繪重呼叫本函式時，推理鏈自動同步刷新
