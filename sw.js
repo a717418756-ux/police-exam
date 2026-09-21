@@ -25,8 +25,14 @@ const ASSETS = [
   './manifest.json', './icon-192.png', './icon-512.png', './icon-maskable-512.png', './apple-touch-icon.png'
 ];
 
+const reval = r => { try { return new Request(r, { cache: 'no-cache' }); } catch (_) { return r; } };
+
+/* v149：預快取一律 cache:'no-cache'（向伺服器驗證）──
+   GitHub Pages 對靜態檔回 Cache-Control: max-age=600，若不加此設定，
+   新版SW安裝時會從「瀏覽器HTTP快取」抓到舊的 js/css 存進新快取，
+   造成版本號跳了、畫面還是舊的（這是「一直舊版本」的第三層真兇）。 */
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS.map(u => reval(u)))));
   self.skipWaiting();
 });
 
@@ -58,7 +64,9 @@ self.addEventListener('fetch', e => {
   ) return;
   if (u.startsWith(self.location.origin)) {
     e.respondWith(
-      fetch(e.request).then(res => {
+      // v149：強制向伺服器驗證（no-cache），否則「網路優先」仍可能被瀏覽器HTTP快取擋下而拿到舊檔
+      // try：部分瀏覽器不允許從 navigate 請求重建 Request，失敗就退回原請求
+      fetch(reval(e.request)).then(res => {
         if (res && res.ok && res.type === 'basic') { const cp = res.clone(); caches.open(CACHE).then(c => c.put(e.request, cp)).catch(() => {}); }
         return res;
       }).catch(() => caches.match(e.request))

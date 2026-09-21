@@ -185,3 +185,89 @@ footer{text-align:center;padding:14px;font-size:11px;color:var(--muted);border-t
 #back-top{position:fixed;right:14px;bottom:76px;width:42px;height:42px;border-radius:50%;
   background:var(--surf2);border:1.5px solid var(--bd2);color:var(--txt);font-size:18px;
   display:none;align-items:center;justify-content:center;z-index:90;cursor:pointer}
+
+/* ══════════════════════════════════════════════════════════════════
+   v148 可讀性與跨裝置版面
+   ──────────────────────────────────────────────────────────────
+   問題：卡片內容多為 JS 產生的行內樣式（font-size:9~12px），在手機上
+   偏小、在平板／桌機上更顯得細碎，整體像縮小版網頁而不像 App。
+   做法：
+     ① 以屬性選擇器統一「拉高行內小字」的下限，行動裝置先墊到 12px 起跳，
+        平板、桌機再逐級放大（行內樣式優先權高，需用 !important 覆蓋）。
+     ② 版面寬度分級：手機單欄、平板加寬、桌機 1280px 並改雙欄瀑布排列，
+        卡片以 break-inside:avoid 保持完整，不會被切半。
+     ③ 觸控目標、行距、表單元件一併調整，桌機加上 hover 與捲軸樣式。
+   ══════════════════════════════════════════════════════════════ */
+html,body{font-size:15px;line-height:1.55}
+[style*="font-size:9px"],[style*="font-size: 9px"]{font-size:12px!important}
+[style*="font-size:10px"],[style*="font-size: 10px"]{font-size:12.5px!important}
+[style*="font-size:11px"],[style*="font-size: 11px"]{font-size:13px!important}
+[style*="font-size:12px"],[style*="font-size: 12px"]{font-size:13.5px!important}
+[style*="font-size:13px"],[style*="font-size: 13px"]{font-size:14px!important}
+.hint,.mi-l,.rb-label,.set-label,.layer-sub,.logo-sub{font-size:12px!important;letter-spacing:.6px}
+.rb-sub,.pa-desc,.note-tag,.tb-detail,.tab-btn span{font-size:13px!important;line-height:1.6}
+.ic-name{font-size:12px!important;letter-spacing:.4px}.ic-group{font-size:11px!important}
+.ic-badge{font-size:12px!important;padding:3px 9px}.ic-desc{font-size:12.5px!important;line-height:1.6}
+.help-btn{font-size:13px!important;width:24px;height:24px}
+.rmin,.rmax{font-size:11px!important}.ai-pill{font-size:11.5px!important}
+.layer-title{font-size:15px}.layer-num{font-size:12px}
+.card{padding:16px;border-radius:14px;line-height:1.6}
+.card > div[style*="line-height"]{line-height:1.7!important}
+button{min-height:38px}
+.chip{padding:6px 14px;font-size:13px}
+.note-tag{font-size:12px}
+.cat-tab{font-size:12.5px;padding:6px 14px}
+.modal-tab{font-size:14px;padding:10px}
+#time-pill{font-size:12px;padding:4px 10px}
+
+/* 平板 */
+@media(min-width:768px){
+  html,body{font-size:16px}
+  main{max-width:1040px;padding:22px}
+  .card{padding:20px;border-radius:16px}
+  [style*="font-size:9px"],[style*="font-size: 9px"]{font-size:12.5px!important}
+  [style*="font-size:10px"],[style*="font-size: 10px"]{font-size:13px!important}
+  [style*="font-size:11px"],[style*="font-size: 11px"]{font-size:13.5px!important}
+  [style*="font-size:12px"],[style*="font-size: 12px"]{font-size:14px!important}
+  [style*="font-size:13px"],[style*="font-size: 13px"]{font-size:14.5px!important}
+  .sb-price{font-size:30px}
+  .tb-verdict{font-size:22px}
+  .hint,.mi-l,.rb-label,.set-label,.layer-sub,.logo-sub{font-size:12.5px!important}
+  .rb-sub,.pa-desc,.note-tag,.tb-detail,.tab-btn span{font-size:13.5px!important}
+  .ic-name{font-size:12.5px!important}.ic-badge{font-size:12.5px!important}.ic-desc{font-size:13px!important}
+}
+
+/* 桌機：加寬 + 雙欄瀑布 */
+@media(min-width:1200px){
+  main{max-width:1280px;padding:26px 28px 40px}
+  .tab-pane.active{column-count:2;column-gap:20px}
+  .tab-pane.active > *{break-inside:avoid;-webkit-column-break-inside:avoid;page-break-inside:avoid}
+  .card,#stock-bar,#trend-banner,#err-box{break-inside:avoid}
+  .sb-price{font-size:32px}
+  .risk-grid{grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}
+  .chip:hover,.cat-tab:hover,.modal-tab:hover{border-color:var(--acc);color:var(--acc)}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:6px}
+  ::-webkit-scrollbar-track{background:var(--bg)}
+}
+
+/* 桌機：浮動按鈕縮小並靠右下，避免遮住雙欄內容；卡片加上滑入回饋 */
+@media(min-width:1200px){
+  #scan-fab,#journal-fab{width:48px!important;height:48px!important;font-size:20px!important;right:22px!important;opacity:.85}
+  #scan-fab:hover,#journal-fab:hover{opacity:1}
+  #journal-fab{bottom:22px!important}
+  #scan-fab{bottom:80px!important}
+  .card{transition:border-color .15s}
+  .card:hover{border-color:var(--bd2)}
+}
+
+/* 超寬螢幕：第三欄會讓每欄太窄，維持兩欄但把內容置中 */
+@media(min-width:1700px){ main{max-width:1440px} }
+
+/* 手機小螢幕微調：主要數字仍要夠大 */
+@media(max-width:400px){
+  main{padding:10px}
+  .card{padding:14px}
+  .sb-price{font-size:24px}
+}
+
