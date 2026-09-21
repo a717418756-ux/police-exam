@@ -482,6 +482,12 @@
         <input id="set-finmind-token" placeholder="eyJ...（FinMind API token）" class="field-input" style="margin-bottom:8px">
         <button onclick="saveFinmindToken()" class="btn-block" style="background:#0891B2">💾 儲存 Token</button>
       </div>
+      <!-- v144 強制更新：手機上「改版後還是舊版」時的自救按鈕（不必到系統設定清資料） -->
+      <div style="background:var(--bg);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:14px">
+        <div style="font-size:11px;color:var(--warn);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">🔄 強制更新到最新版</div>
+        <div style="font-size:10px;color:var(--muted);margin-bottom:8px">版本號不是最新、或畫面沒跟著改版時按這裡：會註銷舊的 Service Worker、清掉離線快取並重新載入。設定與交易日誌不會被刪除。</div>
+        <button onclick="forceUpdateApp()" class="btn-block" style="background:var(--warn)">🔄 清除快取並重新載入</button>
+      </div>
 
       <!-- 本地備份 -->
       <div style="background:var(--bg);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:14px">

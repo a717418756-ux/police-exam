@@ -815,6 +815,19 @@ document.getElementById('ticker-input').addEventListener('keydown',e=>{if(e.key=
    修法：①註冊網址帶版本（?v=APP_VERSION），版本一變網址就變，瀏覽器必定視為新SW
         ②updateViaCache:'none'：sw.js 本身與其 importScripts 不吃瀏覽器HTTP快取
         ③新SW接手後自動重新載入一次（僅限本來就有舊SW的情況，首次安裝不重載） */
+/* v144 強制更新：手機上舊 Service Worker 會一直餵舊檔，使用者只清「快取」沒用
+   （Service Worker 與 Cache Storage 屬「網站資料」）。此按鈕直接註銷＋清快取＋重載。 */
+async function forceUpdateApp() {
+  try {
+    if ('serviceWorker' in navigator) {
+      const rs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(rs.map(r => r.unregister()));
+    }
+    if (window.caches) { const ks = await caches.keys(); await Promise.all(ks.map(k => caches.delete(k))); }
+  } catch (e) {}
+  location.replace(location.pathname + '?fresh=' + Date.now());   // 換網址繞開任何殘留快取
+}
+
 if ('serviceWorker' in navigator) {
   const hadController = !!navigator.serviceWorker.controller;
   navigator.serviceWorker.register('./sw.js?v=' + APP_VERSION, { updateViaCache: 'none' })
