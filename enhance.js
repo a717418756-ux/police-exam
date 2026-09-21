@@ -109,7 +109,12 @@ function computeChipHealth(chip, D) {
     let freshTxt = `📅 法人資料日期：${dd.slice(4,6)}/${dd.slice(6,8)}（每交易日盤後更新）`;
     try {
       // v121：先看是不是「抓取失敗」造成的假舊資料（headMiss>0＝最近幾天沒抓到）
-      if (chip.headMiss > 0) {
+      if (chip.missDates && chip.missDates.length) {
+        warnings.push(`⚠️ 籌碼抓取不完整：${chip.missDates.map(d => String(d).slice(4, 6) + '/' + String(d).slice(6, 8)).join('、')} 這幾天沒取到（TWSE 限流或逾時）——本卡籌碼分已改為中性50、不參與任何方向判斷，請重新查詢一次`);
+      } else if (chip.gapMiss > 0 && !chip.headMiss) {
+        signals.push(`ℹ️ 較舊的 ${chip.gapMiss} 天沒取到（TWSE 限流）：最新5日完整，僅20日累計精度略受影響`);
+      }
+      if (chip.headMiss > 0 && !(chip.missDates && chip.missDates.length)) {
         warnings.push(`⚠️ 籌碼抓取不完整：最近6個交易日有 ${chip.headMiss} 天沒取到（TWSE 限流或逾時）——目前顯示的 ${String(chip.dataDate).slice(4,6)}/${String(chip.dataDate).slice(6,8)} 可能不是真正的最新日。請重新查詢一次；若反覆如此，代表 TWSE 該時段連線不穩`);
       }
       const fr = (typeof checkDataFreshness === 'function') ? checkDataFreshness(chip.dataDate, 0) : null;
@@ -161,6 +166,14 @@ function computeChipHealth(chip, D) {
     else if (priceUp && vr < 0.8) { warnings.push('量縮價漲，買盤接手意願低，動能不足'); volNote='weak'; }
   }
 
+  /* v141：資料不完整或落後時，籌碼分一律回中性50——
+     否則「抓到哪幾天」會讓勢能分數、共振、紀律門在同一天之內忽多忽空，
+     使用者看到的是決策跳動，而不是市場真的變了。 */
+  const unreliable = (chip.headMiss > 0) || (chip.expected && String(chip.dataDate || '') < String(chip.expected));
+  if (unreliable) {
+    score = 50;
+    if (!chip.missDates || !chip.missDates.length) warnings.push('⚠️ 籌碼資料不是最新，本卡籌碼分已改為中性50、不參與方向判斷，請重新查詢一次');
+  }
   score = Math.max(0, Math.min(100, score));
   let verdict, vClass;
   if (score >= 75) { verdict = '籌碼集中、主力進駐，賣壓輕、易漲難跌'; vClass = 'buy'; }
@@ -168,7 +181,7 @@ function computeChipHealth(chip, D) {
   else if (score >= 45) { verdict = '籌碼中性，法人態度不明，觀望'; vClass = 'warn'; }
   else if (score >= 30) { verdict = '籌碼偏空，法人站賣方，謹慎'; vClass = 'sell'; }
   else { verdict = '籌碼鬆散、主力撤離，易跌難漲，避開'; vClass = 'sell'; }
-  return { score, verdict, vClass, signals, warnings, concentration, volNote };
+  return { score, verdict, vClass, signals, warnings, concentration, volNote, unreliable };
 }
 
 function renderChip(chip, D) {

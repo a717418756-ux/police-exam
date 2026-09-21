@@ -248,6 +248,8 @@ function renderVerdictBanner(shi, tradeScore, formulas, marketScore, res, D, reg
   try { if (typeof computeBehaviorSynthesis === 'function') syn = computeBehaviorSynthesis({ D, regime, mtf, res, formulas }); } catch (e) {}
   try { if (typeof computeCrowding === 'function') crowd = computeCrowding(D, formulas); } catch (e) {}
 
+  try { if (D && D._intraday) addW(1, '⏱', '盤中：今日K棒尚未收完，本頁所有判斷一律以「前一交易日收盤」計算，當天之內不會因為盤中跳動而改變；上方現價仍為即時價，供下單參考。收盤後資料定案，判斷才會更新'); } catch (e) {}
+  try { const cp = D && D.chip; if (cp && (cp.headMiss > 0 || (cp.expected && String(cp.dataDate || '') < String(cp.expected)))) addW(1, '📉', `籌碼資料不完整${cp.missDates && cp.missDates.length ? `（缺 ${cp.missDates.map(x => String(x).slice(4, 6) + '/' + String(x).slice(6, 8)).join('、')}）` : ''}：籌碼分已改中性、不參與方向判斷——請重新查詢一次，抓齊再看籌碼結論`); } catch (e) {}
   try { if (regime && regime.regime === '高波動危險') addW(1, '🌪', '環境「高波動危險」：所有訊號可靠度大降，部位至少減半或觀望'); } catch (e) {}
   try { if (ms && ms.stage === '尾端') addW(2, '🌡', `行情「${ms.dirTxt}·尾端」（成熟度${ms.maturity}）：本段已走完此股歷史${ms.magPctl}%波段——順向追單風報比差，等回檔/反彈找位`); } catch (e) {}
   try { if (syn && syn.conflict && syn.conflict.length) addW(3, '⚡', `行為衝突：${syn.conflict[0]}`); } catch (e) {}
@@ -900,7 +902,7 @@ function renderTradeGate(ctx) {
         html += `<div style="border:2px solid ${pc};border-radius:12px;padding:12px;margin-bottom:10px;background:${pc}0a">
         <div style="font-size:13px;font-weight:800;color:${pc};margin-bottom:8px">🎯 執行計畫 — ${planSide==='long'?'做多':'做空'}${half?'（黃燈半量試單）':''}</div>
         <div style="background:var(--bg);border:1px solid ${pc}40;border-radius:10px;padding:10px;margin-bottom:8px">
-          <div style="font-size:9px;color:var(--muted2);margin-bottom:6px">這筆交易只需要記住三個數字（依執行順序）</div>
+          <div style="font-size:9px;color:var(--muted2);margin-bottom:6px">這筆交易只需要記住三個數字（依執行順序）${D._intraday ? '｜盤中：以下價位以前一交易日收盤為基準，實際下單請用現價與結構位微調' : ''}</div>
           <div style="display:flex;align-items:center;justify-content:space-between;gap:4px;font-family:var(--mono)">
             <div style="text-align:center;flex:1"><div style="font-size:9px;color:var(--muted2)">進場</div><div style="font-size:15px;font-weight:800;color:var(--fg)">${cur}${fmt(entry)}</div></div>
             <div style="color:var(--muted2);font-size:11px">→</div>

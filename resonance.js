@@ -72,8 +72,8 @@ function computeResonance(ctx) {
   // ③ 籌碼維度（法人 + 量能）
   if (ctx.chip && typeof computeChipHealth === 'function') {
     const ch = computeChipHealth(ctx.chip, ctx.D);
-    dims.push({ name: '籌碼', dir: ch.score >= 60 ? 1 : ch.score <= 40 ? -1 : 0, score: ch.score,
-      note: ch.verdict.slice(0, 12) });
+    dims.push({ name: '籌碼', dir: ch.unreliable ? 0 : (ch.score >= 60 ? 1 : ch.score <= 40 ? -1 : 0), score: ch.score,
+      note: ch.unreliable ? '資料不完整，不投票' : ch.verdict.slice(0, 12) });
   }
 
   // ④ 結構維度（VWAP + BOS/CHoCH）

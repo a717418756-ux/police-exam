@@ -186,11 +186,14 @@ async function runScan() {
       }
       for (const item of (j.results || [])) {
         if (!item.ok) { rows.push({ code: item.code, err: true }); continue; }
+        /* v142：掃描也套用「盤中丟棄未完成K棒」（與個股查詢同一函式），
+           否則同一時刻掃描用今日未收K、個股頁用前一日完成K，兩邊結論會不一致 */
+        const it = (typeof trimIntradayBar === 'function') ? trimIntradayBar(item) : item;
         const D = {
-          code: item.code, currency: /^\d{4,6}$/.test(item.code) ? 'TWD' : 'USD',
-          closes: item.closes, highs: item.highs, lows: item.lows, volumes: item.volumes,
-          opens: item.opens || undefined, price: item.price, lastDate: item.lastDate,
-          rawCloses: item.closes, rawHighs: item.highs, rawLows: item.lows,
+          code: it.code, currency: /^\d{4,6}$/.test(it.code) ? 'TWD' : 'USD',
+          closes: it.closes, highs: it.highs, lows: it.lows, volumes: it.volumes,
+          opens: it.opens || undefined, price: it.price, lastDate: it.lastDate,
+          rawCloses: it.closes, rawHighs: it.highs, rawLows: it.lows, _intraday: it._intraday,
         };
         const pf = prefilterStock(D);
         if (!pf.pass) { rows.push({ code: item.code, price: item.price, filtered: true, why: pf.why }); continue; }
