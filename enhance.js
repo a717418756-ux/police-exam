@@ -919,7 +919,7 @@ function renderQualityTrend(D) {
     for (const r of q.rows) {
       const lbl = r.offset === 0 ? '今日' : `T-${r.offset}`;
       const chgCol = r.chgPct >= 0 ? 'var(--buy)' : 'var(--sell)';
-      h += `<tr style="border-top:1px solid var(--line)20">
+      h += `<tr style="border-top:1px solid var(--bd)">
         <td style="color:${r.offset === 0 ? 'var(--accent)' : 'var(--muted)'};font-weight:${r.offset === 0 ? 700 : 400}">${lbl}</td>
         <td style="text-align:right">${fmt(r.close)}</td>
         <td style="text-align:right;color:${chgCol}">${r.chgPct >= 0 ? '+' : ''}${r.chgPct.toFixed(1)}</td>

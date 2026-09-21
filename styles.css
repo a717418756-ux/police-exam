@@ -6,7 +6,10 @@
   --buy:#00D4A0;--buy-d:#00D4A015;--buy-b:#00D4A050;
   --sell:#FF4D6D;--sell-d:#FF4D6D15;--sell-b:#FF4D6D50;
   --warn:#F0B429;--warn-d:#F0B42915;
-  --acc:#3B82F6;--purple:#A855F7;--purple-d:#A855F715;
+  --acc:#3B82F6;--acc-d:#3B82F615;--purple:#A855F7;--purple-d:#A855F715;
+  /* v150：舊命名別名——篩選器等面板沿用 --line/--fg/--card/--accent/--bg2，
+     這些變數從未定義過，導致那些面板的邊框消失、文字/底色掉回預設（看起來像沒做完的網頁） */
+  --line:#1E2D45;--fg:#E8EDF5;--card:#111827;--accent:#3B82F6;--bg2:#151f30;
   --mono:'JetBrains Mono',monospace;--sans:'Inter',sans-serif;
 }
 *{box-sizing:border-box;margin:0;padding:0}
@@ -271,3 +274,138 @@ button{min-height:38px}
   .sb-price{font-size:24px}
 }
 
+
+/* ══════════════════════════════════════════════════════════════════
+   v150 App Shell — 讓它像原生手機 App 而不是網頁
+   ──────────────────────────────────────────────────────────────────
+   1. 觸控行為：去掉點擊藍框、雙擊縮放、橡皮筋回彈（網頁感最大來源）
+   2. App Bar：毛玻璃吸頂＋瀏海安全區；右側動作鈕取代原本的浮動圓鈕
+   3. 底部分頁列：手機把 .tab-bar 釘在底部（iOS/Android 慣例），
+      桌機維持吸頂橫排
+   4. 彈窗改成底部滑出 Bottom Sheet，含拖曳握把
+   5. 輸入框一律 ≥16px：iOS 聚焦時才不會整頁放大（放大＝網頁感）
+   ⚠️ 地雷：safe-area 需 index.html 的 viewport 加 viewport-fit=cover，
+      兩者缺一則瀏海／home 指示條會壓到內容
+   ⚠️ 地雷：.tab-bar 移到底部後不可再當捲動目標，見 layout.js switchTab
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── 1. 原生觸控手感 ── */
+html{-webkit-text-size-adjust:100%}
+body{
+  -webkit-tap-highlight-color:transparent;   /* 點哪都不再閃灰藍框 */
+  touch-action:manipulation;                 /* 去掉雙擊縮放與 300ms 延遲 */
+  overscroll-behavior-y:none;                /* 拉到頂不再露出瀏覽器底色 */
+}
+header,.tab-bar,.hdr-actions,button,.chip,.cat-tab,.modal-tab,.layer-title,.hint,.set-label,.mi-l,.rb-label{
+  -webkit-user-select:none;user-select:none; /* 介面不可選取；數字內容仍可長按複製 */
+}
+button,.chip,.cat-tab,.modal-tab,.tab-btn,.risk-box,.ind-card{transition:transform .12s ease,opacity .12s ease,border-color .15s,background .15s}
+button:active,.chip:active,.cat-tab:active,.modal-tab:active,.tab-btn:active{transform:scale(.96)}
+
+/* ── 2. App Bar ── */
+header{
+  padding-top:calc(12px + env(safe-area-inset-top));
+  background:rgba(12,18,32,.82);
+  -webkit-backdrop-filter:saturate(180%) blur(18px);backdrop-filter:saturate(180%) blur(18px);
+}
+.hdr-actions{display:flex;align-items:center;gap:8px}
+.hdr-btn{
+  width:38px;height:38px;border-radius:12px;flex-shrink:0;
+  background:var(--surf2);border:1px solid var(--bd);color:var(--txt);
+  font-size:17px;line-height:1;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+}
+.hdr-btn:active{background:var(--bd)}
+
+/* ── 3. 分頁列 ── */
+#tab-panes{scroll-margin-top:72px}            /* 捲動時預留吸頂 App Bar 高度 */
+@media(min-width:769px){.tab-bar{top:calc(58px + env(safe-area-inset-top))}}
+
+@media(max-width:768px){
+  /* 底部分頁列：7 個等寬欄位，在 360px 寬仍排得下 */
+  .tab-bar{
+    position:fixed;top:auto;bottom:0;left:0;right:0;z-index:150;
+    display:grid;grid-template-columns:repeat(7,1fr);gap:0;overflow:visible;
+    margin:0;padding:5px 2px calc(5px + env(safe-area-inset-bottom));
+    border-top:1px solid var(--bd);
+    background:rgba(12,18,32,.9);
+    -webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);
+  }
+  .tab-btn{
+    background:transparent;border:none;box-shadow:none;min-width:0;
+    padding:6px 0 4px;border-radius:10px;gap:2px;
+  }
+  .tab-btn .tab-emoji{font-size:19px}
+  .tab-btn span{font-size:10.5px}
+  .tab-btn.active{background:transparent;color:var(--acc);box-shadow:none}
+  .tab-btn.active .tab-emoji{transform:translateY(-1px)}
+  .tab-btn.active::before{                    /* 現行分頁的頂部指示條 */
+    content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);
+    width:20px;height:2.5px;border-radius:0 0 3px 3px;background:var(--acc);
+  }
+  .tab-btn.has-data::after{top:4px;right:calc(50% - 15px)}
+  /* 底部列會蓋住頁尾，有分頁列時才補空間 */
+  body:has(#tab-bar) #app{padding-bottom:calc(64px + env(safe-area-inset-bottom))}
+  #back-top{bottom:calc(70px + env(safe-area-inset-bottom));right:14px}
+
+  /* ── 4. 底部滑出彈窗 ── */
+  #journal-overlay>div{
+    position:absolute!important;left:0;right:0;bottom:0;
+    max-width:none!important;margin:0!important;
+    border-radius:20px 20px 0 0!important;border-bottom:none!important;
+    max-height:92vh!important;
+    padding-bottom:calc(20px + env(safe-area-inset-bottom))!important;
+    animation:sheetUp .28s cubic-bezier(.32,.72,0,1);
+  }
+  #journal-overlay>div::before{                /* 拖曳握把 */
+    content:'';display:block;width:38px;height:4px;border-radius:99px;
+    background:var(--bd2);margin:-4px auto 14px;
+  }
+  @keyframes sheetUp{from{transform:translateY(100%)}to{transform:none}}
+
+  /* ── 5. 不讓 iOS 聚焦放大 ── */
+  input:not(#ticker-input),textarea,select{font-size:16px!important}
+  /* 手機隱藏捲軸，改用原生慣性捲動 */
+  main,#scan-overlay,#journal-overlay>div{-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  main::-webkit-scrollbar,#scan-overlay::-webkit-scrollbar{display:none}
+}
+
+/* 全螢幕篩選器也要避開瀏海與 home 指示條 */
+#scan-overlay{
+  padding-top:calc(16px + env(safe-area-inset-top))!important;
+  padding-bottom:calc(16px + env(safe-area-inset-bottom))!important;
+}
+
+/* ── 6. 手機版頭部與設定列緊湊化（v148 放大字體後頭部被擠成三行）── */
+@media(max-width:768px){
+  header{flex-wrap:wrap;row-gap:8px;padding-left:14px;padding-right:14px}
+  header .hdr-actions{display:contents}   /* 讓 pill 與動作鈕直接受 header 的 flex 排版 */
+  .logo{flex:1;min-width:0}
+  .logo-name{white-space:nowrap}
+  .logo-sub{display:none}                 /* 副標在手機只是裝飾，讓標題單行 */
+  #time-pill{order:3;flex-basis:100%;text-align:center;padding:5px 8px}
+}
+@media(max-width:480px){
+  /* 資金／風險／勝率：改成 iOS 設定頁那種「左標題右數值」分組清單，
+     取代三個各佔一整列的大方塊（原本要多捲 200px 才看得到股價） */
+  .settings-row{grid-template-columns:1fr;gap:0;background:var(--bg);border:1px solid var(--bd);border-radius:10px;overflow:hidden}
+  .set-field{display:flex;align-items:center;justify-content:space-between;gap:10px;
+    background:transparent;border:none;border-bottom:1px solid var(--bd);border-radius:0;padding:11px 12px}
+  .set-field:last-child{border-bottom:none}
+  .set-label{margin-bottom:0;flex:1;white-space:nowrap}
+  .set-field input{width:auto;max-width:52%;text-align:right}
+  /* 卡片間距收斂，一屏能多看一張卡 */
+  .card{padding:14px;border-radius:14px;margin-bottom:10px}
+  .layer-title{margin:14px 0 8px}
+}
+
+/* ── 7. flex 子元素的 min-width:auto 修正 ──
+   輸入框在 flex 容器內預設不可縮小（min-width:auto），會撐破卡片右緣，
+   數值被 .settings-row 的 overflow:hidden 切掉（如「1000000」只剩一半）。 */
+#ticker-input{min-width:0}
+@media(max-width:480px){
+  .set-label{flex:0 0 auto}
+  .set-field input{flex:1;min-width:0;max-width:none}
+  /* 股價列的六個欄位改三欄對齊，不再長短不一換行 */
+  .sb-meta{display:grid;grid-template-columns:repeat(3,1fr);gap:10px 8px}
+}

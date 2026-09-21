@@ -892,7 +892,7 @@ function renderTradeGate(ctx) {
 
       if (rb && rb.blocked) {
         // 6%原則熔斷：本月已虧6%，停止開新倉
-        html += `<div style="border:2px solid var(--sell);border-radius:12px;padding:12px;margin-bottom:10px;background:var(--sell)12">
+        html += `<div style="border:2px solid var(--sell);border-radius:12px;padding:12px;margin-bottom:10px;background:var(--sell-d)">
           <div style="font-size:14px;font-weight:800;color:var(--sell);margin-bottom:6px">🛑 6%原則熔斷 — 本月停止開新倉</div>
           <div style="font-size:11px;color:var(--muted);line-height:1.7">本月（${rb.ym}）真實單淨虧損已達 <b style="color:var(--sell)">${rb.usedPct}%</b>（${rb.trades}筆），觸及6%上限。<br>
           Elder鐵律：連續小虧（食人魚）滅絕的帳戶遠多於單次大虧。此時最該做的不是找下一筆翻本，是<b>停手到月底、檢討這${rb.trades}筆的共通點</b>。<br>
@@ -938,7 +938,7 @@ function renderTradeGate(ctx) {
                 /* v137 參數掃描＋樣本外複驗（8檔153筆挑選 → 另10檔270筆驗證，含0.287%做空成本）：
                    規律「停損越寬越差」樣本外重現（排名相關0.89）；唯一正值 0.5×/1× 的+0.020% 在樣本外為-0.232%；
                    保守執行假設（隔日開盤進場、同K先算停損、跳空開盤成交、進出各1檔）下20組全為負。 */
-                return `<div style="margin:6px 0;padding:7px 9px;background:var(--warn)0d;border:1px dashed var(--warn);border-radius:7px;font-size:10px;line-height:1.6">
+                return `<div style="margin:6px 0;padding:7px 9px;background:var(--warn-d);border:1px dashed var(--warn);border-radius:7px;font-size:10px;line-height:1.6">
                   ⚖️ <b>停損寬窄的實測取捨</b>（20組參數，8檔挑選＋另10檔樣本外複驗，含成本）：<b>停損越寬越差</b>的規律在樣本外重現，可信；
                   但原本唯一為正的「0.5×ATR停損＋1×ATR目標」(+0.020%) 在另10檔為 -0.232%，改用保守執行假設（隔日開盤進場、跳空以開盤成交、進出各滑1檔）後20組全為負。
                   下方建議停損為結構位計算值（較寬、不易被掃）；改用近停損可以少虧，但<b>目前沒有任何參數能證明扣成本後賺錢</b>。

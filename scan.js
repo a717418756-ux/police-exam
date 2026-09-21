@@ -226,7 +226,7 @@ function renderScanResult(rows, dir, secs) {
       const msgs = [...new Set(errs.map(e => e.errMsg).filter(Boolean))];
       if (!errs.length) return '';
       const allFail = good.length === 0 && filt.length === 0;
-      return `<div style="margin-top:6px;padding:8px 10px;background:var(--sell)10;border:1px solid var(--sell);border-radius:7px;font-size:10px;color:var(--muted);line-height:1.6">
+      return `<div style="margin-top:6px;padding:8px 10px;background:var(--sell-d);border:1px solid var(--sell);border-radius:7px;font-size:10px;color:var(--muted);line-height:1.6">
         <b style="color:var(--sell)">失敗原因</b>：${msgs.length ? msgs.map(m => `<div>・${m}</div>`).join('') : '<div>・後端回傳 ok:false 或該檔資料不足60日</div>'}
         ${allFail ? `<div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--line)">
           <b>全部失敗且耗時 ${secs} 秒（極短）＝請求被立即拒絕</b>，最常見原因：<br>
@@ -262,7 +262,7 @@ function renderScanResult(rows, dir, secs) {
     const liqFail = filt.filter(f => f.why && f.why.indexOf('成交額') >= 0).length;
     const totalScanned = good.length + filt.length;
     if (totalScanned >= 10 && liqFail / totalScanned > 0.7) {
-      h += `<div style="margin-top:10px;padding:8px 10px;background:var(--warn)10;border:1px solid var(--warn);border-radius:8px;font-size:10px;color:var(--muted);line-height:1.6">
+      h += `<div style="margin-top:10px;padding:8px 10px;background:var(--warn-d);border:1px solid var(--warn);border-radius:8px;font-size:10px;color:var(--muted);line-height:1.6">
         ⚠️ 有 ${liqFail}/${totalScanned} 檔因「成交額不足」被擋——若這些是你熟悉的熱門股，代表資料量單位可能異常（例如後端回傳「張」而非「股」），並非它們真的沒量。
         請先確認後端已更新至最新版；若持續如此，暫時把此結果視為不可用，改用逐檔分析。</div>`;
     }

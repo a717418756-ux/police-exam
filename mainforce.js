@@ -426,7 +426,7 @@ function renderMainForce(D, formulas) {
   try {
     const fps = computeEarlyFootprints(D);
     if (fps) {
-      html += `<div style="margin-bottom:12px;padding:8px 10px;background:var(--warn)08;border:1px dashed var(--warn);border-radius:8px">
+      html += `<div style="margin-bottom:12px;padding:8px 10px;background:var(--warn-d);border:1px dashed var(--warn);border-radius:8px">
         <div style="font-size:10px;color:var(--warn);font-weight:700;margin-bottom:4px">⚡ 先行足跡（T+0價量，領先T+1籌碼一天）</div>
         ${fps.map(f => `<div style="font-size:10px;color:var(--muted);line-height:1.55;margin-bottom:3px">${f.icon} ${f.txt}</div>`).join('')}
         <div style="font-size:9px;color:var(--muted2);margin-top:4px">腳印≠方向（19年已證方向不可預測）——價值在「提早注意」：明天籌碼公布前，今天先看到有人在動。資訊時差：價量T+0｜法人/借券T+1盤後｜大戶持股週更</div>
@@ -455,7 +455,7 @@ function renderMainForce(D, formulas) {
       ${intent.verdict === '洗盤' ? (() => {
         const rh = D.rawHighs || D.highs;
         const trig = Math.max(...rh.slice(-5));
-        return `<div style="padding:7px 10px;background:var(--buy)10;border:1px dashed var(--buy);border-radius:7px;margin-bottom:8px;font-size:11px;color:var(--muted);line-height:1.6">🎯 <b style="color:var(--buy)">吸籌確認觸發</b>：帶量（>1.2倍20日均量）站回近5日高點 <b style="font-family:var(--mono);color:var(--buy)">${fmt(trig)}</b> ＝洗盤結束訊號（Wyckoff Sign of Strength），可分批進場；未觸發前只觀察不搶進。</div>`;
+        return `<div style="padding:7px 10px;background:var(--buy-d);border:1px dashed var(--buy);border-radius:7px;margin-bottom:8px;font-size:11px;color:var(--muted);line-height:1.6">🎯 <b style="color:var(--buy)">吸籌確認觸發</b>：帶量（>1.2倍20日均量）站回近5日高點 <b style="font-family:var(--mono);color:var(--buy)">${fmt(trig)}</b> ＝洗盤結束訊號（Wyckoff Sign of Strength），可分批進場；未觸發前只觀察不搶進。</div>`;
       })() : ''}`;
     if (intent.evidence.length) {
       intent.evidence.forEach(e => {

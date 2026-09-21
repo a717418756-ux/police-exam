@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#0A0E1A">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>短線雷達 StockRadar Pro</title>
@@ -21,7 +21,12 @@
     <div class="logo-icon">📡</div>
     <div><div class="logo-name">短線雷達 Pro</div><div class="logo-sub">Risk-First System</div></div>
   </div>
-  <div id="time-pill"></div>
+  <!-- v150：原本右下兩顆浮動鈕改為 App Bar 動作鈕（手機 App 慣例，畫面不被浮標擋住） -->
+  <div class="hdr-actions">
+    <div id="time-pill"></div>
+    <button class="hdr-btn" onclick="openScan()" title="條件篩選器">🔍</button>
+    <button class="hdr-btn" onclick="openJournal()" title="交易與設定">📒</button>
+  </div>
 </header>
 <main>
   <div class="card">
@@ -155,7 +160,7 @@
         </div>
       </div>
       <div id="q-verdict" style="text-align:center;font-size:13px;font-weight:600;padding:10px;border-radius:10px;margin-bottom:8px">—</div>
-      <div id="q-evidence" style="font-size:10px;color:var(--muted);line-height:1.6;padding:8px 10px;background:var(--warn)10;border:1px dashed var(--warn);border-radius:8px;margin-bottom:14px"></div>
+      <div id="q-evidence" style="font-size:10px;color:var(--muted);line-height:1.6;padding:8px 10px;background:var(--warn-d);border:1px dashed var(--warn);border-radius:8px;margin-bottom:14px"></div>
       <div style="font-size:11px;color:var(--muted);letter-spacing:.5px;text-transform:uppercase;margin-bottom:8px">權重明細（命中率高者佔比重）</div>
       <div id="q-contrib"></div>
       <div id="q-contrarian" style="margin-top:12px"></div>
@@ -362,23 +367,19 @@
 </main>
 <footer>短線雷達 Pro <span id="ver-tag"></span>&nbsp;·&nbsp; 風險優先分層決策系統 &nbsp;·&nbsp; 僅供參考</footer>
 </div>
-<!-- 交易日誌浮動按鈕 -->
-<button id="scan-fab" onclick="openScan()" style="position:fixed;right:18px;bottom:84px;z-index:200;width:56px;height:56px;border-radius:16px;border:none;background:linear-gradient(135deg,#F59E0B,#EF4444);color:#fff;font-size:22px;cursor:pointer;box-shadow:0 4px 20px #F59E0B50" title="條件篩選器">🔍</button>
-<button id="journal-fab" onclick="openJournal()" style="position:fixed;right:18px;bottom:18px;z-index:200;width:56px;height:56px;border-radius:16px;border:none;background:linear-gradient(135deg,#A855F7,#3B82F6);color:#fff;font-size:22px;cursor:pointer;box-shadow:0 4px 20px #A855F750">📒</button>
-
 <!-- 交易日誌面板 -->
 <div id="scan-overlay" style="display:none;position:fixed;inset:0;z-index:290;background:var(--bg);overflow-y:auto;padding:16px">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
     <div style="font-size:15px;font-weight:700">🔍 條件篩選器</div>
     <button onclick="closeScan()" style="font-size:12px;padding:5px 12px;border-radius:6px;border:1px solid var(--line);background:transparent;color:var(--fg);cursor:pointer">關閉</button>
   </div>
-  <div style="font-size:10px;color:var(--muted2);line-height:1.6;margin-bottom:10px;padding:8px 10px;background:var(--warn)08;border:1px dashed var(--warn);border-radius:7px">
+  <div style="font-size:10px;color:var(--muted2);line-height:1.6;margin-bottom:10px;padding:8px 10px;background:var(--warn-d);border:1px dashed var(--warn);border-radius:7px">
     這不是「推薦會漲跌的股票」——19年24檔7,908事件已證方向不可預測。此處是把你的觀察池逐檔跑完整引擎，依<b>風控與時機條件</b>（本系統唯一有實證的車道）排序，回答「哪幾檔目前的進場條件結構較好」。最終仍須逐檔看完整分析與出手紀律門。
   </div>
   <!-- v114：主流程＝選方向就出結果，不必碰代碼。自訂清單降級為進階選項（預設收合） -->
   <div style="display:flex;gap:10px;margin-bottom:12px">
-    <button id="scan-short" onclick="runScanAuto('short')" style="flex:1;padding:16px 8px;border-radius:10px;border:1px solid var(--sell);background:var(--sell)15;color:var(--fg);cursor:pointer;font-size:15px;font-weight:800">📉 找做空標的</button>
-    <button id="scan-long" onclick="runScanAuto('long')" style="flex:1;padding:16px 8px;border-radius:10px;border:1px solid var(--buy);background:var(--buy)15;color:var(--fg);cursor:pointer;font-size:15px;font-weight:800">📈 找做多標的</button>
+    <button id="scan-short" onclick="runScanAuto('short')" style="flex:1;padding:16px 8px;border-radius:10px;border:1px solid var(--sell);background:var(--sell-d);color:var(--fg);cursor:pointer;font-size:15px;font-weight:800">📉 找做空標的</button>
+    <button id="scan-long" onclick="runScanAuto('long')" style="flex:1;padding:16px 8px;border-radius:10px;border:1px solid var(--buy);background:var(--buy-d);color:var(--fg);cursor:pointer;font-size:15px;font-weight:800">📈 找做多標的</button>
   </div>
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
     <span style="font-size:10px;color:var(--muted2)">掃描台股熱門池（台灣50＋中型100主要成分），約1分鐘</span>
@@ -393,7 +394,7 @@
           <option value="short">做空條件</option>
           <option value="long">做多條件</option>
         </select>
-        <button id="scan-run" onclick="runScan()" style="font-size:12px;padding:6px 16px;border-radius:6px;border:1px solid var(--accent);background:var(--accent)20;color:var(--fg);cursor:pointer;font-weight:700">用此清單掃描</button>
+        <button id="scan-run" onclick="runScan()" style="font-size:12px;padding:6px 16px;border-radius:6px;border:1px solid var(--accent);background:var(--acc-d);color:var(--fg);cursor:pointer;font-weight:700">用此清單掃描</button>
       </div>
     </div>
   </details>

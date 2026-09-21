@@ -87,9 +87,10 @@ function switchTab(id) {
   _activeTab = id;
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.id === 'btn-' + id));
   document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === 'pane-' + id));
-  // 切換後捲到分頁列頂端，體驗更順
-  const bar = document.getElementById('tab-bar');
-  if (bar) bar.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  // 切換後捲到內容頂端（v150：分頁列在手機已移到底部，不能再拿它當捲動目標，
+  // 否則會捲到頁尾；改用分頁容器，偏移量由 CSS 的 scroll-margin-top 處理）
+  const panes = document.getElementById('tab-panes');
+  if (panes) panes.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 // 分頁按鈕顯示該頁有幾張「有資料」的卡片（小圓點提示）
