@@ -815,6 +815,29 @@ document.getElementById('ticker-input').addEventListener('keydown',e=>{if(e.key=
    修法：①註冊網址帶版本（?v=APP_VERSION），版本一變網址就變，瀏覽器必定視為新SW
         ②updateViaCache:'none'：sw.js 本身與其 importScripts 不吃瀏覽器HTTP快取
         ③新SW接手後自動重新載入一次（僅限本來就有舊SW的情況，首次安裝不重載） */
+/* v147 安裝為獨立 App：Chrome 只有在 manifest 具備 192/512 的「PNG」圖示、
+   有 Service Worker 且 display=standalone 時，才會判定為可安裝；否則「加到主畫面」
+   只會建立瀏覽器捷徑（開起來有網址列、圖示帶 Chrome 角標）。v147 已改為真實 PNG 圖示，
+   這裡再接住 beforeinstallprompt，讓設定頁能直接叫出安裝對話框。 */
+let _deferredInstall = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault(); _deferredInstall = e;
+  const row = document.getElementById('install-row'); if (row) row.style.display = 'block';
+});
+window.addEventListener('appinstalled', () => {
+  _deferredInstall = null;
+  const row = document.getElementById('install-row'); if (row) row.style.display = 'none';
+});
+async function installApp() {
+  if (!_deferredInstall) {
+    alert('這個瀏覽器沒有提供安裝對話框。\niPhone：Safari 下方「分享」→「加入主畫面」。\nAndroid：Chrome 右上「⋮」→「安裝應用程式」。');
+    return;
+  }
+  _deferredInstall.prompt();
+  try { await _deferredInstall.userChoice; } catch (e) {}
+  _deferredInstall = null;
+}
+
 /* v145 載入完整性檢查：部署漏檔或某個 .js 沒載到時，症狀是「按某個按鈕才發現功能不存在」
    （使用者實例：匯入備份時出現 importBackup is not defined ＝ db.js 沒載進來）。
    這裡在啟動時直接點名缺哪個檔，並在畫面頂端紅字提示，不必等踩到才知道。 */

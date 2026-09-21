@@ -1,17 +1,41 @@
 {
-  "name": "短線雷達 StockRadar",
+  "id": "./index.html",
+  "name": "短線雷達 StockRadar Pro",
   "short_name": "短線雷達",
-  "description": "短線技術指標綜合判讀工具",
-  "start_url": "./index.html",
+  "description": "台股短線風險與期望值決策工具",
+  "start_url": "./index.html?src=pwa",
+  "scope": "./",
   "display": "standalone",
+  "display_override": [
+    "standalone",
+    "minimal-ui"
+  ],
   "background_color": "#0A0E1A",
   "theme_color": "#0A0E1A",
   "orientation": "portrait-primary",
+  "categories": [
+    "finance",
+    "productivity"
+  ],
+  "lang": "zh-Hant-TW",
   "icons": [
     {
-      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' rx='32' fill='%230A0E1A'/><text y='130' x='30' font-size='130'>📡</text></svg>",
+      "src": "./icon-192.png",
       "sizes": "192x192",
-      "type": "image/svg+xml"
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

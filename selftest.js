@@ -157,8 +157,16 @@ async function browserTests() {
   // 盤中：今日未完成K必須被剔除，且標示清楚
   todayBar = true; const intr = await query(codes[0]); todayBar = false;
   const base = await query(codes[0]);
-  ok('盤中會剔除今日未完成K', intr.n === base.n - 1 || intr.intraday, `盤中${intr.n} vs 盤後${base.n}`);
-  ok('盤中有明確標示', !intr.intraday || /盤中/.test(intr.pill));
+  /* 這項只有在台北時間週一~週五 09:00~14:00 才適用（非盤中時段本來就不該剔除），
+     否則測試會因執行時間不同而誤判 */
+  const _t = new Date(Date.now() + 8 * 3600000), _m = _t.getUTCHours() * 60 + _t.getUTCMinutes();
+  const inSession = _t.getUTCDay() >= 1 && _t.getUTCDay() <= 5 && _m >= 540 && _m < 840;
+  if (inSession) {
+    ok('盤中會剔除今日未完成K', intr.n === base.n - 1 && intr.intraday, `盤中${intr.n} vs 盤後${base.n}`);
+    ok('盤中有明確標示', /盤中/.test(intr.pill), intr.pill);
+  } else {
+    ok('非盤中時段不剔除K棒（時段外行為正確）', intr.n === base.n && !intr.intraday, `${intr.n} vs ${base.n}`);
+  }
   // 籌碼不完整：必須改中性且不投票
   chip = { dataDate: '20260916', expected: '20260918', missDates: ['20260918', '20260917'], headMiss: 2, gapMiss: 0, days: 12,
     foreign1: -800, foreign5: -3000, foreign20: -9000, trust1: -100, trust5: -500, trust20: -1200, dealer5: -200, foreignStreak: 0, trustStreak: 0 };
