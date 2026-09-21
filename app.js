@@ -808,7 +808,23 @@ async function go(){
 }
 
 document.getElementById('ticker-input').addEventListener('keydown',e=>{if(e.key==='Enter')go();});
-if('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(()=>{});
+/* v143 修「改版後網頁一直是舊的、開無痕才是新版」──
+   舊寫法 register('./sw.js')：sw.js 的內容每版都一樣（版本號是從 config.js 帶入的），
+   瀏覽器比對 sw.js 位元組沒變 → 判定「沒有新版 SW」→ 不重裝 → 繼續用舊快取的
+   config.js/app.js，於是版本號永遠停在舊版；無痕視窗沒有 SW 才會拿到新檔。
+   修法：①註冊網址帶版本（?v=APP_VERSION），版本一變網址就變，瀏覽器必定視為新SW
+        ②updateViaCache:'none'：sw.js 本身與其 importScripts 不吃瀏覽器HTTP快取
+        ③新SW接手後自動重新載入一次（僅限本來就有舊SW的情況，首次安裝不重載） */
+if ('serviceWorker' in navigator) {
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register('./sw.js?v=' + APP_VERSION, { updateViaCache: 'none' })
+    .then(r => { r.update(); }).catch(() => {});
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloaded) return;   // 首次安裝不重載，避免一進站就閃一下
+    reloaded = true; location.reload();
+  });
+}
 
 // ══════════════════════════════════════════════════════════════════════
 // 專屬量化分數渲染
