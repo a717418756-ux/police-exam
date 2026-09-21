@@ -185,9 +185,128 @@ async function browserTests() {
   await b.close(); srv.close();
 }
 
+/* ── 第三部分：後端資料正確性（worker.js 與 Code.gs 都要驗）──────────────
+   這一段全部用合成的 Yahoo/TWSE 回應離線跑，不連外網。
+   每一項都對應一個真實發生過的資料錯誤，改壞了會立刻紅燈。 */
+async function backendTests() {
+  // worker.js：去掉 Cloudflare 入口後載入工具函式
+  let src = fs.readFileSync(path.join(ROOT, 'worker.js'), 'utf8');
+  src = src.slice(0, src.indexOf('export default')) + src.slice(src.indexOf('/* ── 掃描用：單檔K線'));
+  let fetchImpl = async () => { throw new Error('未設定'); };
+  global.fetch = (...a) => fetchImpl(...a);
+  const W = {};
+  new Function('module', src + '\nmodule.yahooChart=yahooChart;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;')(W);
+
+  // Code.gs：補上 GAS 全域物件
+  const pad = n => String(n).padStart(2, '0');
+  let gsFetch = () => ({ getResponseCode: () => 200, getContentText: () => '{}' });
+  global.UrlFetchApp = { fetch: (...a) => gsFetch(...a) };
+  global.PropertiesService = { getUserProperties: () => ({ getProperty: () => null, setProperty: () => {} }) };
+  global.ContentService = { createTextOutput: t => ({ setMimeType: () => t }), MimeType: { JSON: 1 } };
+  global.Utilities = { sleep() {}, formatDate(d, tz, fmt) {
+    const x = new Date(d.getTime() + (tz === 'Asia/Taipei' ? 8 * 3600000 : 0));
+    if (fmt === 'u') return String(x.getUTCDay() === 0 ? 7 : x.getUTCDay());
+    const y = x.getUTCFullYear(), m = pad(x.getUTCMonth() + 1), dd = pad(x.getUTCDate());
+    return fmt === 'yyyy-MM-dd' ? `${y}-${m}-${dd}` : `${y}${m}${dd}`;
+  } };
+  const G = {};
+  new Function('module', fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8') + '\nmodule.fetchYahoo=fetchYahoo;module.fetchYahooTW=fetchYahooTW;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;')(G);
+
+  const DAY = 86400, base = Date.parse('2026-09-14T01:00:00Z') / 1000;
+  const chart = (n, o = {}) => { const ts = [], cl = [], hi = [], lo = [], op = [], vo = [], ac = [];
+    for (let i = 0; i < n; i++) { ts.push(base + i * DAY);
+      const nul = i >= n - (o.trailingNull || 0);
+      cl.push(nul ? null : 100 + i); hi.push(nul ? null : (i === o.nullHighAt ? null : 101 + i));
+      lo.push(nul ? null : 99 + i); op.push(nul ? null : 100 + i); vo.push(nul ? null : 1e6); ac.push(nul ? null : (100 + i) * 0.9); }
+    return { chart: { result: [{ timestamp: ts, meta: { shortName: 'X' }, indicators: { quote: [{ close: cl, high: hi, low: lo, open: op, volume: vo }], adjclose: [{ adjclose: ac }] } }] } }; };
+  const gsOf = o => ({ getResponseCode: () => 200, getContentText: () => JSON.stringify(o) });
+  const ymdOf = t => new Date(t * 1000).toISOString().slice(0, 10).replace(/-/g, '');
+
+  // ① 結尾有 null K棒時，lastDate 必須對齊「最後一根實際採用的K棒」
+  //    （對錯日期會讓新鮮度檢查與盤中丟棄未完成K棒兩道防線一起失準）
+  const want = ymdOf(base + 78 * DAY);
+  fetchImpl = async () => ({ ok: true, json: async () => chart(80, { trailingNull: 1 }) });
+  const wd = await W.yahooChart('2330.TW', '2y', '1d');
+  ok('worker lastDate 對齊最後一根有效K棒', wd.lastDate === want, wd.lastDate);
+  ok('worker 結尾 null 棒已排除', wd.closes.length === 79, String(wd.closes.length));
+  gsFetch = () => gsOf(chart(80, { trailingNull: 1 }));
+  ok('GAS lastDate 對齊最後一根有效K棒', G.fetchYahoo('AAPL').lastDate === want);
+  ok('GAS 台股有回傳 lastDate（新鮮度檢查才有效）', G.fetchYahooTW('2330').lastDate === want);
+
+  // ② high/low 缺值不得變成 NaN（NaN 會直接污染 ATR 與關卡）
+  fetchImpl = async () => ({ ok: true, json: async () => chart(80, { nullHighAt: 40 }) });
+  const wn = await W.yahooChart('2330.TW', '2y', '1d');
+  ok('worker 缺值不產生 NaN', wn.highs.every(Number.isFinite) && wn.rawHighs.every(Number.isFinite));
+  gsFetch = () => gsOf(chart(80, { nullHighAt: 40 }));
+  const gn = G.fetchYahoo('AAPL');
+  ok('GAS 缺值不產生 NaN', gn.highs.every(Number.isFinite) && gn.rawHighs.every(Number.isFinite));
+
+  // ③ period2 不得多抓一天（histuntil 多一天＝前視偏差；range 多一天＝MAE/MFE 算大）
+  const limit = Date.parse('2026-09-30T23:59:59Z') / 1000;
+  let seen = '';
+  fetchImpl = async u => { seen = u; return { ok: true, json: async () => chart(30) }; };
+  await W.fetchHistUntil('2330', '2026-09-30');
+  ok('worker histuntil 無前視偏差', +new URL(seen).searchParams.get('period2') <= limit);
+  await W.fetchRangeOHLC('2330', '2026-09-01', '2026-09-30');
+  ok('worker range 不含出場日次一交易日', +new URL(seen).searchParams.get('period2') <= limit);
+  let gseen = '';
+  gsFetch = u => { gseen = u; return gsOf(chart(30)); };
+  G.fetchHistUntil('2330', '2026-09-30');
+  ok('GAS histuntil 無前視偏差', +new URL(gseen).searchParams.get('period2') <= limit);
+  G.fetchRangeOHLC('2330', '2026-09-01', '2026-09-30');
+  ok('GAS range 不含出場日次一交易日', +new URL(gseen).searchParams.get('period2') <= limit);
+
+  // ④ 上櫃（.TWO）標的的日誌 MAE/MFE 不能一律失敗
+  let tried = [];
+  fetchImpl = async u => { tried.push(u); return u.includes('.TWO') ? { ok: true, json: async () => chart(30) } : { ok: true, json: async () => ({ chart: { result: [] } }) }; };
+  let rr = null; try { rr = await W.fetchRangeOHLC('6488', '2026-09-01', '2026-09-30'); } catch (e) {}
+  ok('worker 上櫃會退而試 .TWO', !!rr && tried.some(u => u.includes('.TWO')));
+  let gtried = [];
+  gsFetch = u => { gtried.push(u); return gsOf(u.includes('.TWO') ? chart(30) : { chart: { result: [] } }); };
+  let gr = null; try { gr = G.fetchRangeOHLC('6488', '2026-09-01', '2026-09-30'); } catch (e) {}
+  ok('GAS 上櫃會退而試 .TWO', !!gr && gtried.some(u => u.includes('.TWO')));
+
+  // ⑤ MAE/MFE 三組陣列必須對齊同一根K棒
+  gsFetch = () => gsOf(chart(30, { nullHighAt: 10 }));
+  const gra = G.fetchRangeOHLC('2330', '2026-09-01', '2026-09-30');
+  ok('GAS 區間高低與收盤同一根K棒', Number.isFinite(gra.rangeHigh) && Number.isFinite(gra.rangeLow) && Number.isFinite(gra.lastClose));
+
+  // ⑥ 籌碼：國定假日不可算成「抓取失敗」，但真失敗必須示警
+  const T86 = { stat: 'OK', fields: ['證券代號', '證券名稱', '外資及陸資買賣超股數', '投信買賣超股數', '自營商買賣超股數'], data: [['2330', '台積電', '1,000,000', '500,000', '100,000']] };
+  const HOL = { stat: '很抱歉，沒有符合條件的資料!' };
+  const dOf = u => new URL(u).searchParams.get('date');
+  let asked = [];
+  fetchImpl = async u => { asked.push(dOf(u)); return { ok: true, json: async () => T86 }; };
+  await W.fetchTaiwanChip('2330');
+  const newest = asked.sort().slice(-1)[0];
+  fetchImpl = async u => ({ ok: true, json: async () => (dOf(u) === newest ? HOL : T86) });
+  const ch = await W.fetchTaiwanChip('2330');
+  ok('worker 假日不算籌碼缺漏', ch.headMiss === 0, `headMiss=${ch.headMiss}`);
+  ok('worker 假日時 expected 往前推', ch.expected === ch.dataDate, `${ch.expected}/${ch.dataDate}`);
+  fetchImpl = async u => (dOf(u) === newest ? { ok: false, status: 500 } : { ok: true, json: async () => T86 });
+  const ch2 = await W.fetchTaiwanChip('2330');
+  ok('worker 真失敗仍算籌碼缺漏', ch2.headMiss > 0 && (ch2.missDates || []).includes(newest));
+  let gAsked = [];
+  gsFetch = u => { gAsked.push(dOf(u)); return gsOf(T86); };
+  G.fetchTaiwanChip('2330');
+  const gNewest = gAsked.sort().slice(-1)[0];
+  gsFetch = u => gsOf(dOf(u) === gNewest ? HOL : T86);
+  const gch = G.fetchTaiwanChip('2330');
+  ok('GAS 有回傳 expected／headMiss（過時警示才會動）', typeof gch.expected === 'string' && typeof gch.headMiss === 'number');
+  ok('GAS 假日不算籌碼缺漏', gch.headMiss === 0 && gch.expected === gch.dataDate);
+  gsFetch = u => { if (dOf(u) === gNewest) throw new Error('連線失敗'); return gsOf(T86); };
+  ok('GAS 真失敗仍算籌碼缺漏', G.fetchTaiwanChip('2330').headMiss > 0);
+
+  // ⑦ 前端判定：假日不得誤報、真失敗必須示警
+  const unrel = c => (c.headMiss > 0) || (c.expected && String(c.dataDate || '') < String(c.expected));
+  ok('前端不會對假日誤報籌碼不完整', !unrel(ch) && !unrel(gch));
+  ok('前端仍會對真失敗示警', unrel(ch2));
+}
+
 (async () => {
   console.log('═══ StockRadar 自我檢查 ═══');
   logicTests();
+  await backendTests();
   if (!LOGIC_ONLY) await browserTests();
   console.log(`\n通過 ${pass} 項｜失敗 ${fail} 項`);
   if (fails.length) { console.log('\n❌ 失敗項目：'); fails.forEach(f => console.log('  - ' + f)); }
