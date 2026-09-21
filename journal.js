@@ -715,7 +715,7 @@ async function exportMarkdown() {
 async function exportLocalFile() {
   const msg = $('settings-msg');
   try {
-    const backup = await exportBackup();
+    const backup = await exportBackup(true);   // v146：本地檔可含 token（檔案留在自己裝置）
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

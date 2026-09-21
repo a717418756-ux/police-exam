@@ -496,6 +496,7 @@
           <button onclick="exportLocalFile()" class="btn-block" style="background:var(--buy);color:#001812">⬇️ 匯出 JSON 備份</button>
           <button onclick="triggerImport()" class="btn-block" style="background:var(--bg);border:1px solid var(--acc);color:var(--acc)">⬆️ 匯入 JSON</button>
         </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:6px">備份內容：交易紀錄＋資金／風險％／勝率＋查詢與備份網址＋FinMind token。<b>本地檔案含 token，請勿外流</b>；雲端備份不含 token（金鑰不自動上傳）。</div>
         <button onclick="exportMarkdown()" class="btn-block" style="background:linear-gradient(135deg,#F0B429,#FF4D6D)">📊 匯出 Markdown 分析檔（給 AI 回測）</button>
         <input id="import-file" type="file" accept=".json" style="display:none" onchange="importLocalFile(this)">
       </div>

@@ -203,17 +203,26 @@ function computeAdvancedStats(trades) {
     byDirection: byDir, byCode: byCodeStats
   });
 }
-async function exportBackup() {
+/* v146：備份原本只含資金/風險%/勝率，換機或清資料後還要自己重填查詢網址、
+   備份網址、FinMind token。現改為一併收錄：
+     • 兩個網址：本地匯出與雲端備份都帶（換裝置直接可用）
+     • FinMind token：只有「本地匯出的檔案」才帶（includeSecrets=true），
+       雲端備份不帶——金鑰不該自動上傳到雲端備份，且雲端還原時本來就在原機。 */
+async function exportBackup(includeSecrets) {
   const trades = await dbGetAllTrades();
   const settings = {
     capital:  await dbGetSetting('capital'),
     risk:     await dbGetSetting('risk'),
-    winrate:  await dbGetSetting('winrate')
+    winrate:  await dbGetSetting('winrate'),
+    gasUrl:   await dbGetSetting('gasUrl'),
+    syncUrl:  await dbGetSetting('syncUrl'),
   };
+  if (includeSecrets) settings.finmindToken = await dbGetSetting('finmindToken');
   return {
     app: 'StockRadarPro',
     version: APP_VERSION,
     exportedAt: new Date().toISOString(),
+    note: includeSecrets ? '本檔含後端網址與 FinMind token，請勿外流或上傳到公開空間' : '本檔含後端網址，不含 FinMind token',
     trades,
     settings
   };
@@ -225,6 +234,10 @@ async function importBackup(obj) {
     if (obj.settings.capital != null) await dbSetSetting('capital', obj.settings.capital);
     if (obj.settings.risk    != null) await dbSetSetting('risk',    obj.settings.risk);
     if (obj.settings.winrate != null) await dbSetSetting('winrate', obj.settings.winrate);
+    /* v146：還原網址與 token，並同步更新記憶體中的全域變數，免得還原完還要重新載入 */
+    if (obj.settings.gasUrl) { await dbSetSetting('gasUrl', obj.settings.gasUrl); try { GAS_URL = obj.settings.gasUrl; } catch (e) {} }
+    if (obj.settings.syncUrl) { await dbSetSetting('syncUrl', obj.settings.syncUrl); try { SYNC_URL = obj.settings.syncUrl; } catch (e) {} }
+    if (obj.settings.finmindToken) { await dbSetSetting('finmindToken', obj.settings.finmindToken); try { FINMIND_TOKEN = obj.settings.finmindToken; } catch (e) {} }
   }
   if (Array.isArray(obj.trades)) {
     for (const t of obj.trades) await dbAddTrade(t);
