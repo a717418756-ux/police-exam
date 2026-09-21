@@ -305,7 +305,7 @@ button:active,.chip:active,.cat-tab:active,.modal-tab:active,.tab-btn:active{tra
 /* ── 2. App Bar ── */
 header{
   padding-top:calc(12px + env(safe-area-inset-top));
-  background:rgba(12,18,32,.82);
+  background:rgba(12,18,32,.94);
   -webkit-backdrop-filter:saturate(180%) blur(18px);backdrop-filter:saturate(180%) blur(18px);
 }
 .hdr-actions{display:flex;align-items:center;gap:8px}
@@ -321,14 +321,14 @@ header{
 #tab-panes{scroll-margin-top:72px}            /* 捲動時預留吸頂 App Bar 高度 */
 @media(min-width:769px){.tab-bar{top:calc(58px + env(safe-area-inset-top))}}
 
-@media(max-width:768px){
+@media(max-width:768px),(pointer:coarse) and (max-width:1024px){
   /* 底部分頁列：7 個等寬欄位，在 360px 寬仍排得下 */
   .tab-bar{
     position:fixed;top:auto;bottom:0;left:0;right:0;z-index:150;
     display:grid;grid-template-columns:repeat(7,1fr);gap:0;overflow:visible;
     margin:0;padding:5px 2px calc(5px + env(safe-area-inset-bottom));
     border-top:1px solid var(--bd);
-    background:rgba(12,18,32,.9);
+    background:rgba(12,18,32,.95);
     -webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);
   }
   .tab-btn{
@@ -377,7 +377,7 @@ header{
 }
 
 /* ── 6. 手機版頭部與設定列緊湊化（v148 放大字體後頭部被擠成三行）── */
-@media(max-width:768px){
+@media(max-width:768px),(pointer:coarse) and (max-width:1024px){
   header{flex-wrap:wrap;row-gap:8px;padding-left:14px;padding-right:14px}
   header .hdr-actions{display:contents}   /* 讓 pill 與動作鈕直接受 header 的 flex 排版 */
   .logo{flex:1;min-width:0}
@@ -385,7 +385,7 @@ header{
   .logo-sub{display:none}                 /* 副標在手機只是裝飾，讓標題單行 */
   #time-pill{order:3;flex-basis:100%;text-align:center;padding:5px 8px}
 }
-@media(max-width:480px){
+@media(max-width:480px),(pointer:coarse) and (max-width:1024px){
   /* 資金／風險／勝率：改成 iOS 設定頁那種「左標題右數值」分組清單，
      取代三個各佔一整列的大方塊（原本要多捲 200px 才看得到股價） */
   .settings-row{grid-template-columns:1fr;gap:0;background:var(--bg);border:1px solid var(--bd);border-radius:10px;overflow:hidden}
@@ -403,9 +403,40 @@ header{
    輸入框在 flex 容器內預設不可縮小（min-width:auto），會撐破卡片右緣，
    數值被 .settings-row 的 overflow:hidden 切掉（如「1000000」只剩一半）。 */
 #ticker-input{min-width:0}
-@media(max-width:480px){
+@media(max-width:480px),(pointer:coarse) and (max-width:1024px){
   .set-label{flex:0 0 auto}
   .set-field input{flex:1;min-width:0;max-width:none}
   /* 股價列的六個欄位改三欄對齊，不再長短不一換行 */
   .sb-meta{display:grid;grid-template-columns:repeat(3,1fr);gap:10px 8px}
 }
+
+/* ══════════════════════════════════════════════════════════════════
+   v151 操作手感
+   ⚠️ 地雷：手機瀏覽器的「電腦版網站」會把版面視窗鎖成 980px，
+      viewport meta 完全失效，於是手機上跑出桌機版面＋極小字。
+      上方行動版斷點因此加了 (pointer:coarse) and (max-width:1024px)：
+      觸控裝置即使被鎖成 980px，仍走 App 版面。根治仍須關閉該設定。
+   ══════════════════════════════════════════════════════════════════ */
+
+/* 捲動後標題列縮合，永遠看得到自己在看哪一檔、現在多少錢 */
+#hdr-sum{display:none;align-items:baseline;gap:8px;font-family:var(--mono);min-width:0}
+header.compact #hdr-sum{display:flex}
+/* 桌機空間夠，摘要排在標題旁邊；手機才把標題讓出來 */
+@media(max-width:768px),(pointer:coarse) and (max-width:1024px){
+  header.compact .logo-name{display:none}
+}
+.hs-code{font-size:14px;font-weight:700;color:var(--txt)}
+.hs-price{font-size:15px;font-weight:700}
+.hs-chg{font-size:11.5px;padding:1px 6px;border-radius:5px}
+
+/* 最近查過的代碼：一鍵回到剛才在看的標的 */
+#recent-chips{margin-top:12px}
+.chips-lbl{font-size:11px;color:var(--muted);align-self:center;margin-right:2px}
+.chip-recent{border-color:var(--bd2);color:var(--txt)}
+
+/* 「電腦版網站」提示條 */
+#dm-warn{margin:0;padding:10px 14px;background:var(--warn-d);border-bottom:1px solid var(--warn);
+  font-size:13px;line-height:1.6;color:var(--txt);display:flex;gap:10px;align-items:flex-start}
+#dm-warn b{color:var(--warn)}
+#dm-warn button{flex-shrink:0;background:transparent;border:1px solid var(--warn);color:var(--warn);
+  border-radius:7px;padding:4px 10px;font-size:12px;cursor:pointer}

@@ -84,6 +84,7 @@ function buildLayout() {
 }
 
 function switchTab(id) {
+  if (id !== _activeTab) { try { navigator.vibrate && navigator.vibrate(8); } catch (e) {} }  // 輕觸回饋（iOS 會忽略）
   _activeTab = id;
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.id === 'btn-' + id));
   document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === 'pane-' + id));
@@ -109,6 +110,90 @@ function updateTabBadges() {
 
 function applyLayout() {
   try { buildLayout(); } catch (e) { console.warn('layout 失敗', e); }
+  try { initSwipe(); } catch (e) {}
+  try { onAnalysed(window._lastD); } catch (e) {}
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   v151 操作手感（純顯示層，不碰任何分析邏輯）
+   ① 標題列縮合：捲動後把代碼／股價帶到頂部，長頁面也知道在看哪一檔
+   ② 左右滑動切分頁：配合底部導覽列，手指不必回到底部
+   ③ 最近查過的代碼：取代只會固定顯示台積電的範例鈕
+   ⚠️ 地雷：滑動事件掛在 #tab-panes，起點若落在輸入框或可橫捲的元素
+      （分類膠囊列）必須放行，否則會搶掉那些元件自己的手勢
+   ══════════════════════════════════════════════════════════════════════ */
+const esc = s => String(s == null ? '' : s).replace(/[<>"'&]/g, '');
+
+function onAnalysed(D) {
+  if (!D || !D.code) return;
+  // ① 標題列摘要
+  const logo = document.querySelector('header .logo');
+  if (logo) {
+    let el = document.getElementById('hdr-sum');
+    if (!el) { el = document.createElement('div'); el.id = 'hdr-sum'; logo.appendChild(el); }
+    const chg = D.price - D.prevClose, p = D.prevClose ? chg / D.prevClose * 100 : 0;
+    el.innerHTML = `<span class="hs-code">${esc(D.code)}</span>`
+      + `<span class="hs-price">${Number(D.price).toFixed(2)}</span>`
+      + `<span class="hs-chg ${chg >= 0 ? 'up' : 'dn'}">${chg >= 0 ? '+' : ''}${p.toFixed(2)}%</span>`;
+  }
+  // ③ 最近清單
+  let a = [];
+  try { a = JSON.parse(localStorage.getItem('sr_recent') || '[]'); } catch (e) {}
+  if (!a.length || a[0].c !== D.code) {
+    a = a.filter(x => x && x.c !== D.code);
+    a.unshift({ c: D.code, n: String(D.name || '').slice(0, 6) });
+    a = a.slice(0, 6);
+    try { localStorage.setItem('sr_recent', JSON.stringify(a)); } catch (e) {}
+  }
+  renderRecent(a);
+}
+
+function renderRecent(a) {
+  if (!a) { try { a = JSON.parse(localStorage.getItem('sr_recent') || '[]'); } catch (e) { a = []; } }
+  const chips = document.querySelector('main .chips');
+  if (!a.length || !chips) return;
+  let box = document.getElementById('recent-chips');
+  if (!box) { box = document.createElement('div'); box.id = 'recent-chips'; box.className = 'chips'; chips.parentElement.insertBefore(box, chips); }
+  box.innerHTML = '<span class="chips-lbl">最近</span>'
+    + a.map(x => `<span class="chip chip-recent" onclick="qs('${esc(x.c)}')">${x.n ? esc(x.n) + ' ' : ''}${esc(x.c)}</span>`).join('');
+}
+
+function initSwipe() {
+  const panes = document.getElementById('tab-panes');
+  if (!panes || panes._swipe) return;
+  panes._swipe = 1;
+  let x0 = 0, y0 = 0, t0 = 0, live = false;
+  panes.addEventListener('touchstart', e => {
+    const t = e.touches[0];
+    live = !e.target.closest('input,textarea,select,.cat-tabs,.tab-bar,details');
+    x0 = t.clientX; y0 = t.clientY; t0 = Date.now();
+  }, { passive: true });
+  panes.addEventListener('touchend', e => {
+    if (!live) return;
+    const t = e.changedTouches[0], dx = t.clientX - x0, dy = t.clientY - y0;
+    if (Date.now() - t0 > 600 || Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 2) return;
+    const i = TABS.findIndex(z => z.id === _activeTab), j = i + (dx < 0 ? 1 : -1);
+    if (i < 0 || j < 0 || j >= TABS.length) return;
+    switchTab(TABS[j].id);
+  }, { passive: true });
+}
+
+/* 手機瀏覽器開了「電腦版網站」時，版面視窗被鎖成 980px、viewport meta 失效，
+   字會被縮到看不清楚。純 CSS 無法還原，只能明確告訴使用者關哪個開關。
+   判定：觸控裝置 ＋ 視窗寬 900~1100（桌機模式固定 980）＋ 像素比偏低。 */
+function checkDesktopMode() {
+  try {
+    if (!matchMedia('(pointer:coarse)').matches) return;
+    if (innerWidth < 900 || innerWidth > 1100 || devicePixelRatio >= 1.6) return;
+    if (localStorage.getItem('sr_dm_hide') === '1') return;
+    const d = document.createElement('div');
+    d.id = 'dm-warn';
+    d.innerHTML = '<div>⚠️ 偵測到瀏覽器的 <b>「電腦版網站」</b> 模式（版面被鎖成 980px），'
+      + '所以字會縮得很小。關法：瀏覽器選單 ⋮ → 取消勾選「電腦版網站」；'
+      + '若是桌面上的 App 圖示，需先移除圖示，關掉這個設定後再重新安裝一次。</div>'
+      + '<button onclick="this.parentElement.remove();try{localStorage.setItem(\'sr_dm_hide\',\'1\')}catch(e){}">知道了</button>';
+    document.getElementById('app').insertBefore(d, document.querySelector('main'));
+  } catch (e) {}
 }
 
 /* ══ UX 強化：墨水屏模式 / 卡片折疊 / 回頂（純顯示層，不碰邏輯）══ */
@@ -129,6 +214,17 @@ function applyLayout() {
           try { localStorage.setItem('sr_collapsed', JSON.stringify(saved)); } catch (e) {}
         });
       });
+    } catch (e) {}
+
+    try { checkDesktopMode(); } catch (e) {}
+    try { renderRecent(); } catch (e) {}
+
+    // 標題列縮合（有查過股票才有摘要可顯示）
+    try {
+      const hd = document.querySelector('header');
+      window.addEventListener('scroll', () => {
+        hd.classList.toggle('compact', window.scrollY > 150 && !!document.getElementById('hdr-sum'));
+      }, { passive: true });
     } catch (e) {}
 
     // 回頂按鈕
