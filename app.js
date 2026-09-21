@@ -815,6 +815,31 @@ document.getElementById('ticker-input').addEventListener('keydown',e=>{if(e.key=
    修法：①註冊網址帶版本（?v=APP_VERSION），版本一變網址就變，瀏覽器必定視為新SW
         ②updateViaCache:'none'：sw.js 本身與其 importScripts 不吃瀏覽器HTTP快取
         ③新SW接手後自動重新載入一次（僅限本來就有舊SW的情況，首次安裝不重載） */
+/* v145 載入完整性檢查：部署漏檔或某個 .js 沒載到時，症狀是「按某個按鈕才發現功能不存在」
+   （使用者實例：匯入備份時出現 importBackup is not defined ＝ db.js 沒載進來）。
+   這裡在啟動時直接點名缺哪個檔，並在畫面頂端紅字提示，不必等踩到才知道。 */
+const FILE_CHECK = {
+  'config.js': ['twMarketPhase'], 'help.js': ['showHelp'], 'db.js': ['dbAddTrade', 'importBackup', 'exportBackup'],
+  'market.js': ['fetchMarket'], 'quant.js': ['computeProprietaryScore', 'backtestWeights'], 'formula.js': ['calcSTI'],
+  'enhance.js': ['computeRegime', 'computeChipHealth'], 'advanced.js': ['computeProbLogLoss'], 'smc.js': ['computeVWAP'],
+  'mainforce.js': ['computeMainForce', 'computeSmartStop'], 'mtf.js': ['computeMTF'], 'resonance.js': ['computeResonance'],
+  'bingfa.js': ['renderTradeGate', 'renderVerdictBanner'], 'layout.js': ['switchTab'], 'journal.js': ['refreshJournal', 'importLocalFile'],
+  'scan.js': ['runScanAuto'],
+};
+function checkFilesLoaded() {
+  const missing = [];
+  for (const [file, fns] of Object.entries(FILE_CHECK))
+    if (fns.some(fn => typeof window[fn] !== 'function')) missing.push(file);
+  if (!missing.length) return true;
+  const bar = document.createElement('div');
+  bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:999;background:#7F1D1D;color:#fff;padding:10px 12px;font-size:12px;line-height:1.6';
+  bar.innerHTML = `⚠️ 程式檔未完整載入：<b>${missing.join('、')}</b>（部分功能會失效）<br>請到 📒 → ⚙️ 設定 → 「🔄 清除快取並重新載入」；若仍相同，代表主機上缺少這些檔案，請重新部署。`;
+  document.body.appendChild(bar);
+  try { ErrorLog.push('checkFilesLoaded', new Error('缺少：' + missing.join(','))); } catch (e) {}
+  return false;
+}
+window.addEventListener('load', () => { try { checkFilesLoaded(); } catch (e) {} });
+
 /* v144 強制更新：手機上舊 Service Worker 會一直餵舊檔，使用者只清「快取」沒用
    （Service Worker 與 Cache Storage 屬「網站資料」）。此按鈕直接註銷＋清快取＋重載。 */
 async function forceUpdateApp() {
