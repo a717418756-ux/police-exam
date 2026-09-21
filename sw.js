@@ -1,56 +1,147 @@
-/* ══════════════════════════════════════════════════════════════════════
-   sw.js — Service Worker
-   ★ 版本號從 config.js 的 APP_VERSION 自動帶入（importScripts）
-     改版只需改 config.js 一個地方，這裡會自動破舊快取
-   ──────────────────────────────────────────────────────────────────
-   ⚠️ 已知地雷／注意事項：
-     - API網域必須列在快取排除清單，否則Service Worker會把股票資料
-       當靜態資源快取住，導致使用者永遠看到查詢當下那一刻的舊資料
-       （曾發生：.workers.dev、finmindtrade.com「先前遺漏」造成資料
-       不更新的bug，已修復並在程式內註解標註）
-     - 新增任何後端資料來源網域（例如未來加TWSE直連），務必同步把
-       該網域加進此檔的排除清單，這是交付前檢查清單項目之一
-     - v99雷：SW排除清單完整仍可能資料不更新——真兇是「瀏覽器HTTP快取」
-       （後端回應無no-store標頭時，手機瀏覽器以完整網址為key擅自快取GET，
-       重新整理殺不死；換FinMind token=網址變了才被迫抓新，即此症狀）。
-       已修：前端fetchT預設cache:'no-store'＋worker.js回應標頭Cache-Control:
-       no-store。快取問題三層排查順序：SW排除清單→瀏覽器HTTP快取→CDN邊緣
-   ══════════════════════════════════════════════════════════════════════ */
-importScripts('./config.js');
+/* ══════════════════════════════════════════════════════════════
+   sw.js — Y.C. 多功能專用平台
+   ★ 每次更新程式只需修改 APP_VERSION
+   ★ v2.8.0 更新策略：
+     - 新 SW 安裝後進入 waiting，不再強制 skipWaiting
+     - 由 app.js 顯示「發現新版本」橫幅，使用者點擊後才接管+reload
+     - 從此部署後不需手動清快取
+   ══════════════════════════════════════════════════════════════ */
 
-const CACHE = 'stock-radar-v' + APP_VERSION;   // 隨 APP_VERSION 自動變動
-const ASSETS = [
-  './index.html', './styles.css',
-  './config.js', './help.js', './db.js', './quant.js', './formula.js', './enhance.js', './advanced.js', './smc.js', './mainforce.js', './mtf.js', './resonance.js', './bingfa.js', './layout.js', './market.js', './journal.js', './scan.js', './app.js',
-  './manifest.json'
+const APP_VERSION = '4.18.2';
+const CACHE_NAME  = `yc-cache-${APP_VERSION}`;
+
+// ── 核心本地資源（必須快取成功，任一失敗 SW 安裝即失敗重試）──
+const CORE_ASSETS = [
+  './index.html',
+  './manifest.json',
+  './css/base.css',
+  './css/books.css',
+  './css/media.css',
+  './css/quiz.css',
+  './css/eink.css',
+  './css/splash.css',
+  './css/english.css',
+  './css/fitness.css',
+  './js/db.js',
+  './js/books.js',
+  './js/media.js',
+  './js/utils.js',
+  './js/quiz.js',
+  './js/data.js',
+  './js/english.js',
+  './js/fitness.js',
+  './js/dtask.js',
+  './js/plan.js',
+  './js/milestone.js',
+  './js/stats.js',
+  './js/settings.js',
+  './js/countdown.js',
+  './js/app.js',
+  './js/layout.js',
+  './js/tts.js',
 ];
 
+// ── 可選資源（快取失敗不影響 SW 安裝）──────────────────────
+const OPTIONAL_ASSETS = [
+  './icons/splash-logo.png',
+  './icons/vinyl-record.png',
+  './icons/tonearm.png',
+  './icons/icon-192.png',
+  './icons/icon-512.png',
+  './splash-logo-icon.png',
+  'https://cdnjs.cloudflare.com/ajax/libs/dexie/4.0.8/dexie.min.js',
+  'https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;500;700&family=Dancing+Script:wght@600;700&family=Cormorant+Garamond:ital,wght@1,400;1,500&display=swap',
+  './js/jszip.min.js',
+  './js/epub.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js',
+];
+
+/* ── 安裝：預快取核心資源 ── */
+/* v3.2.7 限定：因前幾版快取卡住，本次啟用 skipWaiting 強制更新，
+   讓使用者重開即生效，不需手動點更新橫幅。下版可視情況改回 waiting。 */
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
-  self.skipWaiting();
+  e.waitUntil(
+    caches.open(CACHE_NAME).then(cache => {
+      const corePromise = cache.addAll(CORE_ASSETS);
+      const optionalPromise = Promise.allSettled(
+        OPTIONAL_ASSETS.map(url => cache.add(url).catch(() => {}))
+      );
+      return Promise.all([corePromise, optionalPromise]);
+    })
+    // ★ 不在這裡呼叫 skipWaiting()：原本一裝好就強制接管，新版會在使用者
+    //   還沒看到「立即更新」橫幅前就自己生效，那顆按鈕形同虛設，
+    //   而且可能在作答或編輯到一半時抽換資源。
+    //   改為停在 waiting 狀態，等使用者按下更新（收到 SKIP_WAITING）才接管。
+  );
 });
 
+/* ── 啟動：清舊快取，接管所有頁面 ── */
 self.addEventListener('activate', e => {
-  e.waitUntil(caches.keys().then(keys =>
-    Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
-  ));
-  self.clients.claim();
+  e.waitUntil(
+    caches.keys()
+      .then(keys => Promise.all(
+        keys
+          .filter(k => k.startsWith('yc-cache-') && k !== CACHE_NAME)
+          .map(k => caches.delete(k))
+      ))
+      .then(() => self.clients.claim())
+  );
 });
 
+/* ── 攔截請求 ── */
 self.addEventListener('fetch', e => {
-  const u = e.request.url;
-  // 動態資料一律走網路，不快取（否則查詢結果會被瀏覽器當成靜態資源鎖死，永遠拿到舊資料）
-  // 這行清單必須涵蓋所有可能的查詢後端網域，遺漏任何一個都會導致該來源的資料被誤快取
-  if (
-    e.request.method !== 'GET' ||                    // 非GET一律不碰（POST如雲端備份）
-    u.includes('script.google.com') ||                // GAS 備份/查詢後端
-    u.includes('googleusercontent') ||
-    u.includes('.workers.dev') ||                      // Cloudflare Workers 查詢後端（先前遺漏，是舊資料的主因）
-    u.includes('anthropic') ||
-    u.includes('yahoo') ||                              // Yahoo Finance K線
-    u.includes('twse') || u.includes('tpex') ||        // 證交所/櫃買中心
-    u.includes('taifex') ||                             // 期交所
-    u.includes('finmindtrade.com')                     // FinMind 主力縱深（先前遺漏）
-  ) return;
-  e.respondWith(caches.match(e.request).then(c => c || fetch(e.request)));
+  if (e.request.method !== 'GET') return;
+  const url = e.request.url;
+  if (!url.startsWith('http')) return;
+
+  // 頁面導覽（index.html）→ Network First，並更新快取副本
+  if (e.request.mode === 'navigate') {
+    // 網路優先 + 逾時保底：
+    //   網路正常 → 跟原本一樣拿最新版（更新機制不變）
+    //   網路慢   → 2.5 秒內改用快取直接開，避免長時間白畫面；
+    //              背景的 fetch 仍會完成並更新快取，下次開啟就是新版
+    //   離線     → fetch 立即失敗 → 用快取
+    const fetchPromise = fetch(e.request).then(res => {
+      if (res && res.status === 200) {
+        const clone = res.clone();
+        caches.open(CACHE_NAME).then(c => c.put('./index.html', clone));
+      }
+      return res;
+    });
+    e.respondWith((async () => {
+      try {
+        return await Promise.race([
+          fetchPromise,
+          new Promise((_, rej) => setTimeout(rej, 2500, 'timeout'))
+        ]);
+      } catch (err) {
+        return (await caches.match('./index.html')) || fetchPromise;
+      }
+    })());
+    return;
+  }
+
+  // 其他資源：Cache First（有快取直接用，沒有才去網路並存快取）
+  e.respondWith(
+    caches.match(e.request).then(cached => {
+      if (cached) return cached;
+      return fetch(e.request).then(res => {
+        if (!res || res.status !== 200 || res.type === 'opaque') return res;
+        const clone = res.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(e.request, clone));
+        return res;
+      }).catch(() => {
+        if (e.request.destination === 'document') {
+          return caches.match('./index.html');
+        }
+      });
+    })
+  );
+});
+
+/* ── 接收主頁面訊息（使用者確認更新）── */
+self.addEventListener('message', e => {
+  if (e.data && e.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });

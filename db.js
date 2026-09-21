@@ -1,297 +1,376 @@
-/* ══════════════════════════════════════════════════════════════════════
-   db.js — 本地 IndexedDB 儲存 + GAS 雲端雙向同步
-   依賴：config.js（APP_VERSION）
-   schema 改變時，DB_VERSION 會跟著 APP_VERSION 自動升（無需手改）
-   ──────────────────────────────────────────────────────────────────
-   函式清單：
-     openDB                    — 開啟/建立IndexedDB連線
-     dbSetSetting/dbGetSetting  — 設定值存取
-     dbAddTrade/dbDeleteTrade/dbGetAllTrades — 交易日誌CRUD
-     computeStats                — 基礎統計（勝率/期望值，供凱利公式）
-     computeAdvancedStats        — 進階統計（Wilson信賴區間/處分效應等）
-     exportBackup/importBackup    — 全量備份匯出入（跨裝置搬家用）
-   ⚠️ 已知地雷／注意事項：
-     - computeStats只用真實單（trade.sim=false）算勝率，模擬單刻意排除，
-       避免污染凱利公式回填的真實勝率——這是「AI協作交接提示詞.md」裡
-       明訂的資料流鐵律，勿改成把模擬單也納入統計
-     - DB_VERSION隨APP_VERSION自動升級會觸發IndexedDB的onupgradeneeded，
-       若新增object store或索引，須在openDB內對應版本號區塊寫遷移邏輯，
-       否則舊資料庫的使用者升級後可能讀不到新欄位
-   ══════════════════════════════════════════════════════════════════════ */
+// ══ db.js — Dexie 資料層 ═══════════════════════════════════════
+//
+// 外部 API（dg/da/dp/dd/dc/bulkPut/getSetting/setSetting/
+//           getCountdowns/saveCountdowns）呼叫端 6 個 JS 零修改。
+// ═══════════════════════════════════════════════════════════════
 
-const DB_NAME = 'stockRadarDB';
-// DB schema 版本獨立管理（schema 沒變就不用動；這裡固定 1）
-const DB_SCHEMA_VERSION = 1;
-let _db = null;
+const DB_NAME = 'Y.C. All-in-one';
 
-/* ── 開啟資料庫 ──────────────────────────────────────────────────────── */
-function openDB() {
-  return new Promise((resolve, reject) => {
-    if (_db) return resolve(_db);
-    const req = indexedDB.open(DB_NAME, DB_SCHEMA_VERSION);
-    req.onupgradeneeded = e => {
-      const db = e.target.result;
-      if (!db.objectStoreNames.contains('settings')) db.createObjectStore('settings', { keyPath: 'key' });
-      if (!db.objectStoreNames.contains('trades'))   db.createObjectStore('trades',   { keyPath: 'id' });
-    };
-    req.onsuccess = e => { _db = e.target.result; resolve(_db); };
-    req.onerror   = e => reject(e.target.error);
+const _db = new Dexie(DB_NAME);
+
+// version(1)：原始 schema（不動）
+_db.version(1).stores({
+  questions: '++id, subject, createdAt, nextReview, reviewLevel, difficultyScore, type, starred',
+  laws:      '++id, lawName, category, articleNumber',
+  attempts:  '++id, qid, date, responseTime',
+  settings:  'key',
+  countdowns:'++id'
+});
+
+// version(2)：新增學習區/休閒區 store
+_db.version(2).stores({
+  questions:  '++id, subject, createdAt, nextReview, reviewLevel, difficultyScore, type, starred',
+  laws:       '++id, lawName, category, articleNumber',
+  attempts:   '++id, qid, date, responseTime',
+  settings:   'key',
+  countdowns: '++id',
+  // ── 學習區 ──────────────────────────────────────────────
+  // 參考書/教材（PDF/epub，Blob 儲存）
+  refbooks:   '++id, title, category, fileType, lastRead, createdAt',
+  // 學習媒體（影片 or 音檔，二選一，Blob 儲存）
+  learnmedia: '++id, title, mediaType, subject, lastPlay, createdAt',
+  // ── 休閒區 ──────────────────────────────────────────────
+  // 電子書（PDF/epub，Blob 儲存）
+  ebooks:     '++id, title, category, fileType, lastRead, createdAt',
+  // 休閒媒體（影片/音樂，Blob 儲存）
+  leisuremedia:'++id, title, mediaType, lastPlay, createdAt',
+  // ── 共用：使用時間記錄 ───────────────────────────────────
+  // key = 'YYYY-MM-DD:zone'，value 累積秒數
+  usageLogs:  '++id, [date+zone], date, zone'
+});
+
+// version(3)：ebooks/leisuremedia 補充索引，新增 favorites store
+_db.version(3).stores({
+  questions:   '++id, subject, createdAt, nextReview, reviewLevel, difficultyScore, type, starred',
+  laws:        '++id, lawName, category, articleNumber',
+  attempts:    '++id, qid, date, responseTime',
+  settings:    'key',
+  countdowns:  '++id',
+  refbooks:    '++id, title, category, fileType, lastRead, createdAt',
+  learnmedia:  '++id, title, mediaType, subject, lastPlay, createdAt',
+  // ebooks：補充 author、tags 索引（搜尋用）
+  ebooks:      '++id, title, author, category, fileType, lastRead, createdAt, favorite',
+  // leisuremedia：補充 type、tags 索引（影片/音頻篩選用）
+  leisuremedia:'++id, title, type, category, lastPlay, createdAt, favorite',
+  usageLogs:   '++id, [date+zone], date, zone'
+});
+
+// version(4)：英語學習庫
+_db.version(4).stores({
+  questions:   '++id, subject, createdAt, nextReview, reviewLevel, difficultyScore, type, starred',
+  laws:        '++id, lawName, category, articleNumber',
+  attempts:    '++id, qid, date, responseTime',
+  settings:    'key',
+  countdowns:  '++id',
+  refbooks:    '++id, title, category, fileType, lastRead, createdAt',
+  learnmedia:  '++id, title, mediaType, subject, lastPlay, createdAt',
+  ebooks:      '++id, title, author, category, fileType, lastRead, createdAt, favorite',
+  leisuremedia:'++id, title, type, category, lastPlay, createdAt, favorite',
+  usageLogs:   '++id, [date+zone], date, zone',
+  // 英語材料：標題、來源類型(text/pdf/ocr)、句子陣列(JSON)、建立時間
+  englishMaterials: '++id, title, sourceType, createdAt, lastRead, favorite',
+  // 單字本：單字、所屬材料、遺忘曲線欄位（第二階段用，先建表）
+  englishVocab:     '++id, word, materialId, reviewLevel, nextReview, createdAt'
+});
+
+// version(5)：運動健康庫（healthLogs 以日期字串為主鍵，每日一筆）
+_db.version(5).stores({
+  questions:   '++id, subject, createdAt, nextReview, reviewLevel, difficultyScore, type, starred',
+  laws:        '++id, lawName, category, articleNumber',
+  attempts:    '++id, qid, date, responseTime',
+  settings:    'key',
+  countdowns:  '++id',
+  refbooks:    '++id, title, category, fileType, lastRead, createdAt',
+  learnmedia:  '++id, title, mediaType, subject, lastPlay, createdAt',
+  ebooks:      '++id, title, author, category, fileType, lastRead, createdAt, favorite',
+  leisuremedia:'++id, title, type, category, lastPlay, createdAt, favorite',
+  usageLogs:   '++id, [date+zone], date, zone',
+  englishMaterials: '++id, title, sourceType, createdAt, lastRead, favorite',
+  englishVocab:     '++id, word, materialId, reviewLevel, nextReview, createdAt',
+  // 健康數據：以日期 YYYY-MM-DD 為主鍵，每日一筆（運動時長/消耗/攝取/步數）
+  healthLogs:  'id, updatedAt'
+});
+
+// ── 遺忘曲線間隔 ─────────────────────────────────────────────
+const REVIEW_INTERVALS = [1, 3, 7, 14, 30, 60, 180];
+
+async function initDB() {
+  await _db.open();
+  return _db;
+}
+
+// ════════════════════════════════════════════════════════════════
+// 輕量快取（邏輯與舊版完全相同）
+// ════════════════════════════════════════════════════════════════
+const _cache = {};
+const _CACHE_TTL = 30000;
+
+function _cacheGet(key) {
+  const c = _cache[key];
+  if (!c) return null;
+  if (Date.now() - c.ts > _CACHE_TTL) { delete _cache[key]; return null; }
+  return c.data;
+}
+function _cacheSet(key, data) { _cache[key] = { data, ts: Date.now() }; }
+function _cacheInvalidate(st) {
+  if (st === undefined) {
+    Object.keys(_cache).forEach(k => delete _cache[k]);
+  } else {
+    // 清除 store 本身 + 所有以 'store:' 開頭的條件快取
+    Object.keys(_cache).forEach(k => {
+      if (k === st || k.startsWith(st + ':')) delete _cache[k];
+    });
+  }
+}
+
+// ── 錯誤記錄 ─────────────────────────────────────────────────
+const _errLog = [];
+function logError(context, err) {
+  const entry = { t: new Date().toISOString(), ctx: context, msg: err?.message || String(err) };
+  _errLog.push(entry);
+  if (_errLog.length > 50) _errLog.shift();
+  console.error('[PoliceExam]', context, err);
+}
+
+// ════════════════════════════════════════════════════════════════
+// CRUD API — 介面與 v2 100% 相同
+// ════════════════════════════════════════════════════════════════
+
+const dg = (st, k) => _db[st].get(k);
+
+const da = (st, idx, qry) => {
+  // 分條件快取 key：無條件用 store 名，有條件帶入參數
+  const cacheKey = (idx && qry !== undefined) ? `${st}:${idx}=${qry}` : st;
+  if (!idx && !qry) {
+    const cached = _cacheGet(cacheKey);
+    if (cached) return Promise.resolve(cached);
+    return _db[st].toArray().then(rows => { _cacheSet(cacheKey, rows); return rows; });
+  }
+  if (idx && qry !== undefined) {
+    const cached = _cacheGet(cacheKey);
+    if (cached) return Promise.resolve(cached);
+    return _db[st].where(idx).equals(qry).toArray()
+      .then(rows => { _cacheSet(cacheKey, rows); return rows; });
+  }
+  return _db[st].toArray();
+};
+
+const dp = (st, data) =>
+  _db[st].put(data).then(key => { _cacheInvalidate(st); return key; });
+
+const dd = (st, k) =>
+  _db[st].delete(k).then(() => { _cacheInvalidate(st); });
+
+const dc = (st) =>
+  _db[st].clear().then(() => { _cacheInvalidate(st); });
+
+function bulkPut(st, items) {
+  return _db[st].bulkPut(items).then(() => {
+    _cacheInvalidate(st);
+    return items.length;
   });
 }
 
-/* ── settings（鍵值對：capital/risk/winrate/gasUrl/errorLog）─────────── */
-async function dbSetSetting(key, value) {
-  const db = await openDB();
-  return new Promise((res, rej) => {
-    const tx = db.transaction('settings', 'readwrite');
-    tx.objectStore('settings').put({ key, value });
-    tx.oncomplete = () => res(true);
-    tx.onerror = () => rej(tx.error);
+// ════════════════════════════════════════════════════════════════
+// 遺忘曲線核心（邏輯完全不變）
+// ════════════════════════════════════════════════════════════════
+
+function calcNextReview(level, correct) {
+  if (!correct) {
+    // 答錯時大幅降級而非只降一級。
+    //   原本 level 6（180天）答錯只退到 5，隔天再答對就立刻跳回 180 天，
+    //   等於「僥倖答對一次就視為完全熟練」，真正不熟的題目會太早離開複習池。
+    //   改為退回一半（無條件捨去），高等級題目答錯後需要重新累積才會拉長間隔，
+    //   低等級（0/1）行為與原本一致，仍是隔天重考。
+    return { level: Math.max(0, Math.floor(level / 2)), next: Date.now() + 86400000 };
+  }
+  const newLevel = Math.min(level + 1, REVIEW_INTERVALS.length - 1);
+  const days = REVIEW_INTERVALS[newLevel];
+  return { level: newLevel, next: Date.now() + days * 86400000 };
+}
+
+function getDangerLevel(q, recentAts) {
+  // ★ 取「最近」3 次：date 是 'YYYY-MM-DD' 字串，原本 b.date - a.date 得到 NaN，
+  //   排序無效 → 實際取到的是最舊的 3 次，近期已連對的題目仍被判成危險。
+  //   同日多筆以 id（自增＝寫入先後）排序。
+  //   correct 為 null（申論題、無標準答案）不算對錯，排除。
+  const qa = recentAts
+    .filter(a => a.qid === q.id && a.correct !== null && a.correct !== undefined)
+    .sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.id || 0) - (a.id || 0));
+  const last3 = qa.slice(0, 3);
+  const wrongStreak = last3.length >= 2 && last3.every(a => !a.correct);
+  const lastWrong   = last3.length > 0 && !last3[0].correct;
+  const hesitant    = last3.some(a => a.responseTime > 40000);
+  if (wrongStreak) return '🔴';
+  if (lastWrong)   return '🟠';
+  if (hesitant)    return '🟡';
+  return '🟢';
+}
+
+async function getPriorityPool(mode = 'all', subjects = null) { try {
+  const [qs, ats] = await Promise.all([da('questions'), da('attempts')]);
+  if (!qs.length) return [];
+  const now = Date.now();
+  // 科目篩選（subjects 為陣列且非空時才套用；null/空 = 全部科目）
+  const subjSet = (Array.isArray(subjects) && subjects.length) ? new Set(subjects) : null;
+  // 空科目一律正規化為「未分類」，與 getSubjectList 顯示的名稱一致，
+  // 否則使用者勾選「未分類」會比對不到（傳入'未分類'但題目是''）而查無題目
+  const bySubj  = q => !subjSet || subjSet.has(q.subject || '未分類');
+  const mcQs = qs.filter(q => q.type === 'mc' && bySubj(q));
+  let pool = mcQs;
+  if      (mode === 'wrong')  { const ws = getWrong(qs, ats); pool = mcQs.filter(q => ws.has(q.id)); }
+  else if (mode === 'star')   { pool = mcQs.filter(q => q.starred); }
+  else if (mode === 'review') { pool = mcQs.filter(q => (q.nextReview || 0) <= now); }
+  else if (mode === 'new')    { pool = mcQs.filter(q => !q.reviewLevel && q.reviewLevel !== 0); }
+  // 加強複習：錯誤率高（危險題）∪ 收藏題，去重
+  else if (mode === 'focus')  {
+    const ws = getWrong(qs, ats);
+    pool = mcQs.filter(q => ws.has(q.id) || q.starred);
+  }
+  // 申論練習：只取申論題（不受 mc 篩選限制，需另行取用）
+  else if (mode === 'essay')  {
+    pool = qs.filter(q => q.type === 'es' && bySubj(q));
+    return pool;   // 申論不套用危險度排序
+  }
+  const levelOrder = { '🔴': 0, '🟠': 1, '🟡': 2, '🟢': 3 };
+  pool.sort((a, b) => {
+    const da_ = getDangerLevel(a, ats);
+    const db_ = getDangerLevel(b, ats);
+    return (levelOrder[da_] ?? 3) - (levelOrder[db_] ?? 3);
   });
-}
-async function dbGetSetting(key) {
-  const db = await openDB();
-  return new Promise((res, rej) => {
-    const r = db.transaction('settings', 'readonly').objectStore('settings').get(key);
-    r.onsuccess = () => res(r.result ? r.result.value : null);
-    r.onerror = () => rej(r.error);
+  return pool;
+} catch(e) { logError('getPriorityPool', e); return []; } }
+
+// 取得題庫中所有科目（依題數多寡排序，供科目多選用）
+async function getSubjectList(type) { try {
+  const qs = await da('questions');
+  const cnt = {};
+  qs.forEach(q => {
+    if (type && q.type !== type) return;
+    const s = q.subject || '未分類';
+    cnt[s] = (cnt[s] || 0) + 1;
   });
-}
+  return Object.entries(cnt).sort((a, b) => b[1] - a[1]).map(([name, n]) => ({ name, n }));
+} catch(e) { logError('getSubjectList', e); return []; } }
 
-/* ── trades（交易紀錄）────────────────────────────────────────────────
-   trade = {id,date,code,direction:'long'|'short',result:'win'|'loss',pnl:number,note}
-   ──────────────────────────────────────────────────────────────────── */
-async function dbAddTrade(trade) {
-  const db = await openDB();
-  if (!trade.id) trade.id = 't_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-  return new Promise((res, rej) => {
-    const tx = db.transaction('trades', 'readwrite');
-    tx.objectStore('trades').put(trade);
-    tx.oncomplete = () => res(trade);
-    tx.onerror = () => rej(tx.error);
-  });
-}
-async function dbDeleteTrade(id) {
-  const db = await openDB();
-  return new Promise((res, rej) => {
-    const tx = db.transaction('trades', 'readwrite');
-    tx.objectStore('trades').delete(id);
-    tx.oncomplete = () => res(true);
-    tx.onerror = () => rej(tx.error);
-  });
-}
-async function dbGetAllTrades() {
-  const db = await openDB();
-  return new Promise((res, rej) => {
-    const r = db.transaction('trades', 'readonly').objectStore('trades').getAll();
-    r.onsuccess = () => res((r.result || []).sort((a, b) => (a.date < b.date ? 1 : -1)));
-    r.onerror = () => rej(r.error);
-  });
-}
+// ════════════════════════════════════════════════════════════════
+// settings / countdowns helpers（介面完全不變）
+// ════════════════════════════════════════════════════════════════
 
-/* ── 由交易紀錄計算真實統計 ──────────────────────────────────────────── */
-function computeStats(trades) {
-  if (!trades.length) return { count:0,wins:0,losses:0,winRate:0,avgWin:0,avgLoss:0,payoff:0,expectancy:0,totalPnl:0,trueWinRate:0,trueWins:0,misjudged:0,ci95:null, expTest:{ n:0, enough:false } };
-
-  // Wilson score 信賴區間：樣本越少，區間越寬（誠實揭露「這個勝率有多可信」）
-  function wilsonCI(wins, n) {
-    if (!n) return null;
-    const z = 1.96, p = wins / n;
-    const denom = 1 + z * z / n;
-    const center = p + z * z / (2 * n);
-    const margin = z * Math.sqrt(p * (1 - p) / n + z * z / (4 * n * n));
-    return { low: Math.max(0, (center - margin) / denom), high: Math.min(1, (center + margin) / denom) };
-  }
-  /* ── 期望值顯著性檢定（v135）────────────────────────────────────────
-     Wilson區間檢驗的是「勝率」，但決定賺不賺錢的是「每筆平均損益」。
-     高勝率可以是負期望值（實測：目標0.5%/停損5%→勝率81%但每筆-0.945%）。
-     這裡用單樣本 t 檢定：t = 平均 ÷ (標準差/√N)，|t|>1.96 才算統計顯著。
-     ★ 本系統自身的回測實證：最佳參數組合每筆+0.0198%，但 t=0.098、
-       95%CI=[-0.375%,+0.414%] 橫跨零——需60,823筆(約507年)才能證明非零。
-       這說明短線的邊際優勢極易被雜訊淹沒，任何「看起來有效」都必須過此關。
-     ★ 用途：當你累積實單後，這裡會誠實告訴你「目前的成績能不能證明
-       你有優勢，還是只是運氣」——避免用20筆的好運說服自己去加大部位。
-     ──────────────────────────────────────────────────────────────── */
-  function expectancyTest(list) {
-    const arr = list.map(t => Number(t.pnlPct != null ? t.pnlPct : (t.pnl || 0))).filter(x => isFinite(x));
-    const n = arr.length;
-    if (n < 5) return { n, enough: false };
-    const mean = arr.reduce((a, b) => a + b, 0) / n;
-    const sd = Math.sqrt(arr.reduce((a, x) => a + (x - mean) ** 2, 0) / (n - 1));
-    if (!(sd > 0)) return { n, enough: false };
-    const se = sd / Math.sqrt(n), t = mean / se;
-    const needN = Math.abs(mean) > 0 ? Math.ceil((1.96 * sd / Math.abs(mean)) ** 2) : null;
-    return { n, enough: true, mean, sd, se, t,
-      ciLow: mean - 1.96 * se, ciHigh: mean + 1.96 * se,
-      significant: Math.abs(t) > 1.96, needN };
-  }
-  const expTest = expectancyTest(trades);
-
-  const wins   = trades.filter(t => t.result === 'win');
-  const losses = trades.filter(t => t.result === 'loss');
-  const sumWin  = wins.reduce((a, t) => a + Math.abs(t.pnl || 0), 0);
-  const sumLoss = losses.reduce((a, t) => a + Math.abs(t.pnl || 0), 0);
-  const avgWin  = wins.length ? sumWin / wins.length : 0;
-  const avgLoss = losses.length ? sumLoss / losses.length : 0;
-  const winRate = trades.length ? wins.length / trades.length : 0;        // 帳面勝率
-  const payoff  = avgLoss > 0 ? avgWin / avgLoss : 0;
-  const expectancy = winRate * avgWin - (1 - winRate) * avgLoss;
-
-  // ── 真實勝率：扣掉「判斷錯誤」的假贏單（凹單僥倖回本）──
-  // 判斷正確且賺錢 = 真贏；判斷錯誤即使帳面賺 = 不算真贏
-  const trueWins = trades.filter(t => t.result === 'win' && t.judgment !== 'wrong').length;
-  const trueWinRate = trades.length ? trueWins / trades.length : 0;
-  const misjudged = trades.filter(t => t.judgment === 'wrong').length; // 判斷錯誤總數（含假贏單）
-
-  // ── 成本後真相（散戶「回測賺實單賠」第一死因：忘了成本）──
-  const cost = (typeof TRADE_COST_PCT !== 'undefined') ? TRADE_COST_PCT : 0.585;
-  const pcts = trades.filter(t => t.pnlPct != null);
-  const avgPnlPct = pcts.length ? pcts.reduce((a, t) => a + t.pnlPct, 0) / pcts.length : 0;
-  const netAvgPnlPct = avgPnlPct - cost;
-  const netWins = pcts.filter(t => t.pnlPct > cost).length;
-  const netWinRate = pcts.length ? netWins / pcts.length : 0;
-
-  const ci95 = wilsonCI(wins.length, trades.length);
-  const trueCi95 = wilsonCI(trueWins, trades.length);
-
-  return { count: trades.length, wins: wins.length, losses: losses.length, winRate, avgWin, avgLoss, payoff, expectancy,
-    totalPnl: trades.reduce((a, t) => a + (t.pnl || 0), 0),
-    trueWinRate, trueWins, misjudged,
-    avgPnlPct, netAvgPnlPct, netWinRate, costPct: cost,
-    ci95, trueCi95, expTest };
-}
-
-/* ── 進階統計（給 Markdown 匯出用）──────────────────────────────────── */
-function computeAdvancedStats(trades) {
-  const base = computeStats(trades);
-  if (!trades.length) return Object.assign(base, { maxWinStreak:0, maxLossStreak:0, avgHoldDays:0, maxDrawdown:0, byDirection:{}, byCode:{} });
-
-  // 依出場日排序（舊→新）算連勝連敗
-  const sorted = [...trades].sort((a,b) => (a.exitDate||a.date) < (b.exitDate||b.date) ? -1 : 1);
-  let maxWin=0, maxLoss=0, curWin=0, curLoss=0;
-  let cumPnl=0, peak=0, maxDD=0;
-  let holdSum=0, holdCount=0;
-  for (const t of sorted) {
-    if (t.result==='win') { curWin++; curLoss=0; } else { curLoss++; curWin=0; }
-    maxWin=Math.max(maxWin,curWin); maxLoss=Math.max(maxLoss,curLoss);
-    cumPnl += (t.pnl||0);
-    peak = Math.max(peak, cumPnl);
-    maxDD = Math.min(maxDD, cumPnl-peak); // 最大回撤（負值）
-    if (t.holdDays!=null) { holdSum+=t.holdDays; holdCount++; }
-  }
-
-  // 依方向統計
-  const byDir = {};
-  for (const dir of ['long','short']) {
-    const arr = trades.filter(t=>t.direction===dir);
-    if (arr.length) byDir[dir] = computeStats(arr);
-  }
-  // 依代碼統計
-  const byCode = {};
-  for (const t of trades) {
-    const k = t.code || '未填';
-    if (!byCode[k]) byCode[k] = [];
-    byCode[k].push(t);
-  }
-  const byCodeStats = {};
-  for (const k in byCode) byCodeStats[k] = computeStats(byCode[k]);
-
-  return Object.assign(base, {
-    maxWinStreak: maxWin, maxLossStreak: maxLoss,
-    avgHoldDays: holdCount ? holdSum/holdCount : 0,
-    maxDrawdown: maxDD,
-    byDirection: byDir, byCode: byCodeStats
-  });
-}
-async function exportBackup() {
-  const trades = await dbGetAllTrades();
-  const settings = {
-    capital:  await dbGetSetting('capital'),
-    risk:     await dbGetSetting('risk'),
-    winrate:  await dbGetSetting('winrate')
-  };
-  return {
-    app: 'StockRadarPro',
-    version: APP_VERSION,
-    exportedAt: new Date().toISOString(),
-    trades,
-    settings
-  };
-}
-
-async function importBackup(obj) {
-  if (!obj || obj.app !== 'StockRadarPro') throw new Error('檔案格式不符，非本程式備份檔');
-  if (obj.settings) {
-    if (obj.settings.capital != null) await dbSetSetting('capital', obj.settings.capital);
-    if (obj.settings.risk    != null) await dbSetSetting('risk',    obj.settings.risk);
-    if (obj.settings.winrate != null) await dbSetSetting('winrate', obj.settings.winrate);
-  }
-  if (Array.isArray(obj.trades)) {
-    for (const t of obj.trades) await dbAddTrade(t);
-  }
-  return obj.trades ? obj.trades.length : 0;
-}
-
-/* ══════════════════════════════════════════════════════════════════════
-   GAS 雲端雙向同步（URL 由設定頁填入，存於 IndexedDB）
-   後端端點：?action=sync_get（GET）/ ?action=sync_save（POST）
-   ══════════════════════════════════════════════════════════════════════ */
-async function cloudSave() {
-  const backupUrl = (typeof SYNC_URL !== 'undefined' && SYNC_URL) ? SYNC_URL : GAS_URL;
-  if (!backupUrl || backupUrl.indexOf('http') !== 0) throw new Error('尚未設定備份網址（請填查詢網址或雲端備份網址）');
-  const backup = await exportBackup();   // 完整備份內容（含 trades + settings + 版本 + 時間）
-  const r = await fetch(`${backupUrl}?action=sync_save`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // 避免 CORS preflight
-    body: JSON.stringify(backup)
-  });
-  const j = await r.json();
-  if (!j.ok) throw new Error(j.error || '雲端儲存失敗');
-  return j;
-}
-
-async function cloudLoad() {
-  const backupUrl = (typeof SYNC_URL !== 'undefined' && SYNC_URL) ? SYNC_URL : GAS_URL;
-  if (!backupUrl || backupUrl.indexOf('http') !== 0) throw new Error('尚未設定備份網址');
-  const r = await fetch(`${backupUrl}?action=sync_get`);
-  const j = await r.json();
-  if (!j.ok) throw new Error(j.error || '雲端讀取失敗');
-  const data = j.data || {};
-  if (data && data.app === 'StockRadarPro') {
-    await importBackup(data);
-  } else if (data.trades || data.settings) {
-    // 相容舊格式
-    await importBackup({ app: 'StockRadarPro', trades: data.trades || [], settings: data.settings || {} });
-  }
-  return data;
-}
-
-
-/* ══ 倉位管理兩條鐵律（v107）══════════════════════════════════════════
-   Alexander Elder《Come Into My Trading Room》兩條鐵律，機構風控的個人版：
-   ① 2%原則（防鯊魚咬）：單筆交易最大風險≤總資金2%——一次重傷不致命
-   ② 6%原則（防食人魚）：當月已實現虧損達總資金6%即停止開新倉到月底
-      ——連續小虧比單次大虧更常滅絕帳戶，這是強制冷靜的斷路器
-   本函式只統計「真實單」（sim=false），模擬單不佔用風險預算。
-   ⚠️ 只讀不寫：不自動改任何參數，只回報狀態供紀律門判斷（人決策原則）
-   ════════════════════════════════════════════════════════════════════ */
-function computeRiskBudget(trades, capital) {
+async function getSetting(key, fallback = '') {
   try {
-    if (!capital || capital <= 0) return null;
-    const now = new Date();
-    const ym = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
-    const real = (trades || []).filter(t => !t.sim && t.date && String(t.date).slice(0, 7) === ym);
-    const lossSum = real.filter(t => (t.pnl || 0) < 0).reduce((a, t) => a + Math.abs(t.pnl), 0);
-    const winSum = real.filter(t => (t.pnl || 0) > 0).reduce((a, t) => a + t.pnl, 0);
-    const netPnl = winSum - lossSum;
-    // 6%原則採「淨虧損」計算（獲利可回補預算，符合Elder原意：保護的是帳戶淨值）
-    const usedPct = netPnl < 0 ? Math.abs(netPnl) / capital * 100 : 0;
-    return {
-      ym, trades: real.length, lossSum, winSum, netPnl,
-      usedPct: Math.round(usedPct * 100) / 100,
-      remainPct: Math.round(Math.max(0, 6 - usedPct) * 100) / 100,
-      blocked: usedPct >= 6,
-      warn: usedPct >= 4 && usedPct < 6,
-    };
-  } catch (e) { return null; }
+    const r = await dg('settings', key);
+    return (r && r.value !== undefined) ? r.value : fallback;
+  } catch(e) { return fallback; }
 }
+
+async function setSetting(key, value) {
+  try { await dp('settings', { key, value }); }
+  catch(e) { logError('setSetting', e); }
+}
+
+// 條號索引一次性修復：v4.17.2 以前的「批次匯入」只存主號（第12條→12），
+// 其餘各處都用 art2n 的「主號×1000＋子號」（12000），造成條號搜尋、關聯法條、排序出錯。
+async function healLawNums() {
+  if (await getSetting('lawNumHealed')) return;
+  const bad = (await da('laws')).filter(l => { const n = art2n(l.article); return n && l.articleNumber !== n; });
+  bad.forEach(l => { l.articleNumber = art2n(l.article); });
+  if (bad.length) await bulkPut('laws', bad);
+  await setSetting('lawNumHealed', 1);
+}
+
+async function getCountdowns() {
+  try { return await da('countdowns'); } catch(e) { return []; }
+}
+
+async function saveCountdowns(list) {
+  try {
+    await dc('countdowns');
+    if (list.length) await bulkPut('countdowns', list);
+  } catch(e) { logError('saveCountdowns', e); }
+}
+
+
+
+// ════════════════════════════════════════════════════════════════
+// usageLogs helpers（三區使用時間記錄）
+// ════════════════════════════════════════════════════════════════
+
+// 記錄使用秒數（累加）
+async function logZoneUsage(zone, seconds) {
+  if (!zone || seconds < 1) return;
+  const date = today();
+  try {
+    // Dexie 複合索引查詢：where('[date+zone]').equals([date, zone])
+    const rows = await _db.usageLogs.where('[date+zone]').equals([date, zone]).toArray();
+    if (rows.length > 0) {
+      const existing = rows[0];
+      await _db.usageLogs.update(existing.id, { seconds: (existing.seconds || 0) + seconds });
+    } else {
+      await _db.usageLogs.add({ date, zone, seconds });
+    }
+    _cacheInvalidate('usageLogs');
+  } catch(e) { logError('logZoneUsage', e); }
+}
+
+// 取得過去 N 天的所有記錄
+async function getUsageLogs(days = 35) {
+  try {
+    const from = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+    return await _db.usageLogs.where('date').aboveOrEqual(from).toArray();
+  } catch(e) { logError('getUsageLogs', e); return []; }
+}
+
+// 取得指定日期的各區時間
+async function getDayUsage(date) {
+  try {
+    return await _db.usageLogs.where('date').equals(date).toArray();
+  } catch(e) { return []; }
+}
+
+// ════════════════════════════════════════════════════════════════
+// ebooks helpers（學習區電子書）
+// ════════════════════════════════════════════════════════════════
+
+// 取得電子書列表（不含 blob，避免一次載入所有大檔）
+async function getEbookList() {
+  try {
+    const books = await _db.ebooks.toArray();
+    // 回傳時排除 blob 欄位，只給清單用的 metadata
+    return books.map(({ blob: _b, ...meta }) => meta);
+  } catch(e) { logError('getEbookList', e); return []; }
+}
+
+// 取得單本電子書（含 blob）
+async function getEbook(id) {
+  try { return await dg('ebooks', id); }
+  catch(e) { logError('getEbook', e); return null; }
+}
+
+// 儲存電子書（新增或更新）
+async function saveEbook(book) {
+  try {
+    const key = await dp('ebooks', book);
+    return key;
+  } catch(e) { logError('saveEbook', e); return null; }
+}
+
+// 更新閱讀進度（不重寫整個 blob）
+async function updateEbookProgress(id, lastPage) {
+  try {
+    await _db.ebooks.where('id').equals(id).modify({ lastPage, lastRead: Date.now() });
+    _cacheInvalidate('ebooks');
+  } catch(e) { logError('updateEbookProgress', e); }
+}
+
+// 刪除電子書
+async function deleteEbook(id) {
+  try { await dd('ebooks', id); }
+  catch(e) { logError('deleteEbook', e); }
+}
+
+// ════════════════════════════════════════════════════════════════
+// 版本常數
+// ════════════════════════════════════════════════════════════════
+const APP_VERSION  = '4.18.2';    // 自我檢視:①v4.17.2 以前批次匯入的條號只存主號(第12條→12)，其餘各處用 art2n(12000)，條號搜尋、關聯法條、排序會錯；啟動時一次性校正(healLawNums)，還原時也依 article 重算 ②分層管理的條號範圍(如 1-5)直接比 articleNumber，遇到新格式(×1000)全部不命中；改比主條號
+const DATA_VERSION = '1150614-01';   // 題庫版本（題庫/法條資料更新時遞增）
