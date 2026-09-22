@@ -76,7 +76,7 @@ function evScorable(k) { try { const e = EVIDENCE[k]; return !!(e && e.w > 0); }
    app.js 啟動時比對，不符就直接點名是哪個檔沒更新——
    以前只能靠「畫面文字怎麼還是舊的」去猜，這種事發生過不只一次。 */
 const FILE_VERS = {
-  'help.js': 163, 'db.js': 163, 'market.js': 163, 'quant.js': 163, 'formula.js': 163, 'enhance.js': 163, 'advanced.js': 163, 'smc.js': 163, 'mainforce.js': 163, 'mtf.js': 163, 'resonance.js': 163, 'bingfa.js': 163, 'layout.js': 163, 'journal.js': 163, 'scan.js': 166, 'app.js': 164
+  'help.js': 163, 'db.js': 163, 'market.js': 163, 'quant.js': 163, 'formula.js': 163, 'enhance.js': 163, 'advanced.js': 163, 'smc.js': 163, 'mainforce.js': 163, 'mtf.js': 163, 'resonance.js': 163, 'bingfa.js': 163, 'layout.js': 163, 'journal.js': 163, 'scan.js': 167, 'app.js': 164
 };
 
 const EVIDENCE = {

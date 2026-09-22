@@ -15,7 +15,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['scan.js'] = 166; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['scan.js'] = 167; } catch (e) {}
 
 /* v115修：前端原送15檔/批，但 Code.gs（GAS後端）上限只取前10檔——
    使用GAS的人每批會默默遺失5檔（不成功也不算失敗，直接消失，總數對不上）。
@@ -179,6 +179,18 @@ async function fetchDynamicPool(n) {
 }
 
 async function runScanAuto(dirStr) {
+  /* ⚠️ 兩顆按鈕必須「在抓池子之前」就鎖住。v166 把抓池子的網路請求放在鎖住之前，
+     那幾秒內再按一次就會同時跑兩輪掃描，兩輪共用 _poolNote 與同一個結果區，
+     先跑完的那輪會配到後跑那輪的池子說明——講錯池子比沒講更糟。 */
+  const btnS = document.getElementById('scan-short'), btnL = document.getElementById('scan-long');
+  if ((btnS && btnS.disabled) || (btnL && btnL.disabled)) return;   // 已經在跑了，忽略重複點擊
+  if (btnS) btnS.disabled = true;
+  if (btnL) btnL.disabled = true;
+  try { await runScanAutoInner(dirStr); }
+  finally { if (btnS) btnS.disabled = false; if (btnL) btnL.disabled = false; }
+}
+
+async function runScanAutoInner(dirStr) {
   const ta = document.getElementById('scan-codes');
   const dead = loadDead();
   const sel = document.getElementById('scan-dir');
@@ -211,16 +223,14 @@ async function runScanAuto(dirStr) {
   }
   if (ta) ta.value = pool.join(' ');          // 填入這次實際使用的池子
   _autoPool = true;                           // 系統產生的清單不覆蓋使用者自訂清單
-  document.getElementById('scan-short').disabled = true;
-  document.getElementById('scan-long').disabled = true;
-  try { await runScan(); }
-  finally {
-    document.getElementById('scan-short').disabled = false;
-    document.getElementById('scan-long').disabled = false;
-  }
+  await runScan();
 }
 
 async function runScan() {
+  /* ⚠️ 旗標要在任何 return 之前就取走。放在後面的話，只要走到「超過上限」那種
+     提前 return，_autoPool 會卡在 true，下一次手動掃描就會被當成自動池：
+     不存檔、而且沿用上一輪的池子說明——等於畫面在講一個不是這次用的池子。 */
+  const autoPool = _autoPool; _autoPool = false;
   const raw = document.getElementById('scan-codes').value || '';
   let codes = raw.split(/[\s,，、]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
   if (!codes.length) codes = TW_POOL.slice();   // v114：留空＝自動用內建熱門池（使用者不必準備清單）
@@ -232,8 +242,8 @@ async function runScan() {
      使用者明確表示「讀取資料久點沒關係」，但不能無上限（後端與Yahoo限流）。 */
   if (codes.length > 300) { box.innerHTML = '<div style="color:var(--warn);font-size:12px">一次最多300檔（避免後端負擔過重與被來源限流）</div>'; return; }
 
-  const autoPool = _autoPool; _autoPool = false;   // v166：只對這一次生效
   if (!autoPool) { _poolNote = ''; saveScanPool(); }   // 手動清單才存檔，系統產生的池子不覆蓋使用者自訂清單
+  else markAutoFilled();                               // 標記輸入框內容是系統產生的（關閉面板時不可存檔）
   const deadTrack = loadDead();   // v165：累計「查無K線」次數，滿2次才自動略過
   _scanAbort = false;
   document.getElementById('scan-run').disabled = true;
@@ -372,8 +382,21 @@ function renderScanResult(rows, dir, secs, deadTrack) {
 }
 
 /* v113：記住使用者編輯後的清單（靜態池會過時，使用者自訂的才是長期可用的） */
+/* ⚠️ v166 起輸入框可能是「系統自動填入的動態池」。那是某一天的成交排行，
+   不是使用者維護的清單，存進 scanPool 會在下次開啟時被當成自訂清單還原，
+   使用者按「用此清單掃描」就會拿舊排行去掃——又是一次靜默的過時資料。
+   所以自動填入後標記 data-auto，內容一被人改動就解除標記（那才是使用者的清單）。 */
+function markAutoFilled() {
+  const ta = document.getElementById('scan-codes');
+  if (!ta) return;
+  ta.dataset.auto = '1';
+  if (!ta._autoWatch) { ta._autoWatch = true; ta.addEventListener('input', () => { delete ta.dataset.auto; }); }
+}
 function saveScanPool() {
-  try { const ta = document.getElementById('scan-codes'); if (ta) localStorage.setItem('scanPool', ta.value); } catch (e) {}
+  try {
+    const ta = document.getElementById('scan-codes');
+    if (ta && !ta.dataset.auto) localStorage.setItem('scanPool', ta.value);
+  } catch (e) {}
 }
 function openScan() {
   const ov = document.getElementById('scan-overlay');

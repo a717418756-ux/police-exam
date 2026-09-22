@@ -137,7 +137,114 @@ async function layoutTests() {
   const css = fs.readFileSync(path.join(ROOT, 'styles.css'), 'utf8');
   ok('.set-field 保留 min-width:0（拿掉就會再被裁）', /\.set-field\{[^}]*min-width:0/.test(css));
   ok('空間不足時縮的是標題不是數值', /\.set-label\{flex:0 1 auto/.test(css) && /\.set-field input\{flex:1 1 0;min-width:10ch/.test(css));
+
+  /* v167 啟動動畫：好看是其次，重點是「絕不能變成蓋住 App 的黑幕」。
+     所以三件事都要驗：會自己收起、收起後不擋點擊、JS 掛掉也會消失。 */
+  const splash = async (url, opts = {}) => {
+    const ctx = await b0.newContext({ viewport: { width: 390, height: 780 }, isMobile: true, hasTouch: true, ...opts });
+    const pg = await ctx.newPage();
+    const t0 = Date.now();
+    await pg.goto(url, { waitUntil: 'domcontentloaded' });
+    const shown = await pg.$('#splash') != null;
+    const delay = await pg.evaluate(() => { const e = document.getElementById('splash'); return e ? getComputedStyle(e).animationDelay : ''; }).catch(() => '');
+    let gone = -1, blocked = null;
+    try { await pg.waitForFunction(() => { const e = document.getElementById('splash');
+      return !e || getComputedStyle(e).visibility === 'hidden'; }, { timeout: 9000 }); gone = Date.now() - t0; } catch (e) {}
+    if (opts.javaScriptEnabled !== false) blocked = await pg.evaluate(() => { const g = document.getElementById('go-btn'), r = g.getBoundingClientRect();
+      return document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) !== g; }).catch(() => true);
+    await ctx.close();
+    return { shown, delay, gone, blocked };
+  };
+  const tab = await splash('http://localhost:8792/index.html');
+  ok('啟動動畫會出現且自行收起', tab.shown && tab.gone > 0, `gone=${tab.gone}`);
+  ok('分頁模式約1.2秒收起（不必每次等3秒）', tab.gone > 900 && tab.gone < 2600, `${tab.gone}ms`);
+  ok('收起後不擋住首頁操作', tab.blocked === false);
+  const pwa = await splash('http://localhost:8792/index.html?src=pwa');
+  ok('PWA模式套用長版時機（約3秒）', pwa.delay === '2.6s' && pwa.gone > 2700 && pwa.gone < 3900, `delay=${pwa.delay} gone=${pwa.gone}ms`);
+  {   // JS 關閉時頁面裡跑不了 waitForFunction，改成等足時間後直接讀樣式
+    const ctx = await b0.newContext({ viewport: { width: 390, height: 780 }, javaScriptEnabled: false });
+    const pg = await ctx.newPage();
+    await pg.goto('http://localhost:8792/index.html', { waitUntil: 'domcontentloaded' });
+    await pg.waitForTimeout(2400);
+    const v = await pg.$eval('#splash', el => getComputedStyle(el).visibility).catch(() => 'gone');
+    ok('JS 失效時啟動畫面仍會自行隱藏（不會變黑幕）', v === 'hidden' || v === 'gone', v);
+    await ctx.close();
+  }
+  const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  ok('啟動動畫的收起由 CSS 負責（JS 只做移除）', /animation:spOut[^;]*forwards/.test(html) && /visibility:hidden/.test(html));
+  ok('啟動動畫有最後保險（逾時強制移除）', /setTimeout\(kill, 5000\)/.test(html));
+
   await b0.close(); srv0.close();
+}
+
+/* ── 掃描流程檢查（v167）──────────────────────────────────────────────
+   不需要日K測試檔，用假後端跑真實前端流程。三項都對應 v166 當天寫出來的真雷：
+     ① 抓池子的網路請求放在「鎖按鈕」之前 → 那幾秒重複點擊會同時跑兩輪，
+        兩輪共用 _poolNote，先跑完的會配到後跑那輪的池子說明（講錯池子）。
+     ② 自動填入的動態池被 closeScan() 存成「使用者自訂清單」→ 下次開啟還原，
+        按「用此清單掃描」就是拿舊排行去掃（又一次靜默的過時資料）。
+     ③ _autoPool 旗標在提前 return 之後才取走 → 卡在 true，下一次手動掃描
+        會沿用上一輪的池子說明，且清單不存檔。 */
+async function scanFlowTests() {
+  const chromium = getChromium();
+  if (!chromium) return;
+  const srv = serveRoot(8793);
+  const b = await chromium.launch();
+  const ctx = await b.newContext({ serviceWorkers: 'block' });
+  const pg = await ctx.newPage();
+  const errs = [];
+  pg.on('pageerror', e => errs.push(e.message));
+  let poolDelay = 0, poolCalls = 0, poolCodes = ['2001', '2002', '2003'];
+  const bars = n => { const c = [], h = [], l = [], v = [];
+    for (let i = 0; i < n; i++) { const x = 100 + Math.sin(i / 5) * 5 + i * 0.1;
+      c.push(+x.toFixed(2)); h.push(+(x * 1.01).toFixed(2)); l.push(+(x * 0.99).toFixed(2)); v.push(5e7); }
+    return { c, h, l, v }; };
+  await pg.route('**/scanflow.test/**', async route => {
+    const u = new URL(route.request().url()), a = u.searchParams.get('action');
+    if (a === 'pool') { poolCalls++;
+      if (poolDelay) await new Promise(r => setTimeout(r, poolDelay));
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, codes: poolCodes, dataDate: '20260921', universe: 999, cutoff: 1e8 }) }); }
+    if (a === 'scan') { const codes = u.searchParams.get('codes').split(',');
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, results: codes.map(code => { const k = bars(120);
+        return { code, ok: true, closes: k.c, highs: k.h, lows: k.l, volumes: k.v, opens: k.c, rawCloses: k.c, rawHighs: k.h, rawLows: k.l, price: k.c[119], lastDate: '20260921' }; }) }) }); }
+    return route.fulfill({ contentType: 'application/json', body: '{"ok":true}' });
+  });
+  await pg.goto('http://localhost:8793/index.html');
+  await pg.waitForTimeout(900);
+  await pg.evaluate(() => { GAS_URL = 'http://scanflow.test/api'; });
+  const txt = () => pg.evaluate(() => document.getElementById('scan-result').innerText);
+
+  // ① 重複點擊
+  poolDelay = 700; poolCalls = 0;
+  await pg.evaluate(() => { openScan(); runScanAuto('long'); runScanAuto('short'); runScanAuto('long'); });
+  await pg.waitForTimeout(300);
+  ok('抓池子期間按鈕已鎖住（防重複掃描）', await pg.evaluate(() => document.getElementById('scan-short').disabled));
+  await pg.waitForTimeout(3200);
+  const t1 = await txt();
+  ok('連按三下只跑一輪', poolCalls === 1 && (t1.match(/動態掃描池/g) || []).length === 1, `池子抓了${poolCalls}次`);
+  ok('跑完後按鈕已解鎖', await pg.evaluate(() => !document.getElementById('scan-short').disabled && !document.getElementById('scan-long').disabled));
+  poolDelay = 0;
+
+  // ② 自動池不可被存成自訂清單；使用者自己改的要存
+  await pg.evaluate(() => localStorage.removeItem('scanPool'));
+  await pg.evaluate(() => runScanAuto('long'));
+  await pg.evaluate(() => closeScan());
+  ok('自動池不會被存成使用者自訂清單', !(await pg.evaluate(() => localStorage.getItem('scanPool'))));
+  await pg.evaluate(() => { openScan(); const ta = document.getElementById('scan-codes'); ta.value = '2330 2317'; ta.dispatchEvent(new Event('input')); closeScan(); });
+  ok('使用者自己改的清單仍會存檔', (await pg.evaluate(() => localStorage.getItem('scanPool'))) === '2330 2317');
+
+  // ③ 提前 return 後旗標不可卡住
+  poolCodes = Array.from({ length: 301 }, (_, i) => String(4000 + i));
+  await pg.evaluate(() => { openScan(); runScanAuto('long'); });
+  await pg.waitForTimeout(600);
+  ok('超過上限會擋下（不硬送給後端）', /最多300檔/.test(await txt()));
+  await pg.evaluate(() => { const ta = document.getElementById('scan-codes'); ta.value = '2330 2317'; ta.dispatchEvent(new Event('input')); });
+  await pg.evaluate(() => runScan());
+  await pg.waitForTimeout(900);
+  ok('擋下後，手動掃描不會沿用上一輪池子說明', !/動態掃描池|內建備援清單/.test(await txt()));
+
+  ok('掃描流程全程無 JavaScript 錯誤', errs.length === 0, errs.slice(0, 2).join(' | '));
+  await b.close(); srv.close();
 }
 
 async function browserTests() {
@@ -696,7 +803,7 @@ async function backendTests() {
   console.log('═══ StockRadar 自我檢查 ═══');
   logicTests();
   await backendTests();
-  if (!LOGIC_ONLY) { await layoutTests(); await browserTests(); }
+  if (!LOGIC_ONLY) { await layoutTests(); await scanFlowTests(); await browserTests(); }
   console.log(`\n通過 ${pass} 項｜失敗 ${fail} 項`);
   if (fails.length) { console.log('\n❌ 失敗項目：'); fails.forEach(f => console.log('  - ' + f)); }
   else console.log('✅ 全部通過');
