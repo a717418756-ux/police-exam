@@ -417,6 +417,34 @@ async function backendTests() {
     }
   }
 
+  // ⑦b2 檔案版本宣告必須與 config.js 的 FILE_VERS 完全一致（否則舊版偵測會誤報或漏報）
+  {
+    const cfgSrc = fs.readFileSync(path.join(ROOT, 'config.js'), 'utf8');
+    const m = cfgSrc.match(/const FILE_VERS = \{([^}]*)\}/);
+    ok('config.js 有 FILE_VERS 表', !!m);
+    if (m) {
+      const want = {};
+      for (const mm of m[1].matchAll(/'([\w.]+)':\s*(\d+)/g)) want[mm[1]] = +mm[2];
+      const bad = [];
+      for (const [f, v] of Object.entries(want)) {
+        const src = fs.readFileSync(path.join(ROOT, f), 'utf8');
+        const d = src.match(/SR_FV[^)]*\)\['([\w.]+)'\]\s*=\s*(\d+)/);
+        if (!d) bad.push(`${f} 未宣告版本`);
+        else if (d[1] !== f) bad.push(`${f} 宣告成 ${d[1]}`);
+        else if (+d[2] !== v) bad.push(`${f} 宣告 v${d[2]} 但 FILE_VERS 寫 v${v}`);
+      }
+      ok('每個前端檔的版本宣告都與 FILE_VERS 相符', bad.length === 0, bad.join('；'));
+      const files = fs.readdirSync(ROOT).filter(f => /\.js$/.test(f) && !['selftest.js', 'worker.js', 'backtest_conditional.js', 'backtest_standalone.js', 'config.js', 'sw.js'].includes(f));
+      const notListed = files.filter(f => !(f in want));
+      ok('所有前端 js 都列進 FILE_VERS', notListed.length === 0, notListed.join('、'));
+    }
+    const appSrc = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
+    ok('app.js 會偵測並點名舊版檔案', /站上 v\$\{got\}，應為 v\$\{want\}/.test(appSrc));
+    // v164：橫幅不得用 fixed 蓋住標題列（它叫人去按的按鈕就在標題列裡），且必須自帶清除快取按鈕
+    ok('提示橫幅不會蓋住標題列', /insertBefore\(bar, document\.body\.firstChild\)/.test(appSrc) && !/bar\.style\.cssText = 'position:fixed;top:0/.test(appSrc));
+    ok('提示橫幅自帶「清除快取」按鈕', /onclick="forceUpdateApp\(\)"/.test(appSrc));
+  }
+
   // ⑦c1 TWSE 路徑失效時要能自動換路徑，而不是整個維度靜默消失
   {
     const T86ok = { stat: 'OK', fields: ['證券代號', '證券名稱', '外陸資買賣超股數(不含外資自營商)', '外資自營商買賣超股數', '投信買賣超股數', '自營商買賣超股數'], data: [['2330', '台積電', '1,000,000', '0', '500,000', '100,000']] };

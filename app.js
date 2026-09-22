@@ -1,6 +1,6 @@
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['app.js'] = 163; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['app.js'] = 164; } catch (e) {}
 
 // ══════════════════════════════════════════════════════════════════════
 // 短線雷達 Pro — 風險優先分層決策系統
@@ -874,13 +874,22 @@ function checkFilesLoaded() {
   } catch (e) {}
 
   if (!missing.length && !stale.length) return true;
+  /* v164：這條橫幅原本是 position:fixed;top:0，會整片蓋住標題列——
+     然後它還叫使用者去按「📒 → 設定」，而那顆按鈕正好被它蓋住。
+     改成插在頁面最前面的一般流排版（會把內容往下推、不蓋任何東西），
+     並且把「清除快取重新載入」做成橫幅自己的按鈕，不必再去翻選單。 */
   const bar = document.createElement('div');
-  bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:999;background:#7F1D1D;color:#fff;padding:10px 12px;font-size:12px;line-height:1.6';
+  bar.id = 'file-warn-bar';
+  bar.style.cssText = 'position:relative;z-index:999;background:#7F1D1D;color:#fff;padding:12px 14px;font-size:13px;line-height:1.7';
   bar.innerHTML =
     (missing.length ? `⚠️ 程式檔未完整載入：<b>${missing.join('、')}</b>（部分功能會失效）<br>` : '')
     + (stale.length ? `⚠️ 這些檔案是舊版，請重新上傳：<b>${stale.join('、')}</b><br>` : '')
-    + '請先到 📒 → ⚙️ 設定 → 「🔄 清除快取並重新載入」；若仍相同，代表主機上的檔案本身就是舊的，需重新部署。';
-  document.body.appendChild(bar);
+    + '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">'
+    + '<button onclick="forceUpdateApp()" style="background:#fff;color:#7F1D1D;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer">🔄 清除快取並重新載入</button>'
+    + '<button onclick="this.closest(\'#file-warn-bar\').remove()" style="background:transparent;color:#fff;border:1px solid #fff8;border-radius:8px;padding:8px 14px;font-size:13px;cursor:pointer">✕ 先不處理</button>'
+    + '</div>'
+    + '<div style="margin-top:8px;font-size:12px;opacity:.85">按了還是一樣，代表主機上的檔案本身就是舊的——請重新上傳這些檔案，不是快取問題。</div>';
+  document.body.insertBefore(bar, document.body.firstChild);
   try { ErrorLog.push('checkFilesLoaded', new Error('缺少：' + missing.join(',') + '｜舊版：' + stale.join(','))); } catch (e) {}
   return false;
 }
