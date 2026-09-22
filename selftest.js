@@ -443,6 +443,12 @@ async function backendTests() {
     // v164：橫幅不得用 fixed 蓋住標題列（它叫人去按的按鈕就在標題列裡），且必須自帶清除快取按鈕
     ok('提示橫幅不會蓋住標題列', /insertBefore\(bar, document\.body\.firstChild\)/.test(appSrc) && !/bar\.style\.cssText = 'position:fixed;top:0/.test(appSrc));
     ok('提示橫幅自帶「清除快取」按鈕', /onclick="forceUpdateApp\(\)"/.test(appSrc));
+    /* v165：內建池的死代碼要能自動略過，但必須①連續兩次才除名（避免限流誤殺）
+       ②只認「查無K線」③略過要明講並可復原（不能變成另一種靜默） */
+    const scanSrc = fs.readFileSync(path.join(ROOT, 'scan.js'), 'utf8');
+    ok('死代碼需連續2次才自動略過', /dead\[c\] >= 2/.test(scanSrc));
+    ok('只有「查無K線」才計入死代碼', /查無K線\|查無此代碼/.test(scanSrc) && !/不足60日[\s\S]{0,40}deadTrack/.test(scanSrc));
+    ok('略過的代碼會明講並可復原', /已自動略過/.test(scanSrc) && /function resetDead/.test(scanSrc));
   }
 
   // ⑦c1 TWSE 路徑失效時要能自動換路徑，而不是整個維度靜默消失

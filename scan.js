@@ -15,7 +15,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['scan.js'] = 163; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['scan.js'] = 165; } catch (e) {}
 
 /* v115修：前端原送15檔/批，但 Code.gs（GAS後端）上限只取前10檔——
    使用GAS的人每批會默默遺失5檔（不成功也不算失敗，直接消失，總數對不上）。
@@ -137,9 +137,23 @@ function evalScanConditions(D, dir) {
 
 /* v114 主入口：選方向就直接掃內建池，使用者完全不必碰代碼。
    （舊的 runScan 保留給「進階：自訂清單」使用，兩者共用同一套掃描核心） */
+/* ── v165 死代碼自動略過 ────────────────────────────────────────────────
+   內建池是靜態清單，下市／合併／改代碼一定會發生（1704、2888 都已手動移除過）。
+   每次都要人工來修不切實際，所以改成：某檔「連續兩次掃描都查無K線」就記起來，
+   之後自動略過並在結果上方明講略過了哪幾檔，附一鍵復原。
+   ⚠️ 為什麼要連續兩次：Yahoo 偶發限流也會回查無K線，一次就除名會誤殺活股。
+   ⚠️ 只有「查無K線」算數；「不足60日」是真的資料不夠，不是死代碼，不列入。 */
+const DEAD_KEY = 'sr_dead_codes';
+function loadDead() { try { return JSON.parse(localStorage.getItem(DEAD_KEY) || '{}'); } catch (e) { return {}; } }
+function saveDead(m) { try { localStorage.setItem(DEAD_KEY, JSON.stringify(m)); } catch (e) {} }
+function resetDead() { try { localStorage.removeItem(DEAD_KEY); } catch (e) {} const b = document.getElementById('scan-result'); if (b) b.innerHTML = '<div style="font-size:12px;color:var(--muted)">已復原被略過的代碼，請重新掃描。</div>'; }
+
 async function runScanAuto(dirStr) {
   const ta = document.getElementById('scan-codes');
-  if (ta) ta.value = TW_POOL.join(' ');          // 自動填入內建池
+  const dead = loadDead();
+  // 連續失敗達 2 次的代碼不再送出
+  const pool = TW_POOL.filter(c => !(dead[c] >= 2));
+  if (ta) ta.value = pool.join(' ');          // 自動填入內建池（已扣除死代碼）
   const sel = document.getElementById('scan-dir');
   if (sel) sel.value = dirStr;                    // 同步方向
   document.getElementById('scan-short').disabled = true;
@@ -161,6 +175,7 @@ async function runScan() {
   if (codes.length > 130) { box.innerHTML = '<div style="color:var(--warn);font-size:12px">一次最多130檔（避免後端負擔過重與等待過久）</div>'; return; }
 
   saveScanPool();   // v113：掃描前存檔（使用者常編輯後直接掃，不關面板）
+  const deadTrack = loadDead();   // v165：累計「查無K線」次數，滿2次才自動略過
   _scanAbort = false;
   document.getElementById('scan-run').disabled = true;
   document.getElementById('scan-stop').style.display = 'inline-block';
@@ -191,6 +206,7 @@ async function runScan() {
       for (const item of (j.results || [])) {
         // v152：後端現在會逐檔回傳失敗原因，別再丟掉（丟掉就只剩「ok:false」這種無用訊息）
         if (!item.ok) { rows.push({ code: item.code, err: true, errMsg: item.error }); continue; }
+        if (deadTrack[item.code]) delete deadTrack[item.code];   // v165：這次抓到了就清除失敗紀錄
         /* v142：掃描也套用「盤中丟棄未完成K棒」（與個股查詢同一函式），
            否則同一時刻掃描用今日未收K、個股頁用前一日完成K，兩邊結論會不一致 */
         const it = (typeof trimIntradayBar === 'function') ? trimIntradayBar(item) : item;
@@ -214,14 +230,19 @@ async function runScan() {
     }
   }
 
+  /* v165：把本輪「查無K線」的累計次數寫回；抓得到的已在上面清除。
+     只認查無K線，不足60日與其他錯誤不計入（那些不是死代碼）。 */
+  for (const r of rows) if (r.err && /查無K線|查無此代碼/.test(r.errMsg || '')) deadTrack[r.code] = (deadTrack[r.code] || 0) + 1;
+  saveDead(deadTrack);
+
   document.getElementById('scan-run').disabled = false;
   document.getElementById('scan-stop').style.display = 'none';
-  renderScanResult(rows, dir, ((Date.now() - t0) / 1000).toFixed(0));
+  renderScanResult(rows, dir, ((Date.now() - t0) / 1000).toFixed(0), deadTrack);
 }
 
 function stopScan() { _scanAbort = true; }
 
-function renderScanResult(rows, dir, secs) {
+function renderScanResult(rows, dir, secs, deadTrack) {
   const box = document.getElementById('scan-result');
   const good = rows.filter(r => !r.err && !r.filtered).sort((a, b) => b.score - a.score);
   const errs = rows.filter(r => r.err);
@@ -248,6 +269,12 @@ function renderScanResult(rows, dir, secs) {
     })()}
     <div style="font-size:10px;color:var(--muted2);margin-top:4px">依「通過條件數 − 未通過數」排序。<b>這不是漲跌預測</b>——19年7,908事件已證方向不可測；此處排的是「目前進場的條件結構」，最終仍須逐檔開啟完整分析與紀律門確認。</div>
   </div>`;
+
+  // v165：明講這次自動略過了哪幾檔死代碼，並提供一鍵復原（不要讓它變成另一種靜默）
+  const skipped = Object.keys(deadTrack || {}).filter(c => deadTrack[c] >= 2);
+  if (skipped.length) h += `<div style="margin-top:6px;padding:8px 10px;background:var(--bg);border:1px dashed var(--bd2);border-radius:7px;font-size:10px;color:var(--muted);line-height:1.6">
+    ℹ️ 已自動略過 ${skipped.length} 檔連續查無K線的代碼（多半是下市／合併／改代碼）：<b>${skipped.join('、')}</b>
+    <button onclick="resetDead()" style="margin-left:6px;background:transparent;border:1px solid var(--bd2);color:var(--acc);border-radius:5px;font-size:10px;padding:2px 8px;cursor:pointer">復原</button></div>`;
 
   if (!good.length) h += '<div style="font-size:12px;color:var(--warn)">沒有成功取得資料的股票</div>';
 
