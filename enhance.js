@@ -265,13 +265,17 @@ function computeMarketScore(m) {
   let score = 50; // 中性基準
   const factors = [];
 
-  // 外資期貨淨多空（±15）
-  if (t.foreignNet != null) {
+  /* v158：這兩個維度的資料管線原本是壞的（外資期貨端點網址錯、PCR欄名錯），
+     從未生效，因此也從未被回測驗證。資料修好後若直接恢復計分，等於一夕之間
+     讓兩個未驗證規則開始左右大盤分數——依本專案規矩（EVIDENCE 分級）先列為
+     U級不計分、只在大盤卡片顯示數值。要啟用請把 config.js 的 w 調成 >0。 */
+  // 外資期貨淨多空（±12）
+  if (t.foreignNet != null && typeof evScorable === 'function' && evScorable('twFutures')) {
     if (t.foreignNet > 0) { score += 12; factors.push('外資期貨偏多 +12'); }
     else { score -= 12; factors.push('外資期貨偏空 -12'); }
   }
-  // PCR（±10）：>120 反指標偏多
-  if (t.pcrOI) {
+  // PCR（±8）：>120 反指標偏多
+  if (t.pcrOI && typeof evScorable === 'function' && evScorable('pcr')) {
     if (t.pcrOI > 120) { score += 8; factors.push('PCR高散戶恐慌(反指標偏多) +8'); }
     else if (t.pcrOI < 80) { score -= 8; factors.push('PCR低過度樂觀 -8'); }
   }

@@ -190,7 +190,7 @@ function contrarianSignal(D,market){
   if(bias<-12){upAdj+=10;alerts.push({icon:'🔧',title:`負乖離過大 ${bias.toFixed(0)}%`,desc:`超跌深，散戶絕望拋售，反彈機率高。+10 大漲分`});}
 
   // 4. PCR 極端（來自大盤層）
-  if(market&&market.taifex&&market.taifex.pcrOI){
+  if(market&&market.taifex&&market.taifex.pcrOI&&typeof evScorable==='function'&&evScorable('pcr')){   // v158：PCR未經回測驗證前不計分
     const pcr=market.taifex.pcrOI;
     if(pcr>130){upAdj+=10;alerts.push({icon:'⚖️',title:`PCR極高 ${pcr.toFixed(0)}%`,desc:`賣權避險爆量，散戶極度恐慌，物極必反。反指標偏多，+10 大漲分`});}
     if(pcr<70){downAdj+=10;alerts.push({icon:'⚖️',title:`PCR極低 ${pcr.toFixed(0)}%`,desc:`市場過度樂觀，散戶貪婪，留意反轉。反指標偏空，+10 大跌分`});}

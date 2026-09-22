@@ -346,8 +346,24 @@ async function backendTests() {
     fetchImpl = async () => jr([{ Date: '20260921', PutOI: '59117', CallOI: '61452', PutVolume: '156156', CallVolume: '124823' }]);
     const pcr2 = await mod.fetchTaifexPCR();
     ok('PCR 欄名改變仍能自己算', Math.abs(pcr2.pcrOI - 96.20) < 0.01, String(pcr2.pcrOI));
-    // 台指期：欄名完全對不上時必須回 null（0 會被前端當成「外資偏空」的真訊號）
-    fetchImpl = async () => jr([{ Date: '20260921', ContractName: '臺股期貨', IdentityType: '外資', SomeUnknownField: '123' }]);
+    /* 台指期：以下為期交所實際回傳的欄位與數值（2026-09-22 取得）。
+       欄名是 ContractCode / Item / OpenInterest(Net)，與程式原先猜的三個名稱全都不同。
+       另外刻意保留「電子期貨」與金額欄，確保：
+         ① 只取臺股期貨，不把其他契約也加進來
+         ② 取到的是口數 OpenInterest(Net)，不是同列的契約金額（差三個數量級） */
+    const FUT_REAL = [
+      { Date: '20260921', ContractCode: '臺股期貨', Item: '自營商', 'OpenInterest(Net)': '-3354', 'ContractValueofOpenInterest(Net)(Thousands)': '-32229030' },
+      { Date: '20260921', ContractCode: '臺股期貨', Item: '投信', 'OpenInterest(Net)': '74019', 'ContractValueofOpenInterest(Net)(Thousands)': '711367002' },
+      { Date: '20260921', ContractCode: '臺股期貨', Item: '外資及陸資', 'OpenInterest(Net)': '-74081', 'ContractValueofOpenInterest(Net)(Thousands)': '-712023417' },
+      { Date: '20260921', ContractCode: '電子期貨', Item: '外資及陸資', 'OpenInterest(Net)': '-63', 'ContractValueofOpenInterest(Net)(Thousands)': '-765349' },
+      { Date: '20260921', ContractCode: '小型臺指期貨', Item: '外資及陸資', 'OpenInterest(Net)': '5667', 'ContractValueofOpenInterest(Net)(Thousands)': '13616560' }];
+    fetchImpl = async () => jr(FUT_REAL);
+    const futReal = await mod.fetchTaifexFutures();
+    ok('外資台指期淨未平倉＝實際值 -74081', futReal && futReal.foreignNet === -74081, JSON.stringify(futReal && futReal.foreignNet));
+    ok('三大法人合計＝-3354+74019-74081', futReal && futReal.institutionNet === -3416, String(futReal && futReal.institutionNet));
+    ok('台指期資料日期正確', futReal && futReal.date === '20260921', String(futReal && futReal.date));
+    // 欄名完全對不上時必須回 null（0 會被前端當成「外資偏空」的真訊號）
+    fetchImpl = async () => jr([{ Date: '20260921', ContractCode: '臺股期貨', Item: '外資及陸資', SomeUnknownField: '123' }]);
     const futBad = await mod.fetchTaifexFutures();
     ok('台指期欄名對不上時回 null，不假裝中性', futBad === null || futBad.foreignNet === null, JSON.stringify(futBad));
     const MARGN = { stat: 'OK', fields: ['股票代號', '名稱', '融資買進', '融資賣出', '現金償還', '融資前日餘額', '融資今日餘額', '融資限額', '融券買進', '融券賣出', '現券償還', '融券前日餘額', '融券今日餘額'], data: [['2330', '台積電', '0', '0', '0', '0', '1,000', '0', '0', '0', '0', '0', '100']] };
@@ -362,6 +378,18 @@ async function backendTests() {
     ok('融資融券：真失敗仍算缺漏', (await mod.fetchMargin('2330')).headMiss > 0);
   }
 
+  // ⑦a 端點名稱必須與期交所官方 OAS 清單一致（打錯字＝對方導回目錄頁，整個維度靜默消失）
+  {
+    const wk = fs.readFileSync(path.join(ROOT, 'worker.js'), 'utf8');
+    const gs = fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8');
+    // 只檢查真正發出去的網址（註解裡提到舊名不算）
+    const GOOD = /taifex\.com\.tw\/v1\/MarketDataOfMajorInstitutionalTradersDetailsOfFuturesContractsBytheDate/;
+    const BAD = /taifex\.com\.tw\/v1\/\w*AsSpecificFuturesContract\w*/;
+    ok('worker 三大法人端點名稱正確', GOOD.test(wk) && !BAD.test(wk));
+    ok('GAS 三大法人端點名稱正確（端點對等）', GOOD.test(gs) && !BAD.test(gs));
+    ok('PCR 端點名稱正確', wk.includes('/v1/PutCallRatio') && gs.includes('/v1/PutCallRatio'));
+  }
+
   // ⑦b 來源死掉時不可以靜默消失（期交所端點路徑已證實會導回 API 目錄頁 HTML）
   {
     fetchImpl = async () => ({ ok: true, status: 200, text: async () => '<!DOCTYPE html><html>swagger</html>', json: async () => { throw new Error('Unexpected token <'); } });
@@ -374,6 +402,17 @@ async function backendTests() {
     ok('worker 會回傳 sourceErrors', /out\.sourceErrors = srcErr/.test(wk));
     const gs = fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8');
     ok('GAS 會回傳 sourceErrors（端點對等）', /out\.sourceErrors = srcErr/.test(gs));
+  }
+
+  // ⑦c 復活的維度不得在未驗證下就開始影響分數
+  {
+    const cfg = fs.readFileSync(path.join(ROOT, 'config.js'), 'utf8');
+    ok('config 已登記 twFutures / pcr 為未驗證', /twFutures:\s*\{[^}]*w:\s*0/.test(cfg) && /\bpcr:\s*\{[^}]*w:\s*0/.test(cfg));
+    ok('config 提供 evScorable 開關', /function evScorable/.test(cfg));
+    for (const [f, k] of [['enhance.js', 'twFutures'], ['enhance.js', 'pcr'], ['quant.js', 'pcr'], ['smc.js', 'pcr']]) {
+      const src = fs.readFileSync(path.join(ROOT, f), 'utf8');
+      ok(`${f} 的 ${k} 已受 EVIDENCE 控制`, new RegExp(`evScorable\\('${k}'\\)`).test(src));
+    }
   }
 
   // ⑧ 前端判定：假日不得誤報、真失敗必須示警

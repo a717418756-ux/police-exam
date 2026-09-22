@@ -178,7 +178,7 @@ function computeOverheat(D, formulas, market) {
   }
 
   // PCR 極端（大盤）
-  if (market && market.taifex && market.taifex.pcrOI) {
+  if (market && market.taifex && market.taifex.pcrOI && typeof evScorable === 'function' && evScorable('pcr')) {   // v158：同上，未驗證不計分
     const pcr = market.taifex.pcrOI;
     if (pcr < 70) { heat += 15; reasons.push(`大盤 PCR ${pcr.toFixed(0)}%（市場過度樂觀）`); }
   }
