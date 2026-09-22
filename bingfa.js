@@ -54,6 +54,11 @@
        改動其一必須同步改另一處，否則同股票會出現互相矛盾的訊息
    ══════════════════════════════════════════════════════════════════════ */
 
+/* v159：marginChg5 名為「5日變化」，但後端資料不足 6 筆時是拿現有最舊那筆當基準，
+   實際可能只跨 2~3 天。2 天漲 4% 與 5 天漲 4% 意義完全不同，直接套同一個門檻
+   會讓紀律門誤擋。chg5N 是後端回報的實際跨距；舊後端沒有此欄位時放行（不改行為）。 */
+function marginSpanOK(m) { return !!m && (m.chg5N == null || m.chg5N >= 4); }
+
 /* ── 勢能分數（觀勢）────────────────────────────────────────────────
    趨勢40% + 籌碼30% + 成交量20% + 產業10%(用RS近似)
    各子項標準化到 0~100，加權合計
@@ -256,7 +261,7 @@ function renderVerdictBanner(shi, tradeScore, formulas, marketScore, res, D, reg
   try { if (crowd && crowd.crowding >= 70) addW(4, '👥', `散戶擁擠度 ${crowd.crowding}/100：教科書訊號人人可見，停損密集區易被掃——與主力反向時是陷阱`); } catch (e) {}
   try {
     const mg = (typeof _marginCache !== 'undefined' && _marginCache[D.code]) ? _marginCache[D.code].d : null;
-    if (mg && D.closes.length >= 6 && mg.marginChg5 > 4 && D.price < D.closes[D.closes.length - 6]) addW(4, '💳', '融資增+價跌：散戶逆勢接刀象限（歷史最危險），下跌常未完，做多再等');
+    if (mg && marginSpanOK(mg) && D.closes.length >= 6 && mg.marginChg5 > 4 && D.price < D.closes[D.closes.length - 6]) addW(4, '💳', '融資增+價跌：散戶逆勢接刀象限（歷史最危險），下跌常未完，做多再等');
   } catch (e) {}
   try {
     const dp = (typeof _deepCache !== 'undefined' && _deepCache[D.code]) ? _deepCache[D.code].d : null;
@@ -684,7 +689,7 @@ function computeTradeGate(ctx) {
         } catch (e) {}
       }
     } else {
-      if (margin && margin.marginChg5 > 4 && D.closes.length >= 6 && D.price < D.closes[D.closes.length - 6]) fail.push('融資增+價跌（散戶接刀象限）：別跟散戶一起接');
+      if (margin && marginSpanOK(margin) && margin.marginChg5 > 4 && D.closes.length >= 6 && D.price < D.closes[D.closes.length - 6]) fail.push('融資增+價跌（散戶接刀象限）：別跟散戶一起接');
       if (psy >= 80) warn.push(`PSY ${psy} 貪婪區：多單防均值回歸`);
     }
 
@@ -705,8 +710,8 @@ function computeTradeGate(ctx) {
       if (dir === 1 && b.bigChg > 0.3 && b.smallChg < -0.2) pass.push(`籌碼流向大戶（多單結構順風）`);
     }
     if (deep && deep.lend) {
-      if (dir === -1 && deep.lend.chg5 >= 8) pass.push(`法人借券空單增 +${deep.lend.chg5}%（機構隊友）`);
-      if (dir === -1 && deep.lend.chg5 <= -8) warn.push(`法人借券回補中（${deep.lend.chg5}%）：空方主力撤退，別戀戰`);
+      if (dir === -1 && marginSpanOK(deep.lend) && deep.lend.chg5 >= 8) pass.push(`法人借券空單增 +${deep.lend.chg5}%（機構隊友）`);
+      if (dir === -1 && marginSpanOK(deep.lend) && deep.lend.chg5 <= -8) warn.push(`法人借券回補中（${deep.lend.chg5}%）：空方主力撤退，別戀戰`);
     }
 
     // 裁決：任一 fail = 禁止；warn≥2 = 謹慎；pass≥3 且 warn≤1 = 出手
@@ -1083,8 +1088,8 @@ function computeBehaviorSynthesis(ctx) {
     const c = D.closes, n = c.length;
     const priceDown5 = n >= 6 && D.price < c[n - 6];
     let mDir = 0, mRead = '融資融券無明顯異常';
-    if (margin.marginChg5 > 4 && priceDown5) { mDir = -1; mRead = '融資增+價跌＝散戶逆勢接刀（歷史上最危險的象限），下跌常未完'; }
-    else if (margin.marginChg5 < -3 && !priceDown5) { mDir = 1; mRead = '融資減+價漲＝籌碼從散戶流向主力（最健康的上漲）'; }
+    if (marginSpanOK(margin) && margin.marginChg5 > 4 && priceDown5) { mDir = -1; mRead = '融資增+價跌＝散戶逆勢接刀（歷史上最危險的象限），下跌常未完'; }
+    else if (marginSpanOK(margin) && margin.marginChg5 < -3 && !priceDown5) { mDir = 1; mRead = '融資減+價漲＝籌碼從散戶流向主力（最健康的上漲）'; }
     else if (margin.shortRatio >= 25) { mDir = 1; mRead = `券資比${margin.shortRatio.toFixed(0)}%＝散戶空單擁擠，軋空燃料充足`; }
     if (mDir !== 0) {
       behaviors.push({ name: '散戶槓桿行為', actor: '散戶', dir: mDir, strength: 60,
@@ -1112,7 +1117,7 @@ function computeBehaviorSynthesis(ctx) {
       read: `近${deep.dealer.days}日自行淨${deep.dealer.selfNet > 0 ? '買' : '賣'} ${Math.abs(deep.dealer.selfNet)} 張——這是自營商真實方向意圖（避險部位不計）`,
     });
   }
-  if (deep && deep.lend && Math.abs(deep.lend.chg5) >= 8) {
+  if (deep && deep.lend && marginSpanOK(deep.lend) && Math.abs(deep.lend.chg5) >= 8) {
     behaviors.push({
       name: `法人空單：${deep.lend.chg5 > 0 ? '增持' : '回補'}`, actor: '法人',
       dir: deep.lend.chg5 > 0 ? -1 : 1, strength: 55,

@@ -213,6 +213,8 @@ async function backendTests() {
   const G = {};
   new Function('module', fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8') + '\nmodule.fetchYahoo=fetchYahoo;module.fetchYahooTW=fetchYahooTW;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;')(G);
 
+  // twseGet 會先讀 resp.text()；測試替身統一用 jt() 同時提供 text 與 json
+  const jt = o => ({ ok: true, status: 200, text: async () => JSON.stringify(o), json: async () => o });
   const DAY = 86400, base = Date.parse('2026-09-14T01:00:00Z') / 1000;
   const chart = (n, o = {}) => { const ts = [], cl = [], hi = [], lo = [], op = [], vo = [], ac = [];
     for (let i = 0; i < n; i++) { ts.push(base + i * DAY);
@@ -294,14 +296,14 @@ async function backendTests() {
   const HOL = { stat: '很抱歉，沒有符合條件的資料!' };
   const dOf = u => new URL(u).searchParams.get('date');
   let asked = [];
-  fetchImpl = async u => { asked.push(dOf(u)); return { ok: true, json: async () => T86 }; };
+  fetchImpl = async u => { asked.push(dOf(u)); return jt(T86); };
   await W.fetchTaiwanChip('2330');
   const newest = asked.sort().slice(-1)[0];
-  fetchImpl = async u => ({ ok: true, json: async () => (dOf(u) === newest ? HOL : T86) });
+  fetchImpl = async u => jt(dOf(u) === newest ? HOL : T86);
   const ch = await W.fetchTaiwanChip('2330');
   ok('worker 假日不算籌碼缺漏', ch.headMiss === 0, `headMiss=${ch.headMiss}`);
   ok('worker 假日時 expected 往前推', ch.expected === ch.dataDate, `${ch.expected}/${ch.dataDate}`);
-  fetchImpl = async u => (dOf(u) === newest ? { ok: false, status: 500 } : { ok: true, json: async () => T86 });
+  fetchImpl = async u => (dOf(u) === newest ? { ok: false, status: 500, text: async () => '' } : jt(T86));
   const ch2 = await W.fetchTaiwanChip('2330');
   ok('worker 真失敗仍算籌碼缺漏', ch2.headMiss > 0 && (ch2.missDates || []).includes(newest));
   let gAsked = [];
@@ -368,13 +370,13 @@ async function backendTests() {
     ok('台指期欄名對不上時回 null，不假裝中性', futBad === null || futBad.foreignNet === null, JSON.stringify(futBad));
     const MARGN = { stat: 'OK', fields: ['股票代號', '名稱', '融資買進', '融資賣出', '現金償還', '融資前日餘額', '融資今日餘額', '融資限額', '融券買進', '融券賣出', '現券償還', '融券前日餘額', '融券今日餘額'], data: [['2330', '台積電', '0', '0', '0', '0', '1,000', '0', '0', '0', '0', '0', '100']] };
     let mAsked = [];
-    fetchImpl = async u => { mAsked.push(dOf(u)); return { ok: true, json: async () => MARGN }; };
+    fetchImpl = async u => { mAsked.push(dOf(u)); return jt(MARGN); };
     await mod.fetchMargin('2330');
     const mNewest = mAsked.sort().slice(-1)[0];
-    fetchImpl = async u => ({ ok: true, json: async () => (dOf(u) === mNewest ? { stat: '很抱歉，沒有符合條件的資料!' } : MARGN) });
+    fetchImpl = async u => jt(dOf(u) === mNewest ? { stat: '很抱歉，沒有符合條件的資料!' } : MARGN);
     const mg = await mod.fetchMargin('2330');
     ok('融資融券：假日不算缺漏', mg.headMiss === 0, `headMiss=${mg.headMiss}`);
-    fetchImpl = async u => (dOf(u) === mNewest ? { ok: false, status: 500 } : { ok: true, json: async () => MARGN });
+    fetchImpl = async u => (dOf(u) === mNewest ? { ok: false, status: 500, text: async () => '' } : jt(MARGN));
     ok('融資融券：真失敗仍算缺漏', (await mod.fetchMargin('2330')).headMiss > 0);
   }
 
@@ -413,6 +415,115 @@ async function backendTests() {
       const src = fs.readFileSync(path.join(ROOT, f), 'utf8');
       ok(`${f} 的 ${k} 已受 EVIDENCE 控制`, new RegExp(`evScorable\\('${k}'\\)`).test(src));
     }
+  }
+
+  // ⑦c1 TWSE 路徑失效時要能自動換路徑，而不是整個維度靜默消失
+  {
+    const T86ok = { stat: 'OK', fields: ['證券代號', '證券名稱', '外陸資買賣超股數(不含外資自營商)', '外資自營商買賣超股數', '投信買賣超股數', '自營商買賣超股數'], data: [['2330', '台積電', '1,000,000', '0', '500,000', '100,000']] };
+    const seen = [];
+    // 模擬使用者實測到的情況：/exchange/ 與 /fund/ 皆 404，只有新版 /rwd/zh/ 可用
+    fetchImpl = async u => {
+      seen.push(new URL(u).pathname);
+      if (!/^\/rwd\/zh\//.test(new URL(u).pathname)) return { ok: false, status: 404, text: async () => 'Not Found' };
+      return { ok: true, status: 200, text: async () => JSON.stringify(T86ok) };
+    };
+    const c = await W2.fetchTaiwanChip('2330');
+    ok('舊路徑 404 時會自動改用可用路徑', !!c && c.days > 0, `days=${c && c.days}`);
+    ok('找到可用路徑後不再重複試錯', seen.filter(x => !/^\/rwd\/zh\//.test(x)).length <= 3, `試錯次數 ${seen.filter(x => !/^\/rwd\/zh\//.test(x)).length}`);
+    // 全部路徑都死 → 必須丟出列出每個路徑結果的錯誤，不可默默回空
+    fetchImpl = async () => ({ ok: false, status: 404, text: async () => 'Not Found' });
+    let mErr = '';
+    try { await W2.fetchMargin('2330'); } catch (e) { mErr = String(e.message || e); }
+    ok('全部路徑失效時給得出可辨識錯誤', /所有已知路徑都失敗|無融資融券資料/.test(mErr), mErr.slice(0, 70));
+    // 非交易日（stat 非 OK）不可被誤判成路徑失效
+    fetchImpl = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ stat: '很抱歉，沒有符合條件的資料!' }) });
+    let hErr = '';
+    try { const ch = await W2.fetchTaiwanChip('2330'); hErr = ch === null ? 'null（無任何交易日資料，合理）' : 'ok'; } catch (e) { hErr = 'THREW:' + e.message; }
+    ok('非交易日不被誤判成路徑失效', !/THREW.*所有已知路徑/.test(hErr), hErr.slice(0, 50));
+    const wk4 = fs.readFileSync(path.join(ROOT, 'worker.js'), 'utf8');
+    const gs4 = fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8');
+    ok('兩個後端都不再寫死 /exchange/ 路徑', !/twse\.com\.tw\/exchange\/(MI_MARGN|BWIBBU_d)/.test(wk4) && !/twse\.com\.tw\/exchange\/(MI_MARGN|BWIBBU_d)/.test(gs4));
+  }
+
+  // ⑦c1b 已用瀏覽器實測可用的 TWSE 路徑必須排第一順位；且欄名對不上時絕不可用位置猜
+  {
+    const wk5 = fs.readFileSync(path.join(ROOT, 'worker.js'), 'utf8');
+    const gs5 = fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8');
+    ok('MI_MARGN 首選為實測可用路徑', /MI_MARGN: \['rwd\/zh\/marginTrading\/MI_MARGN'/.test(wk5));
+    ok('BWIBBU_d 首選為實測可用路徑', /BWIBBU_d: \['rwd\/zh\/afterTrading\/BWIBBU_d'/.test(wk5));
+    ok('兩個後端都已移除寫死的欄位索引', !/iMar = 6|iShort = 12|iY = 2, iPE = 4/.test(wk5) && !/iMar = 6|iShort = 12|iY = 2, iPE = 4/.test(gs5));
+    // 欄名完全不符時：必須丟出說得出原因的錯誤，而不是回一個看似正常的數字
+    const BAD = { stat: 'OK', fields: ['股票代號', '名稱', '甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸', '子'], data: [['2330', '台積電', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11']] };
+    fetchImpl = async () => jt(BAD);
+    let bErr = '';
+    try { await W2.fetchMargin('2330'); } catch (e) { bErr = String(e.message || e); }
+    ok('融資欄名對不上時明講而非給錯數字', /欄位對不上/.test(bErr), bErr.slice(0, 60));
+  }
+
+  // ⑦c2 T86 欄位：用 TWSE 實際回傳核對（2026-09-22），並確保不會抓到「外資自營商」那欄
+  {
+    const REAL_F = ['證券代號', '證券名稱',
+      '外陸資買進股數(不含外資自營商)', '外陸資賣出股數(不含外資自營商)', '外陸資買賣超股數(不含外資自營商)',
+      '外資自營商買進股數', '外資自營商賣出股數', '外資自營商買賣超股數',
+      '投信買進股數', '投信賣出股數', '投信買賣超股數',
+      '自營商買賣超股數', '自營商買進股數(自行買賣)', '自營商賣出股數(自行買賣)', '自營商買賣超股數(自行買賣)',
+      '自營商買進股數(避險)', '自營商賣出股數(避險)', '自營商買賣超股數(避險)', '三大法人買賣超股數'];
+    // 2330 當日實際數值（單位：股）
+    const ROW = ['2330', '台積電　', '9,832,887', '7,143,383', '2,689,504', '0', '0', '0',
+      '928,551', '193,945', '734,606', '614,602', '454,602', '16,050', '438,552', '217,302', '41,252', '176,050', '4,038,712'];
+    const realT86 = { stat: 'OK', fields: REAL_F, data: [ROW] };
+    const dOf3 = u => new URL(u).searchParams.get('date');
+    fetchImpl = async () => jt(realT86);
+    const cr = await W2.fetchTaiwanChip('2330');
+    ok('T86 外資＝2,689.5張（實際欄名對得上）', Math.abs(cr.foreign1 - 2689.504) < 0.01, String(cr.foreign1));
+    ok('T86 投信＝734.6張', Math.abs(cr.trust1 - 734.606) < 0.01, String(cr.trust1));
+    // 欄位順序若調換，仍不可抓到「外資自營商買賣超股數」（那欄幾乎天天為0）
+    const swapped = REAL_F.slice(), rowS = ROW.slice();
+    [swapped[4], swapped[7]] = [swapped[7], swapped[4]];
+    [rowS[4], rowS[7]] = [rowS[7], rowS[4]];
+    fetchImpl = async () => jt({ stat: 'OK', fields: swapped, data: [rowS] });
+    const cs = await W2.fetchTaiwanChip('2330');
+    ok('T86 欄位順序調換後外資仍正確（不會抓到外資自營商）', Math.abs(cs.foreign1 - 2689.504) < 0.01, String(cs.foreign1));
+    const wk3 = fs.readFileSync(path.join(ROOT, 'worker.js'), 'utf8');
+    const gs3 = fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8');
+    ok('兩個後端都用實際欄名比對外資（端點對等）',
+      wk3.includes('外陸資買賣超股數(不含外資自營商)') && gs3.includes('外陸資買賣超股數(不含外資自營商)'));
+  }
+
+  // ⑦d 時間上限不得造成「靜默的錯答案」：N日累計必須誠實回報實際天數
+  {
+    const T86b = { stat: 'OK', fields: ['證券代號', '證券名稱', '外資及陸資買賣超股數', '投信買賣超股數', '自營商買賣超股數'], data: [['2330', '台積電', '1,000,000', '500,000', '100,000']] };
+    const dOf2 = u => new URL(u).searchParams.get('date');
+    // 只讓最新 8 個交易日有資料，其餘回非交易日 → 20日累計實際只有 8 天
+    let seen8 = [];
+    fetchImpl = async u => { seen8.push(dOf2(u)); return jt(T86b); };
+    await W2.fetchTaiwanChip('2330');
+    const newest8 = seen8.sort().slice(-8);
+    fetchImpl = async u => jt(newest8.includes(dOf2(u)) ? T86b : { stat: '很抱歉，沒有符合條件的資料!' });
+    const c8 = await W2.fetchTaiwanChip('2330');
+    ok('籌碼回報 5日/20日實際天數', c8.n5 === 5 && c8.n20 === 8, `n5=${c8.n5} n20=${c8.n20} days=${c8.days}`);
+    ok('20日累計＝實際天數的加總（不冒充20天）', c8.foreign20 === 1000 * 8, String(c8.foreign20));
+
+    // 融資：資料不足6筆時要回報實際跨距，不能一律叫「5日變化」
+    const MG = n => ({ stat: 'OK', fields: ['股票代號', '名稱', '融資買進', '融資賣出', '現金償還', '融資前日餘額', '融資今日餘額', '融資限額', '融券買進', '融券賣出', '現券償還', '融券前日餘額', '融券今日餘額'], data: [['2330', '台積電', '0', '0', '0', '0', String(n), '0', '0', '0', '0', '0', '100']] });
+    let mSeen = [];
+    fetchImpl = async u => { mSeen.push(dOf2(u)); return jt(MG(1000)); };
+    await W2.fetchMargin('2330');
+    const mNew3 = mSeen.sort().slice(-3);
+    fetchImpl = async u => jt(mNew3.includes(dOf2(u)) ? MG(1000) : { stat: '很抱歉，沒有符合條件的資料!' });
+    const m3 = await W2.fetchMargin('2330');
+    ok('融資回報實際跨距 chg5N', m3.chg5N === 2, `chg5N=${m3.chg5N} days=${m3.days}`);
+
+    // 原始碼層級：確保這些防線沒有被改回去
+    const wk2 = fs.readFileSync(path.join(ROOT, 'worker.js'), 'utf8');
+    const cfg2 = fs.readFileSync(path.join(ROOT, 'config.js'), 'utf8');
+    const en2 = fs.readFileSync(path.join(ROOT, 'enhance.js'), 'utf8');
+    const bf2 = fs.readFileSync(path.join(ROOT, 'bingfa.js'), 'utf8');
+    ok('籌碼預算 ≥30 秒', /const BUDGET = (\d+)/.test(wk2) && +RegExp.$1 >= 30000, RegExp.$1);
+    ok('前端逾時 ≥45 秒', /const FE_TIMEOUT = (\d+)/.test(cfg2) && +RegExp.$1 >= 45000, RegExp.$1);
+    ok('法人轉向門檻改用實際天數', /chip\.n5 \|\| 5/.test(en2));
+    ok('20日不足時會明確警告', /實際只用了 \$\{chip\.n20/.test(en2));
+    ok('融資5日跨距不足時不觸發紀律門', /function marginSpanOK/.test(bf2) && (bf2.match(/marginSpanOK\(/g) || []).length >= 5);
   }
 
   // ⑧ 前端判定：假日不得誤報、真失敗必須示警

@@ -112,7 +112,15 @@ function computeChipHealth(chip, D) {
       if (chip.missDates && chip.missDates.length) {
         warnings.push(`⚠️ 籌碼抓取不完整：${chip.missDates.map(d => String(d).slice(4, 6) + '/' + String(d).slice(6, 8)).join('、')} 這幾天沒取到（TWSE 限流或逾時）——本卡籌碼分已改為中性50、不參與任何方向判斷，請重新查詢一次`);
       } else if (chip.gapMiss > 0 && !chip.headMiss) {
-        signals.push(`ℹ️ 較舊的 ${chip.gapMiss} 天沒取到（TWSE 限流）：最新5日完整，僅20日累計精度略受影響`);
+        signals.push(`ℹ️ 較舊的 ${chip.gapMiss} 天沒取到（TWSE 限流）：最新5日完整，20日累計改以實際取得的 ${chip.n20 || chip.days} 天計算`);
+      }
+      /* v159：不論原因，只要 20 日累計其實不足 20 天就必須明講。
+         以前這個數字照樣叫「20日累計」，使用者無從得知它只用了幾天。 */
+      if (chip.n20 != null && chip.n20 < 20) {
+        warnings.push(`⚠️ 「20日累計」實際只用了 ${chip.n20} 個交易日的資料（其餘未取得）——請把它當成 ${chip.n20} 日累計讀，別跟完整20日的門檻直接比較`);
+      }
+      if (chip.n5 != null && chip.n5 < 5) {
+        warnings.push(`⚠️ 「5日累計」實際只用了 ${chip.n5} 個交易日——樣本不足，本卡的法人方向判斷請降權看待`);
       }
       if (chip.headMiss > 0 && !(chip.missDates && chip.missDates.length)) {
         warnings.push(`⚠️ 籌碼抓取不完整：最近6個交易日有 ${chip.headMiss} 天沒取到（TWSE 限流或逾時）——目前顯示的 ${String(chip.dataDate).slice(4,6)}/${String(chip.dataDate).slice(6,8)} 可能不是真正的最新日。請重新查詢一次；若反覆如此，代表 TWSE 該時段連線不穩`);
@@ -127,7 +135,9 @@ function computeChipHealth(chip, D) {
   // v103 法人轉向日偵測：法人進出是分多天走的，等5日合計翻負已慢3-4天——
   // 「連買陣中第一根大賣」（或連賣陣中第一根大買）就是轉向日，第一天最值錢
   try {
-    const f5avg = Math.abs(chip.foreign5) / 5;
+    // v159：原本一律除以 5，但 foreign5 在資料不足時其實只累加了 2~4 天，
+    // 平均值被低估 → 「法人轉向日」的門檻跟著變鬆，會多報。改用實際天數。
+    const f5avg = Math.abs(chip.foreign5) / Math.max(1, chip.n5 || 5);
     if (chip.foreign5 > 0 && chip.foreign1 < -Math.max(f5avg * 1.5, 500)) warnings.push(`⚡ 法人轉向日：外資5日累計買超但「今日」轉大賣${Math.abs(chip.foreign1)}張——法人出貨分多天走，第一天轉向最值錢，別等5日合計翻負才反應`);
     else if (chip.foreign5 < 0 && chip.foreign1 > Math.max(f5avg * 1.5, 500)) signals.push(`⚡ 法人轉向日：外資5日累計賣超但「今日」轉大買${chip.foreign1}張——若隔日續買=空單的離場鬧鐘`);
   } catch (e) {}
