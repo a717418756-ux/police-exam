@@ -103,8 +103,14 @@ function renderMarket(m) {
       sub: '美元與美債殖利率同步走強——外資傾向匯出，台股技術面此時易失效，多單保守、空單順風' });
   }
 
-  if (boxes.length === 0) { $('market-card').style.display = 'none'; return; }
+  /* v156：來源抓不到時，原本只是少顯示一格，使用者完全不會發現某個維度消失了
+     （外資台指期與選擇權 PCR 就這樣靜默缺席很久）。改為明確列出沒拿到的來源。 */
+  const bad = (m.sourceErrors || []);
+  if (boxes.length === 0 && !bad.length) { $('market-card').style.display = 'none'; return; }
   $('market-grid').innerHTML = boxes.map(x =>
     `<div class="risk-box ${x.cls}"><div class="rb-label">${x.label}</div><div class="rb-value ${x.valCls}">${x.value}</div><div class="rb-sub">${x.sub}</div></div>`
-  ).join('');
+  ).join('') + (bad.length ? `<div class="risk-box warn" style="grid-column:1/-1">
+      <div class="rb-label">⚠️ 這些來源這次沒拿到</div>
+      <div class="rb-sub">${bad.map(b => `<b>${b.name}</b>：${b.why}`).join('<br>')}
+      <br>——這幾個維度本次未納入大盤判讀，不是「中性」，是「沒有資料」。</div></div>` : '');
 }

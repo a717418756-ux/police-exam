@@ -195,7 +195,8 @@ async function backendTests() {
   let fetchImpl = async () => { throw new Error('未設定'); };
   global.fetch = (...a) => fetchImpl(...a);
   const W = {};
-  new Function('module', src + '\nmodule.yahooChart=yahooChart;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;')(W);
+  new Function('module', src + '\nmodule.yahooChart=yahooChart;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTaifexFutures=fetchTaifexFutures;module.fetchTaifexPCR=fetchTaifexPCR;module.fetchMargin=fetchMargin;')(W);
+  const W2 = W;
 
   // Code.gs：補上 GAS 全域物件
   const pad = n => String(n).padStart(2, '0');
@@ -232,6 +233,23 @@ async function backendTests() {
   gsFetch = () => gsOf(chart(80, { trailingNull: 1 }));
   ok('GAS lastDate 對齊最後一根有效K棒', G.fetchYahoo('AAPL').lastDate === want);
   ok('GAS 台股有回傳 lastDate（新鮮度檢查才有效）', G.fetchYahooTW('2330').lastDate === want);
+
+  // ①b 用「Yahoo 實際回傳」驗證時間戳慣例（2330.TW，2026-09-22 取得）：
+  //     台股日K的時間戳＝當日 09:00 台北＝01:00Z。period2 用 T23:59:59Z 即可涵蓋當天，
+  //     這是「不再多加一天」那個修正所依賴的前提，這裡把它釘住。
+  {
+    const REAL = { chart: { result: [{ meta: { shortName: 'TSMC', gmtoffset: 28800, exchangeTimezoneName: 'Asia/Taipei' },
+      timestamp: [1789520400, 1789606800, 1789693200, 1789952400, 1790038800],
+      indicators: { quote: [{ high: [2395, 2445, 2460, 2485, 2510], open: [2375, 2405, 2460, 2445, 2505],
+        volume: [17989104, 16009127, 35352856, 14553960, 6106892], close: [2380, 2425, 2460, 2480, 2490],
+        low: [2375, 2400, 2435, 2445, 2490] }], adjclose: [{ adjclose: [2380, 2425, 2460, 2480, 2490] }] } }] } };
+    const everyAt0100Z = REAL.chart.result[0].timestamp.every(t => new Date(t * 1000).toISOString().slice(11) === '01:00:00.000Z');
+    ok('台股日K時間戳為 01:00Z（period2 修正的前提）', everyAt0100Z);
+    fetchImpl = async () => ({ ok: true, json: async () => REAL });
+    const rd = await W.yahooChart('2330.TW', '5d', '1d');
+    ok('實際回傳的 lastDate 正確', rd.lastDate === '20260922', rd.lastDate);
+    ok('實際回傳的昨收正確（今日為未完成K棒）', rd.prevClose === 2480, String(rd.prevClose));
+  }
 
   // ② high/low 缺值不得變成 NaN（NaN 會直接污染 ATR 與關卡）
   fetchImpl = async () => ({ ok: true, json: async () => chart(80, { nullHighAt: 40 }) });
@@ -297,7 +315,68 @@ async function backendTests() {
   gsFetch = u => { if (dOf(u) === gNewest) throw new Error('連線失敗'); return gsOf(T86); };
   ok('GAS 真失敗仍算籌碼缺漏', G.fetchTaiwanChip('2330').headMiss > 0);
 
-  // ⑦ 前端判定：假日不得誤報、真失敗必須示警
+  // ⑦ 期交所／融資融券：不得假設「陣列最後一筆＝最新」，假日不得算成失敗
+  {
+    const mod = W2;
+    const two = [{ Date: '20260918', ContractName: '臺股期貨', IdentityType: '外資', OpenInterestNetAmount: '100' },
+                 { Date: '20260918', ContractName: '臺股期貨', IdentityType: '投信', OpenInterestNetAmount: '50' },
+                 { Date: '20260917', ContractName: '臺股期貨', IdentityType: '外資', OpenInterestNetAmount: '999' },
+                 { Date: '20260917', ContractName: '臺股期貨', IdentityType: '投信', OpenInterestNetAmount: '888' }];
+    // 故意用降冪（最新在最前面）餵進去：舊寫法會取到最舊那天，而且跨日累加
+    const jr0 = o => ({ ok: true, status: 200, text: async () => JSON.stringify(o), json: async () => o });
+    fetchImpl = async () => jr0(two.slice().sort((a, b) => a.Date < b.Date ? 1 : -1));
+    const fut = await mod.fetchTaifexFutures();
+    ok('台指期只採最新日期（順序不影響）', fut.date === '20260918' && fut.foreignNet === 100 && fut.institutionNet === 150,
+      `date=${fut.date} foreign=${fut.foreignNet} total=${fut.institutionNet}`);
+    /* 以下用「期交所實際回傳」當測資（2026-09-22 取得）：
+       ① 順序是日期降冪（最新在第一筆）——舊寫法 arr[arr.length-1] 會拿到最舊的 20260824
+       ② 真實欄名是 PutCallOIRatio% / PutCallVolumeRatio%，不是程式原本猜的
+          PutCallRatioOfOpenInterest——對不上就永遠是 0，而且完全不會報錯 */
+    const PCR_REAL = [
+      { Date: '20260921', PutVolume: '156156', CallVolume: '124823', 'PutCallVolumeRatio%': '125.10', PutOI: '59117', CallOI: '61452', 'PutCallOIRatio%': '96.20' },
+      { Date: '20260918', PutVolume: '329902', CallVolume: '332047', 'PutCallVolumeRatio%': '99.35', PutOI: '35415', CallOI: '46401', 'PutCallOIRatio%': '76.32' },
+      { Date: '20260824', PutVolume: '116587', CallVolume: '109801', 'PutCallVolumeRatio%': '106.18', PutOI: '50982', CallOI: '53212', 'PutCallOIRatio%': '95.81' }];
+    const jr = o => ({ ok: true, status: 200, text: async () => JSON.stringify(o), json: async () => o });
+    fetchImpl = async () => jr(PCR_REAL);
+    const pcr = await mod.fetchTaifexPCR();
+    ok('PCR 取到真正的最新日期（實際為降冪）', pcr.pcrDate === '20260921', String(pcr.pcrDate));
+    ok('PCR 未平倉比率有值（欄名對得上）', pcr.pcrOI === 96.20, String(pcr.pcrOI));
+    ok('PCR 成交量比率有值', pcr.pcrVol === 125.10, String(pcr.pcrVol));
+    // 欄名若又被改掉，要能用 PutOI/CallOI 自己算出來，而不是回 0
+    fetchImpl = async () => jr([{ Date: '20260921', PutOI: '59117', CallOI: '61452', PutVolume: '156156', CallVolume: '124823' }]);
+    const pcr2 = await mod.fetchTaifexPCR();
+    ok('PCR 欄名改變仍能自己算', Math.abs(pcr2.pcrOI - 96.20) < 0.01, String(pcr2.pcrOI));
+    // 台指期：欄名完全對不上時必須回 null（0 會被前端當成「外資偏空」的真訊號）
+    fetchImpl = async () => jr([{ Date: '20260921', ContractName: '臺股期貨', IdentityType: '外資', SomeUnknownField: '123' }]);
+    const futBad = await mod.fetchTaifexFutures();
+    ok('台指期欄名對不上時回 null，不假裝中性', futBad === null || futBad.foreignNet === null, JSON.stringify(futBad));
+    const MARGN = { stat: 'OK', fields: ['股票代號', '名稱', '融資買進', '融資賣出', '現金償還', '融資前日餘額', '融資今日餘額', '融資限額', '融券買進', '融券賣出', '現券償還', '融券前日餘額', '融券今日餘額'], data: [['2330', '台積電', '0', '0', '0', '0', '1,000', '0', '0', '0', '0', '0', '100']] };
+    let mAsked = [];
+    fetchImpl = async u => { mAsked.push(dOf(u)); return { ok: true, json: async () => MARGN }; };
+    await mod.fetchMargin('2330');
+    const mNewest = mAsked.sort().slice(-1)[0];
+    fetchImpl = async u => ({ ok: true, json: async () => (dOf(u) === mNewest ? { stat: '很抱歉，沒有符合條件的資料!' } : MARGN) });
+    const mg = await mod.fetchMargin('2330');
+    ok('融資融券：假日不算缺漏', mg.headMiss === 0, `headMiss=${mg.headMiss}`);
+    fetchImpl = async u => (dOf(u) === mNewest ? { ok: false, status: 500 } : { ok: true, json: async () => MARGN });
+    ok('融資融券：真失敗仍算缺漏', (await mod.fetchMargin('2330')).headMiss > 0);
+  }
+
+  // ⑦b 來源死掉時不可以靜默消失（期交所端點路徑已證實會導回 API 目錄頁 HTML）
+  {
+    fetchImpl = async () => ({ ok: true, status: 200, text: async () => '<!DOCTYPE html><html>swagger</html>', json: async () => { throw new Error('Unexpected token <'); } });
+    let why = '';
+    try { await W2.fetchTaifexFutures(); } catch (e) { why = String(e.message || e); }
+    ok('端點回傳網頁時給得出可辨識原因', /網頁而非 JSON|路徑可能已變更/.test(why), why);
+    const mk = fs.readFileSync(path.join(ROOT, 'market.js'), 'utf8');
+    ok('大盤卡片會列出失效來源', /sourceErrors/.test(mk) && /這些來源這次沒拿到/.test(mk));
+    const wk = fs.readFileSync(path.join(ROOT, 'worker.js'), 'utf8');
+    ok('worker 會回傳 sourceErrors', /out\.sourceErrors = srcErr/.test(wk));
+    const gs = fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8');
+    ok('GAS 會回傳 sourceErrors（端點對等）', /out\.sourceErrors = srcErr/.test(gs));
+  }
+
+  // ⑧ 前端判定：假日不得誤報、真失敗必須示警
   const unrel = c => (c.headMiss > 0) || (c.expected && String(c.dataDate || '') < String(c.expected));
   ok('前端不會對假日誤報籌碼不完整', !unrel(ch) && !unrel(gch));
   ok('前端仍會對真失敗示警', unrel(ch2));
