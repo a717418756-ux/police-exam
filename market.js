@@ -15,6 +15,9 @@
      - 類股廣度來源(MI_INDEX)僅含指數層級資料，不含個股漲跌家數，
        勿把「37個類股上漲比例」誤植成「個股上漲家數比例」的文字敘述
    ══════════════════════════════════════════════════════════════════════ */
+/* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
+   改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
+try { (window.SR_FV = window.SR_FV || {})['market.js'] = 163; } catch (e) {}
 
 async function fetchMarket() {
   if (!GAS_URL || GAS_URL.indexOf('http') !== 0) return null;

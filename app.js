@@ -1,3 +1,7 @@
+/* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
+   改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
+try { (window.SR_FV = window.SR_FV || {})['app.js'] = 163; } catch (e) {}
+
 // ══════════════════════════════════════════════════════════════════════
 // 短線雷達 Pro — 風險優先分層決策系統
 // ══════════════════════════════════════════════════════════════════════
@@ -853,12 +857,31 @@ function checkFilesLoaded() {
   const missing = [];
   for (const [file, fns] of Object.entries(FILE_CHECK))
     if (fns.some(fn => typeof window[fn] !== 'function')) missing.push(file);
-  if (!missing.length) return true;
+
+  /* v163：只檢查「檔案在不在」不夠——真正常見的是「檔案在，但是舊版」。
+     症狀是畫面出現早就改掉的文字、或修好的 bug 又出現，而使用者只能用猜的。
+     每個前端檔會把自己的版本宣告到 window.SR_FV，這裡跟 config.js 的
+     FILE_VERS 對照，直接點名是哪個檔沒更新到。 */
+  const stale = [];
+  try {
+    const have = window.SR_FV || {};
+    for (const [file, want] of Object.entries(typeof FILE_VERS !== 'undefined' ? FILE_VERS : {})) {
+      if (missing.includes(file)) continue;              // 已列為缺檔就不重複報
+      const got = have[file];
+      if (got == null) stale.push(`${file}（版本不明，早於 v163）`);
+      else if (got < want) stale.push(`${file}（站上 v${got}，應為 v${want}）`);
+    }
+  } catch (e) {}
+
+  if (!missing.length && !stale.length) return true;
   const bar = document.createElement('div');
   bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:999;background:#7F1D1D;color:#fff;padding:10px 12px;font-size:12px;line-height:1.6';
-  bar.innerHTML = `⚠️ 程式檔未完整載入：<b>${missing.join('、')}</b>（部分功能會失效）<br>請到 📒 → ⚙️ 設定 → 「🔄 清除快取並重新載入」；若仍相同，代表主機上缺少這些檔案，請重新部署。`;
+  bar.innerHTML =
+    (missing.length ? `⚠️ 程式檔未完整載入：<b>${missing.join('、')}</b>（部分功能會失效）<br>` : '')
+    + (stale.length ? `⚠️ 這些檔案是舊版，請重新上傳：<b>${stale.join('、')}</b><br>` : '')
+    + '請先到 📒 → ⚙️ 設定 → 「🔄 清除快取並重新載入」；若仍相同，代表主機上的檔案本身就是舊的，需重新部署。';
   document.body.appendChild(bar);
-  try { ErrorLog.push('checkFilesLoaded', new Error('缺少：' + missing.join(','))); } catch (e) {}
+  try { ErrorLog.push('checkFilesLoaded', new Error('缺少：' + missing.join(',') + '｜舊版：' + stale.join(','))); } catch (e) {}
   return false;
 }
 window.addEventListener('load', () => { try { checkFilesLoaded(); } catch (e) {} });

@@ -13,6 +13,9 @@
    所有引擎都是純前端計算，掃描不需要額外的籌碼API（太重且T+1）。
    ⚠️ 條件分數 ≠ 勝率 ≠ 預測。它是「通過幾項風控條件」的計數。
    ══════════════════════════════════════════════════════════════════════ */
+/* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
+   改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
+try { (window.SR_FV = window.SR_FV || {})['scan.js'] = 163; } catch (e) {}
 
 /* v115修：前端原送15檔/批，但 Code.gs（GAS後端）上限只取前10檔——
    使用GAS的人每批會默默遺失5檔（不成功也不算失敗，直接消失，總數對不上）。
@@ -169,7 +172,8 @@ async function runScan() {
     const batch = codes.slice(i, i + SCAN_BATCH);
     box.innerHTML = `<div style="font-size:12px;color:var(--muted)">掃描中… ${Math.min(i + SCAN_BATCH, codes.length)}/${codes.length} 檔（已耗時 ${((Date.now() - t0) / 1000).toFixed(0)}秒）</div>`;
     try {
-      const r = await fetchT(`${GAS_URL}?action=scan&codes=${encodeURIComponent(batch.join(','))}`, {}, 60000);
+      // v152：後端改為限流併發＋失敗重試，單批最久可能到 40 秒，逾時上限放寬到 120 秒
+      const r = await fetchT(`${GAS_URL}?action=scan&codes=${encodeURIComponent(batch.join(','))}`, {}, 120000);
       /* v116：原本直接 r.json()，後端若回 404 或 HTML 錯誤頁會拋出
          「Unexpected token <」這種無用訊息。先看 HTTP 狀態、再確認是不是 JSON，
          讓錯誤訊息直接指向真正的原因（端點不存在／未部署／回傳非JSON）。 */
@@ -185,7 +189,8 @@ async function runScan() {
         batch.filter(c => !got.has(c)).forEach(c => rows.push({ code: c, err: true, errMsg: `後端未回傳此檔（送出${batch.length}檔僅回${j.results.length}檔，可能後端批次上限較低）` }));
       }
       for (const item of (j.results || [])) {
-        if (!item.ok) { rows.push({ code: item.code, err: true }); continue; }
+        // v152：後端現在會逐檔回傳失敗原因，別再丟掉（丟掉就只剩「ok:false」這種無用訊息）
+        if (!item.ok) { rows.push({ code: item.code, err: true, errMsg: item.error }); continue; }
         /* v142：掃描也套用「盤中丟棄未完成K棒」（與個股查詢同一函式），
            否則同一時刻掃描用今日未收K、個股頁用前一日完成K，兩邊結論會不一致 */
         const it = (typeof trimIntradayBar === 'function') ? trimIntradayBar(item) : item;
@@ -193,7 +198,11 @@ async function runScan() {
           code: it.code, currency: /^\d{4,6}$/.test(it.code) ? 'TWD' : 'USD',
           closes: it.closes, highs: it.highs, lows: it.lows, volumes: it.volumes,
           opens: it.opens || undefined, price: it.price, lastDate: it.lastDate,
-          rawCloses: it.closes, rawHighs: it.highs, rawLows: it.lows, _intraday: it._intraday,
+          /* v152：原本把「還原價」直接當成 rawCloses 塞進去，於是掃描用還原價算
+             ATR／20日高低，個股頁用原始價，同一檔兩邊結論可能不同。後端已補傳原始價；
+             ||closes 是相容舊後端的退路（舊後端沒這欄位時至少不會壞掉）。 */
+          rawCloses: it.rawCloses || it.closes, rawHighs: it.rawHighs || it.highs,
+          rawLows: it.rawLows || it.lows, _intraday: it._intraday,
         };
         const pf = prefilterStock(D);
         if (!pf.pass) { rows.push({ code: item.code, price: item.price, filtered: true, why: pf.why }); continue; }
@@ -227,7 +236,7 @@ function renderScanResult(rows, dir, secs) {
       if (!errs.length) return '';
       const allFail = good.length === 0 && filt.length === 0;
       return `<div style="margin-top:6px;padding:8px 10px;background:var(--sell-d);border:1px solid var(--sell);border-radius:7px;font-size:10px;color:var(--muted);line-height:1.6">
-        <b style="color:var(--sell)">失敗原因</b>：${msgs.length ? msgs.map(m => `<div>・${m}</div>`).join('') : '<div>・後端回傳 ok:false 或該檔資料不足60日</div>'}
+        <b style="color:var(--sell)">失敗原因</b>：${msgs.length ? msgs.map(m => `<div>・${m}</div>`).join('') : '<div>・後端未回報原因——你的後端尚未更新到 v152（舊版失敗時不會說明原因），請重新部署 worker.js 或 Code.gs</div>'}
         ${allFail ? `<div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--line)">
           <b>全部失敗且耗時 ${secs} 秒（極短）＝請求被立即拒絕</b>，最常見原因：<br>
           ① <b>後端尚未重新部署</b>：scan 是新端點，舊版 worker.js / Code.gs 不認得 action=scan，會直接回錯。單筆查詢正常不代表後端是新版（單筆走的是另一條路由）。<br>
@@ -255,7 +264,9 @@ function renderScanResult(rows, dir, secs) {
     </div>`;
   });
 
-  if (errs.length) h += `<div style="font-size:10px;color:var(--muted2);margin-top:6px">取得失敗：${errs.map(e => e.code).join('、')}（代碼錯誤、非上市櫃、或資料不足60日）</div>`;
+  // v152：逐檔列出真正原因，而不是把所有失敗混成一句「代碼錯誤或資料不足」
+  if (errs.length) h += `<details style="margin-top:6px"><summary style="font-size:11px;color:var(--muted2);cursor:pointer">取得失敗的 ${errs.length} 檔（點開看原因）</summary>
+    <div style="margin-top:6px">${errs.map(e => `<div style="font-size:10px;color:var(--muted2);line-height:1.6">・<b>${e.code}</b>：${e.errMsg || '後端未回報原因'}</div>`).join('')}</div></details>`;
   if (filt.length) {
     /* v113 防禦：若「成交額不足」佔了絕大多數，比較可能是資料單位或後端版本問題，
        而不是這些熱門股真的都沒量——寧可提示使用者查證，也不要默默把全部擋光。 */

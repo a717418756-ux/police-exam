@@ -11,7 +11,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 
 // ▼▼▼ 每次改版把這個數字 +1（例如 6 → 7），就會自動清除舊快取 ▼▼▼
-const APP_VERSION = 162;
+const APP_VERSION = 163;
 
 /* ── 快取存活時間（統一常數，v95）─────────────────────────────────────
    v95修：原本四個快取各自寫死不同TTL（股價5分/融資5分/大盤10分/縱深10分），
@@ -72,6 +72,13 @@ const RISK_RULE = { perTrade: 2, monthly: 6 };
    ──────────────────────────────────────────────────────────────── */
 /* 某維度是否可計分：只有登記且權重>0 才算數（X＝已證偽、U＝未驗證，皆為0） */
 function evScorable(k) { try { const e = EVIDENCE[k]; return !!(e && e.w > 0); } catch (e) { return false; } }
+/* v163：各前端檔案的「應有版本」。實際版本由各檔自己宣告到 window.SR_FV，
+   app.js 啟動時比對，不符就直接點名是哪個檔沒更新——
+   以前只能靠「畫面文字怎麼還是舊的」去猜，這種事發生過不只一次。 */
+const FILE_VERS = {
+  'help.js': 163, 'db.js': 163, 'market.js': 163, 'quant.js': 163, 'formula.js': 163, 'enhance.js': 163, 'advanced.js': 163, 'smc.js': 163, 'mainforce.js': 163, 'mtf.js': 163, 'resonance.js': 163, 'bingfa.js': 163, 'layout.js': 163, 'journal.js': 163, 'scan.js': 163, 'app.js': 163
+};
+
 const EVIDENCE = {
   regime:      { tier: 'X', w: 0,   note: 'v138 實測：順勢/逆勢期望值無差異（19年23,226筆），不再投方向票；僅保留高波動禁令的風控用途' },
   breakout:    { tier: 'A', w: 1.0, note: '19年3,934次：成功率38.4%，帶量40.9% vs 無量34.5%' },
