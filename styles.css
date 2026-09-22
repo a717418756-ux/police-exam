@@ -37,7 +37,11 @@ main{flex:1;padding:16px;max-width:920px;margin:0 auto;width:100%}
 .chip{background:var(--bg);border:1px solid var(--bd);border-radius:20px;padding:4px 13px;font-family:var(--mono);font-size:12px;color:var(--muted);cursor:pointer;transition:all .15s}
 .chip:hover{border-color:var(--acc);color:var(--acc)}
 .settings-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:12px}
-.set-field{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:8px 10px}
+/* v167 ⚠️ min-width:0 不可拿掉：.set-field 是 grid 子項，預設 min-width:auto，
+   而 <input> 的內建最小寬度約 237px（瀏覽器給 number 欄位的預設尺寸）。
+   於是 1fr 軌道被撐到 353px、超出 310px 的卡片，再被 .settings-row 的
+   overflow:hidden 切掉——手機上「1000000」只看得到「1000」，風險與勝率整個被推出畫面。 */
+.set-field{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:8px 10px;min-width:0}
 .set-label{font-size:9px;color:var(--muted);letter-spacing:.3px;text-transform:uppercase;margin-bottom:3px}
 .set-field input{width:100%;background:transparent;border:none;color:var(--txt);font-family:var(--mono);font-size:15px;font-weight:600;outline:none}
 @media(max-width:480px){.settings-row{grid-template-columns:1fr}}
@@ -404,8 +408,10 @@ header{
    數值被 .settings-row 的 overflow:hidden 切掉（如「1000000」只剩一半）。 */
 #ticker-input{min-width:0}
 @media(max-width:480px),(pointer:coarse) and (max-width:1024px){
-  .set-label{flex:0 0 auto}
-  .set-field input{flex:1;min-width:0;max-width:none}
+  /* v167：空間不夠時先縮標題（可加…），不縮數值——被裁掉的金額會直接害人算錯部位。
+     min-width:10ch 保證「100,000,000」這種八九位數也完整看得見。 */
+  .set-label{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+  .set-field input{flex:1 1 0;min-width:10ch;max-width:none}
   /* 股價列的六個欄位改三欄對齊，不再長短不一換行 */
   .sb-meta{display:grid;grid-template-columns:repeat(3,1fr);gap:10px 8px}
 }

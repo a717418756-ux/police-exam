@@ -92,18 +92,62 @@ function mkPayload(code, todayBar) {
     rawCloses: g('close'), rawHighs: g('max'), rawLows: g('min'),
     lastDate: todayBar ? ymd : r[n - 1].date.replace(/-/g, '') };
 }
+function getChromium() {
+  try { return require('playwright').chromium; }
+  catch (e) { try { return require(path.join(process.env.HOME || '', '.npm-global/lib/node_modules/playwright')).chromium; }
+    catch (e2) { return null; } }
+}
+function serveRoot(port) {
+  return http.createServer((q, s) => { let p = path.join(ROOT, decodeURIComponent(q.url.split('?')[0])); if (p.endsWith('/')) p += 'index.html';
+    fs.readFile(p, (e, b) => { if (e) { s.writeHead(404); return s.end(); } const ext = path.extname(p);
+      s.writeHead(200, { 'Content-Type': ext === '.js' ? 'text/javascript' : ext === '.html' ? 'text/html' : 'text/css' }); s.end(b); }); }).listen(port);
+}
+
+/* ── 版面幾何檢查（v167）──────────────────────────────────────────────
+   不需要日K測試檔，所以與掃描流程分開跑（缺測試檔時也要能擋住這類回歸）。
+   對應的真實災情：資金/風險/勝率三欄是 grid 子項，預設 min-width:auto，
+   而 <input> 的瀏覽器內建最小寬度約237px，把 1fr 軌道撐到超出卡片，
+   再被 .settings-row 的 overflow:hidden 切掉——手機上「1000000」只剩「1000」。
+   金額被裁＝部位大小會算錯，屬於會害人賠錢的顯示錯誤，必須有檢查釘住。 */
+async function layoutTests() {
+  const chromium = getChromium();
+  if (!chromium) return;
+  const srv0 = serveRoot(8792);
+  const b0 = await chromium.launch();
+  const bad = [];
+  for (const [W, mob] of [[320, true], [360, true], [390, true], [414, true], [768, true], [980, true], [1280, false]]) {
+    const ctx = await b0.newContext({ viewport: { width: W, height: 800 }, isMobile: mob, hasTouch: mob, serviceWorkers: 'block' });
+    const pg = await ctx.newPage();
+    await pg.goto('http://localhost:8792/index.html');
+    await pg.waitForTimeout(400);
+    for (const v of ['1000000', '999999999']) {   // 預設值與九位數大額，兩種都不得被裁
+      const rs = await pg.evaluate(val => {
+        const row = document.querySelector('.settings-row'), rb = row.getBoundingClientRect();
+        document.getElementById('in-capital').value = val;
+        return [...row.querySelectorAll('.set-field')].map(f => {
+          const inp = f.querySelector('input'), fb = f.getBoundingClientRect(), ib = inp.getBoundingClientRect();
+          return { id: inp.id, over: +(fb.right - rb.right).toFixed(1), out: +(ib.right - rb.right).toFixed(1), clip: inp.scrollWidth > inp.clientWidth + 1 };
+        });
+      }, v);
+      for (const x of rs) if (x.over > 0.5 || x.out > 0.5 || x.clip) bad.push(`${W}px/${v}/${x.id} 超出${x.over}px${x.clip ? '、數值被裁' : ''}`);
+    }
+    await ctx.close();
+  }
+  ok('資金/風險/勝率欄位不溢出、數值不被裁（7種寬度×2種數值）', bad.length === 0, bad.slice(0, 3).join('；'));
+  const css = fs.readFileSync(path.join(ROOT, 'styles.css'), 'utf8');
+  ok('.set-field 保留 min-width:0（拿掉就會再被裁）', /\.set-field\{[^}]*min-width:0/.test(css));
+  ok('空間不足時縮的是標題不是數值', /\.set-label\{flex:0 1 auto/.test(css) && /\.set-field input\{flex:1 1 0;min-width:10ch/.test(css));
+  await b0.close(); srv0.close();
+}
+
 async function browserTests() {
-  let chromium;
-  try { chromium = require('playwright').chromium; }
-  catch (e) { try { chromium = require(path.join(process.env.HOME || '', '.npm-global/lib/node_modules/playwright')).chromium; }
-    catch (e2) { console.log('（找不到 playwright，略過瀏覽器檢查：npm i -D playwright 後再跑一次）'); return; } }
+  const chromium = getChromium();
+  if (!chromium) { console.log('（找不到 playwright，略過瀏覽器檢查：npm i -D playwright 後再跑一次）'); return; }
   const codes = fs.readdirSync(DATA).filter(f => /^\d{4}\.json$/.test(f)).map(f => f.slice(0, 4)).slice(0, 12);
   ok('找得到日K測試檔', codes.length >= 3, `找到 ${codes.length} 檔`);
   if (codes.length < 3) return;
 
-  const srv = http.createServer((q, s) => { let p = path.join(ROOT, decodeURIComponent(q.url.split('?')[0])); if (p.endsWith('/')) p += 'index.html';
-    fs.readFile(p, (e, b) => { if (e) { s.writeHead(404); return s.end(); } const ext = path.extname(p);
-      s.writeHead(200, { 'Content-Type': ext === '.js' ? 'text/javascript' : ext === '.html' ? 'text/html' : 'text/css' }); s.end(b); }); }).listen(8791);
+  const srv = serveRoot(8791);
   const b = await chromium.launch(); const ctx = await b.newContext({ serviceWorkers: 'block' }); const pg = await ctx.newPage();
   const errs = [];
   pg.on('pageerror', e => errs.push('PAGEERROR ' + e.message));
@@ -195,7 +239,7 @@ async function backendTests() {
   let fetchImpl = async () => { throw new Error('未設定'); };
   global.fetch = (...a) => fetchImpl(...a);
   const W = {};
-  new Function('module', src + '\nmodule.yahooChart=yahooChart;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTaifexFutures=fetchTaifexFutures;module.fetchTaifexPCR=fetchTaifexPCR;module.fetchMargin=fetchMargin;')(W);
+  new Function('module', src + '\nmodule.yahooChart=yahooChart;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTaifexFutures=fetchTaifexFutures;module.fetchTaifexPCR=fetchTaifexPCR;module.fetchMargin=fetchMargin;module.fetchTopPool=fetchTopPool;module.rocToYmd=rocToYmd;')(W);
   const W2 = W;
 
   // Code.gs：補上 GAS 全域物件
@@ -211,7 +255,7 @@ async function backendTests() {
     return fmt === 'yyyy-MM-dd' ? `${y}-${m}-${dd}` : `${y}${m}${dd}`;
   } };
   const G = {};
-  new Function('module', fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8') + '\nmodule.fetchYahoo=fetchYahoo;module.fetchYahooTW=fetchYahooTW;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;')(G);
+  new Function('module', fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8') + '\nmodule.fetchYahoo=fetchYahoo;module.fetchYahooTW=fetchYahooTW;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTopPool=fetchTopPool;module.rocToYmd=rocToYmd;')(G);
 
   // twseGet 會先讀 resp.text()；測試替身統一用 jt() 同時提供 text 與 json
   const jt = o => ({ ok: true, status: 200, text: async () => JSON.stringify(o), json: async () => o });
@@ -560,6 +604,88 @@ async function backendTests() {
     ok('融資5日跨距不足時不觸發紀律門', /function marginSpanOK/.test(bf2) && (bf2.match(/marginSpanOK\(/g) || []).length >= 5);
   }
 
+
+  /* ⑨ v166 動態掃描池：池子改由「當日全市場成交金額排行」即時產生 ────────
+     這一段對應的真實風險：
+       ① 兩個交易所欄名不同（上市 SecuritiesCompanyCode/TransactionAmount、
+          上櫃 Code/TradeValue），抄錯任一邊 → 那個市場整個消失且無人察覺。
+       ② 回應裡有大量 ETF/特別股/DR（00411A、006201、2887E、912000），
+          沒濾掉就會拿去跑個股引擎，結果全是垃圾。
+       ③ 日期是民國年，不換算就永遠判不出資料是哪一天。
+       ④ 抓不到時若靜默改用寫死清單，使用者會以為自己掃的是今日熱門股。 */
+  {
+    const twseRows = [   // 取自使用者提供的實際回應結構
+      { Date: '1150921', SecuritiesCompanyCode: '00411A', TransactionAmount: '9000000000' },  // ETF：要排除
+      { Date: '1150921', SecuritiesCompanyCode: '2887E', TransactionAmount: '8000000000' },   // 特別股：要排除
+      { Date: '1150921', SecuritiesCompanyCode: '912000', TransactionAmount: '7000000000' },  // DR：要排除
+      { Date: '1150921', SecuritiesCompanyCode: '2330', TransactionAmount: '50000000000' },
+      { Date: '1150921', SecuritiesCompanyCode: '2317', TransactionAmount: '30000000000' },
+      { Date: '1150921', SecuritiesCompanyCode: '1101', TransactionAmount: '100000000' },
+    ];
+    const tpexRows = [
+      { Date: '1150921', Code: '00400A', Name: '主動國泰動能高息', TradeValue: '513300022' },  // ETF：要排除
+      { Date: '1150921', Code: '6488', Name: '環球晶', TradeValue: '40000000000' },
+      { Date: '1150921', Code: '5483', Name: '中美晶', TradeValue: '200000000' },
+    ];
+    const isTwse = u => /openapi\.twse\.com\.tw/.test(String(u));
+    fetchImpl = async u => jt(isTwse(u) ? twseRows : tpexRows);
+    // 包起來：改壞時要變成一項紅燈，而不是讓整個檢查程式中斷（中斷會看不到其餘項目）
+    const tryPool = async n => { try { return await W2.fetchTopPool(n); } catch (e) { return { codes: [], err: String(e.message || e) }; } };
+    const pool = await tryPool(4);
+    ok('動態池：兩個交易所都取得（欄名各自正確）',
+      pool.codes.includes('2330') && pool.codes.includes('6488'), pool.codes.join(','));
+    ok('動態池：依成交金額排序取前N',
+      pool.codes.join(',') === '2330,6488,2317,5483', pool.codes.join(','));
+    ok('動態池：排除 ETF／特別股／DR',
+      !pool.codes.some(c => ['00411A', '2887E', '912000', '00400A'].includes(c)), pool.codes.join(','));
+    ok('動態池：民國年換算成西元', pool.dataDate === '20260921', pool.dataDate);
+    ok('動態池：回報全市場檔數與第N名門檻',
+      pool.universe === 5 && pool.cutoff === 200000000, `universe=${pool.universe} cutoff=${pool.cutoff}`);
+    ok('rocToYmd 只接受7碼民國日期',
+      W2.rocToYmd('1150921') === '20260921' && W2.rocToYmd('20260921') === '' && W2.rocToYmd('') === '');
+
+    // 一邊死掉：必須把「這次排行不含上櫃」講出來，不可當成完整排行
+    fetchImpl = async u => isTwse(u) ? jt(twseRows) : ({ ok: false, status: 500, text: async () => 'err' });
+    const half = await tryPool(10);
+    ok('動態池：單一來源失敗要回報 srcErrors',
+      !!(half.srcErrors && /上櫃/.test(half.srcErrors.join(''))), half.err || JSON.stringify(half.srcErrors));
+
+    // 欄名被改掉：不可回空清單靜默，要丟錯並附上實際欄名
+    fetchImpl = async () => jt([{ Date: '1150921', code: '2330', amount: '1' }]);
+    let fErr = '';
+    try { await W2.fetchTopPool(10); } catch (e) { fErr = String(e.message || e); }
+    ok('動態池：欄名變更會丟錯並列出實際欄名',
+      /欄名/.test(fErr) && /amount/.test(fErr), fErr.slice(0, 90));
+
+    // 兩邊都死：必須丟錯（前端才會走備援並紅字示警），不可回空陣列
+    fetchImpl = async () => ({ ok: false, status: 404, text: async () => 'Not Found' });
+    let pErr = '';
+    try { await W2.fetchTopPool(10); } catch (e) { pErr = String(e.message || e); }
+    ok('動態池：全部來源失敗必須丟錯', /都取不到清單/.test(pErr), pErr.slice(0, 80));
+
+    // 回傳 HTML（端點搬家）：不可讓 JSON.parse 的錯訊掩蓋真正原因
+    fetchImpl = async () => ({ ok: true, status: 200, text: async () => '<!DOCTYPE html><html>' });
+    let hErr = '';
+    try { await W2.fetchTopPool(10); } catch (e) { hErr = String(e.message || e); }
+    ok('動態池：回傳網頁時要指出端點可能已變更', /端點可能已變更/.test(hErr), hErr.slice(0, 80));
+
+    // 端點對等：GAS 必須給出與 worker 相同的結果
+    gsFetch = u => gsOf(isTwse(u) ? twseRows : tpexRows);
+    let gp; try { gp = G.fetchTopPool(4); } catch (e) { gp = { codes: [], dataDate: String(e.message || e) }; }
+    ok('GAS 動態池與 worker 結果一致（端點對等）',
+      gp.codes.join(',') === pool.codes.join(',') && gp.dataDate === pool.dataDate && gp.cutoff === pool.cutoff,
+      `${gp.codes.join(',')} / ${gp.dataDate} / ${gp.cutoff}`);
+
+    // 原始碼層級：備援不得靜默、上限要同步放寬、UI 要有檔數選擇
+    const scanSrc2 = fs.readFileSync(path.join(ROOT, 'scan.js'), 'utf8');
+    const htmlSrc2 = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+    ok('掃描預設走動態池', /action=pool&n=/.test(scanSrc2) && /await fetchDynamicPool/.test(scanSrc2));
+    ok('改用內建備援清單時必須明講', /這次用的是內建備援清單/.test(scanSrc2));
+    ok('池子來源說明會顯示在結果上方', /let h = _poolNote/.test(scanSrc2));
+    ok('掃描上限已同步放寬到300', /codes\.length > 300/.test(scanSrc2) && !/codes\.length > 130/.test(scanSrc2));
+    ok('UI 提供掃描池檔數選擇', /id="scan-pool-n"/.test(htmlSrc2));
+  }
+
   // ⑧ 前端判定：假日不得誤報、真失敗必須示警
   const unrel = c => (c.headMiss > 0) || (c.expected && String(c.dataDate || '') < String(c.expected));
   ok('前端不會對假日誤報籌碼不完整', !unrel(ch) && !unrel(gch));
@@ -570,7 +696,7 @@ async function backendTests() {
   console.log('═══ StockRadar 自我檢查 ═══');
   logicTests();
   await backendTests();
-  if (!LOGIC_ONLY) await browserTests();
+  if (!LOGIC_ONLY) { await layoutTests(); await browserTests(); }
   console.log(`\n通過 ${pass} 項｜失敗 ${fail} 項`);
   if (fails.length) { console.log('\n❌ 失敗項目：'); fails.forEach(f => console.log('  - ' + f)); }
   else console.log('✅ 全部通過');

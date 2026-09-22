@@ -381,14 +381,21 @@
     <button id="scan-short" onclick="runScanAuto('short')" style="flex:1;padding:16px 8px;border-radius:10px;border:1px solid var(--sell);background:var(--sell-d);color:var(--fg);cursor:pointer;font-size:15px;font-weight:800">📉 找做空標的</button>
     <button id="scan-long" onclick="runScanAuto('long')" style="flex:1;padding:16px 8px;border-radius:10px;border:1px solid var(--buy);background:var(--buy-d);color:var(--fg);cursor:pointer;font-size:15px;font-weight:800">📈 找做多標的</button>
   </div>
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-    <span style="font-size:10px;color:var(--muted2)">掃描台股熱門池（台灣50＋中型100主要成分），約1分鐘</span>
+  <!-- v166：池子改為動態（每次掃描前抓當日全市場成交金額排行），檔數可調 -->
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+    <span style="font-size:10px;color:var(--muted2);flex:1;min-width:160px">掃描池＝<b>當日成交金額前N名</b>（上市＋上櫃，排除ETF／特別股／DR），每次掃描即時產生</span>
+    <select id="scan-pool-n" title="掃描池檔數" style="font-size:11px;padding:5px 8px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--fg)">
+      <option value="100">前100檔（約20秒）</option>
+      <option value="150" selected>前150檔（約30秒）</option>
+      <option value="200">前200檔（約40秒）</option>
+      <option value="300">前300檔（約60秒）</option>
+    </select>
     <button id="scan-stop" onclick="stopScan()" style="display:none;font-size:11px;padding:5px 12px;border-radius:6px;border:1px solid var(--sell);background:transparent;color:var(--sell);cursor:pointer">停止</button>
   </div>
   <details style="margin-bottom:10px">
     <summary style="font-size:11px;color:var(--muted2);cursor:pointer">進階：改用自己的清單</summary>
     <div style="margin-top:6px">
-      <textarea id="scan-codes" rows="3" placeholder="留空＝用內建熱門池；也可貼自己的代碼，空白或逗號分隔（上限130檔）" style="width:100%;box-sizing:border-box;font-family:var(--mono);font-size:12px;padding:8px;border-radius:7px;border:1px solid var(--line);background:var(--card);color:var(--fg)"></textarea>
+      <textarea id="scan-codes" rows="3" placeholder="留空＝用內建備援池；也可貼自己的代碼，空白或逗號分隔（上限300檔）" style="width:100%;box-sizing:border-box;font-family:var(--mono);font-size:12px;padding:8px;border-radius:7px;border:1px solid var(--line);background:var(--card);color:var(--fg)"></textarea>
       <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
         <select id="scan-dir" style="font-size:12px;padding:6px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--fg)">
           <option value="short">做空條件</option>

@@ -15,7 +15,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['scan.js'] = 165; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['scan.js'] = 166; } catch (e) {}
 
 /* v115修：前端原送15檔/批，但 Code.gs（GAS後端）上限只取前10檔——
    使用GAS的人每批會默默遺失5檔（不成功也不算失敗，直接消失，總數對不上）。
@@ -23,16 +23,14 @@ try { (window.SR_FV = window.SR_FV || {})['scan.js'] = 165; } catch (e) {}
    代價是批次數增加，但正確性優先。 */
 const SCAN_BATCH = 10;          // 兩種後端的共同安全值
 
-/* ── 內建掃描池（v111）─────────────────────────────────────────────────
-   使用者要的是「按一鍵就給代碼」，不必自己貼清單。此池以台灣50＋中型100
-   的主要成分為骨幹（約120檔）：流動性佳＝借券/融券容易、滑價小，正是
-   短線與做空唯一可行的區間。小型冷門股刻意排除（借不到券、滑價吃掉利潤）。
+/* ── 內建掃描池（v111，v166起降為「備援」）─────────────────────────────
+   v166：主要來源已改為動態池（見 fetchDynamicPool）——後端每次掃描前抓
+   上市＋上櫃當日全市場成交行情，依成交金額取前N名。這解決了靜態清單
+   必然過時的問題（成分股調整、下市、合併、新上市）。
+   本清單保留為 API 失敗時的備援，而且用到它時畫面會明講「這次用的是
+   內建備援清單（可能已過時）」——不讓它變成另一種靜默降級。
    ⚠️ 這是「候選池」不是「推薦清單」——池子只決定掃描範圍，篩選仍由
       條件引擎逐檔判定。
-   ⚠️ 靜態清單必然會過時（成分股調整、下市、合併）。已知下市者已移除
-      （1704榮化2019下市、2888新光金2025合併），但未來仍會有。掃描時
-      抓不到資料的會顯示「失敗」，此時自行從輸入框刪掉即可；你編輯後的
-      清單會自動記住（localStorage），下次打開沿用。
    ──────────────────────────────────────────────────────────────── */
 const TW_POOL = [
   // 半導體/電子權值
@@ -148,14 +146,71 @@ function loadDead() { try { return JSON.parse(localStorage.getItem(DEAD_KEY) || 
 function saveDead(m) { try { localStorage.setItem(DEAD_KEY, JSON.stringify(m)); } catch (e) {} }
 function resetDead() { try { localStorage.removeItem(DEAD_KEY); } catch (e) {} const b = document.getElementById('scan-result'); if (b) b.innerHTML = '<div style="font-size:12px;color:var(--muted)">已復原被略過的代碼，請重新掃描。</div>'; }
 
+/* ── v166 動態掃描池 ───────────────────────────────────────────────────
+   使用者問的是「內建池的檔數能不能浮動，系統自己抓台灣50及中型股來跑分數」。
+   做法：後端 action=pool 抓上市(STOCK_DAY_ALL)＋上櫃(tpex_mainboard_daily_close_quotes)
+   當日全市場行情，依「當日成交金額」排序取前N名。
+   ⚠️ 為什麼用成交金額排序，而不是真的去抓台灣50/中型100成分股：
+      官方沒有免費的成分股清單API（成分只在PDF/付費源），而池子存在的理由
+      本來就是流動性（借得到券、滑價小）——成交金額是直接量測這件事，
+      而且永遠不會過期。台灣50與中型100的成分股本來就會落在成交金額前段。
+   ⚠️ 單日成交金額只是「候選產生器」。真正的流動性門檻仍是前置的20日均額≥1億，
+      所以某天爆量的冷門股進得了候選、過不了門檻——不會因此放寬標準。
+   ⚠️ 失敗一定要吵：回 null，由呼叫端改用 TW_POOL 並在結果上方紅字說明。 */
+let _poolNote = '';      // 這次掃描的池子來源說明（渲染在結果上方）
+let _autoPool = false;   // 這次的代碼是系統產生的→不要寫進「使用者自訂清單」
+
+function poolN() {
+  const s = document.getElementById('scan-pool-n');
+  const n = parseInt((s && s.value) || '150', 10);
+  return (n >= 20 && n <= 300) ? n : 150;
+}
+
+async function fetchDynamicPool(n) {
+  const r = await fetchT(`${GAS_URL}?action=pool&n=${n}`, {}, 30000);
+  if (!r.ok) throw new Error(`後端 HTTP ${r.status}${r.status === 404 ? '（找不到端點——後端未部署或網址錯誤）' : ''}`);
+  const txt = await r.text();
+  let j;
+  try { j = JSON.parse(txt); }
+  catch (pe) { throw new Error(`後端回傳的不是 JSON（開頭：${txt.slice(0, 40).replace(/</g, '&lt;')}…）——多半是後端尚未部署 v166 的 pool 端點`); }
+  if (!j.ok) throw new Error(j.error || '後端錯誤');
+  if (!Array.isArray(j.codes) || !j.codes.length) throw new Error('後端無 codes 欄位——後端（worker.js / Code.gs）尚未更新到含 pool 端點的版本，請重新部署');
+  return j;
+}
+
 async function runScanAuto(dirStr) {
   const ta = document.getElementById('scan-codes');
   const dead = loadDead();
-  // 連續失敗達 2 次的代碼不再送出
-  const pool = TW_POOL.filter(c => !(dead[c] >= 2));
-  if (ta) ta.value = pool.join(' ');          // 自動填入內建池（已扣除死代碼）
   const sel = document.getElementById('scan-dir');
   if (sel) sel.value = dirStr;                    // 同步方向
+  const box = document.getElementById('scan-result');
+  const n = poolN();
+  let pool = null;
+  _poolNote = '';
+  if (box) box.innerHTML = '<div style="font-size:12px;color:var(--muted)">正在抓取今日全市場成交排行，組成掃描池…</div>';
+  try {
+    const p = await fetchDynamicPool(n);
+    pool = p.codes.filter(c => !(dead[c] >= 2));
+    /* 新鮮度：dataDate 是交易所當日行情日期。比今天舊很多代表連假或來源沒更新，
+       這會直接影響「前N名」的組成，所以要講出來而不是默默用舊排行。 */
+    const dd = p.dataDate || '';
+    const fresh = dd ? `${dd.slice(0, 4)}/${dd.slice(4, 6)}/${dd.slice(6, 8)}` : '日期不明';
+    _poolNote = `<div style="margin-bottom:8px;padding:8px 10px;background:var(--bg);border:1px dashed var(--bd2);border-radius:7px;font-size:10px;color:var(--muted);line-height:1.6">
+      📊 <b>動態掃描池</b>：取 ${fresh} 上市＋上櫃成交金額前 ${n} 名（全市場符合條件個股 ${p.universe} 檔，第 ${n} 名當日成交金額 ${(p.cutoff / 1e8).toFixed(2)} 億）。
+      已排除 ETF／特別股／DR（只留四位數字代碼）。<b>這只是候選範圍，不是推薦</b>——流動性門檻仍以20日均額≥1億逐檔判定。
+      ${p.srcErrors ? `<div style="color:var(--warn);margin-top:4px">⚠️ 其中有來源沒拿到，這次的排行<b>不含</b>它：${p.srcErrors.join('；')}</div>` : ''}
+    </div>`;
+  } catch (e) {
+    /* 備援必須吵。靜默改用靜態清單＝使用者以為自己掃的是今日熱門股，
+       其實掃的是可能已過時的寫死清單。 */
+    pool = TW_POOL.filter(c => !(dead[c] >= 2));
+    _poolNote = `<div style="margin-bottom:8px;padding:8px 10px;background:var(--warn-d);border:1px solid var(--warn);border-radius:7px;font-size:10px;color:var(--muted);line-height:1.6">
+      ⚠️ <b>這次用的是內建備援清單（${pool.length} 檔），不是今日成交排行</b>——動態池取得失敗：${String(e && e.message || e)}<br>
+      備援清單是寫死的，可能已過時（成分調整／下市／新上市都不會反映）。若你的後端尚未部署 v166，請重新部署 worker.js 或 Code.gs 後再掃一次。
+    </div>`;
+  }
+  if (ta) ta.value = pool.join(' ');          // 填入這次實際使用的池子
+  _autoPool = true;                           // 系統產生的清單不覆蓋使用者自訂清單
   document.getElementById('scan-short').disabled = true;
   document.getElementById('scan-long').disabled = true;
   try { await runScan(); }
@@ -172,9 +227,13 @@ async function runScan() {
   const dir = document.getElementById('scan-dir').value === 'short' ? -1 : 1;
   const box = document.getElementById('scan-result');
   if (!codes.length) { box.innerHTML = '<div style="color:var(--warn);font-size:12px">內建池異常且未輸入代碼——請於「進階」貼上股票代碼</div>'; return; }   // TW_POOL 異常時的最後防線
-  if (codes.length > 130) { box.innerHTML = '<div style="color:var(--warn);font-size:12px">一次最多130檔（避免後端負擔過重與等待過久）</div>'; return; }
+  /* v166：上限從130放寬到300，配合動態池可選到300檔。
+     成本是等待時間（每10檔一批，實測約1.5秒/批 → 300檔約45秒），
+     使用者明確表示「讀取資料久點沒關係」，但不能無上限（後端與Yahoo限流）。 */
+  if (codes.length > 300) { box.innerHTML = '<div style="color:var(--warn);font-size:12px">一次最多300檔（避免後端負擔過重與被來源限流）</div>'; return; }
 
-  saveScanPool();   // v113：掃描前存檔（使用者常編輯後直接掃，不關面板）
+  const autoPool = _autoPool; _autoPool = false;   // v166：只對這一次生效
+  if (!autoPool) { _poolNote = ''; saveScanPool(); }   // 手動清單才存檔，系統產生的池子不覆蓋使用者自訂清單
   const deadTrack = loadDead();   // v165：累計「查無K線」次數，滿2次才自動略過
   _scanAbort = false;
   document.getElementById('scan-run').disabled = true;
@@ -248,7 +307,8 @@ function renderScanResult(rows, dir, secs, deadTrack) {
   const errs = rows.filter(r => r.err);
   const filt = rows.filter(r => r.filtered);   // v112：前置門檻擋掉的（流動性/炒作/波動）
   const dirTxt = dir === -1 ? '做空' : '做多';
-  let h = `<div style="font-size:11px;color:var(--muted);margin-bottom:8px">
+  let h = _poolNote || '';   // v166：池子從哪來、資料哪一天、門檻在哪——一律講清楚
+  h += `<div style="font-size:11px;color:var(--muted);margin-bottom:8px">
     ${dirTxt}條件掃描完成｜${good.length} 檔通過前置${filt.length ? ` / ${filt.length} 檔被門檻擋下` : ''}${errs.length ? ` / ${errs.length} 檔失敗` : ''}｜耗時 ${secs} 秒
     ${(() => {
       /* v115：以前只顯示「N檔失敗」，使用者無從得知原因。這裡把後端實際回傳的
