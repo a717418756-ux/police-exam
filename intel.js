@@ -12,7 +12,7 @@
 
    ⚠️ EVIDENCE tier U：未經回測，只顯示不計分。任何分數或紀律門都不讀這裡的結果。
    ══════════════════════════════════════════════════════════════════════ */
-try { (window.SR_FV = window.SR_FV || {})['intel.js'] = 170; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['intel.js'] = 171; } catch (e) {}
 
 /* 條目標題來自新聞與PTT（任何人都能發文），一律完整跳脫再進 innerHTML。
    不用 layout.js 的 esc：那支是「刪掉」特殊字元，會把「台積電 & 蘋果」弄成「台積電  蘋果」。 */
@@ -99,7 +99,7 @@ function renderIntel(j, D) {
   const src = j.items.map((it, i) => { const u = safeUrl(it.url);
     return `<div style="font-size:10.5px;line-height:1.6;padding:3px 0;color:var(--muted)"><span style="color:var(--muted2)">[${i + 1}] ${tpI(it.t)}・${escI(it.src)}</span><br>${u ? `<a href="${u}" target="_blank" rel="noopener noreferrer" style="color:var(--txt);text-decoration:none">${escI(it.title)}</a>` : escI(it.title)}</div>`; }).join('');
   const status = [
-    `資料時間 ${tpI(j.asOf)}${j.lastBar ? `・事件研究用到 ${j.lastBar.slice(4, 6)}/${j.lastBar.slice(6, 8)} 收盤` : ''}${j.newsVia ? `・新聞來源 ${escI(j.newsVia)}` : ''}`,
+    `資料時間 ${tpI(j.asOf)}${j.lastBar ? `・事件研究用到 ${j.lastBar.slice(4, 6)}/${j.lastBar.slice(6, 8)} 收盤` : ''}${j.newsVia ? `・新聞來源 ${escI(j.newsVia)}` : ''}${j.engine ? `・由 ${escI(j.engine)} 處理` : ''}`,
     j.ai.status === 'ok' ? `AI：${escI(j.ai.model)}（${escI(j.ai.prompt)}）${j.ai.dropped ? `・剔除 ${j.ai.dropped} 個無有效引用的事件` : ''}` : '',
     { saved: '今日快照已存（供日後回測）', 'no-kv': '未存快照（後端未綁 KV）' }[j.snapshot] || (j.snapshot ? `快照：${escI(j.snapshot)}` : ''),
   ].filter(Boolean).join('　');
