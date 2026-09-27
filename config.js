@@ -11,7 +11,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 
 // ▼▼▼ 每次改版把這個數字 +1（例如 6 → 7），就會自動清除舊快取 ▼▼▼
-const APP_VERSION = 167;
+const APP_VERSION = 168;
 
 /* ── 快取存活時間（統一常數，v95）─────────────────────────────────────
    v95修：原本四個快取各自寫死不同TTL（股價5分/融資5分/大盤10分/縱深10分），
@@ -76,7 +76,7 @@ function evScorable(k) { try { const e = EVIDENCE[k]; return !!(e && e.w > 0); }
    app.js 啟動時比對，不符就直接點名是哪個檔沒更新——
    以前只能靠「畫面文字怎麼還是舊的」去猜，這種事發生過不只一次。 */
 const FILE_VERS = {
-  'help.js': 163, 'db.js': 163, 'market.js': 163, 'quant.js': 163, 'formula.js': 163, 'enhance.js': 163, 'advanced.js': 163, 'smc.js': 163, 'mainforce.js': 163, 'mtf.js': 163, 'resonance.js': 163, 'bingfa.js': 163, 'layout.js': 163, 'journal.js': 163, 'scan.js': 167, 'app.js': 164
+  'help.js': 168, 'db.js': 163, 'market.js': 163, 'quant.js': 163, 'formula.js': 163, 'enhance.js': 163, 'advanced.js': 163, 'smc.js': 163, 'mainforce.js': 163, 'mtf.js': 163, 'resonance.js': 163, 'bingfa.js': 163, 'layout.js': 163, 'journal.js': 163, 'scan.js': 167, 'intel.js': 168, 'app.js': 168
 };
 
 const EVIDENCE = {
@@ -103,6 +103,7 @@ const EVIDENCE = {
      要改成計分，把 w 調成 >0 即可（並請先跑回測）。 */
   twFutures:   { tier: 'U', w: 0,   note: '外資台指期淨未平倉：資料已修復（v158），判讀規則未經回測，暫不計分僅顯示' },
   pcr:         { tier: 'U', w: 0,   note: '選擇權PCR：資料已修復（v155），反指標規則未經回測，暫不計分僅顯示' },
+  intel:       { tier: 'U', w: 0,   note: '情報面（新聞/PTT/重大訊息→AI事件→事件研究CAR）：v168新增，未經回測只顯示；後端綁KV時每日存快照，累積後才能做walk-forward' },
 };
 
 /* v139 條件式期望值：backtest_conditional.js 實測（24檔 2006~2026，隔日開盤進場、同K先停損、跳空開盤成交、

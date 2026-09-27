@@ -436,6 +436,12 @@ try {
     <div class="card"><div id="margin-content"></div></div>
   </div>
 
+  <!-- v168 情報面：新聞／PTT／重大訊息 × 事件研究 -->
+  <div id="intel-card" style="display:none">
+    <div class="layer-title"><span class="layer-num" style="background:linear-gradient(135deg,#F59E0B,#DC2626);color:#fff">情</span>情報面 · 消息與價格比對<span class="layer-sub">新聞 · PTT · 重大訊息 — 市場買不買單</span><button onclick="showHelp('intel')" class="help-btn" title="說明">ⓘ</button></div>
+    <div class="card"><div id="intel-content"></div></div>
+  </div>
+
   <!-- 主力縱深（FinMind） -->
   <div id="deepchip-card" style="display:none">
     <div class="layer-title"><span class="layer-num" style="background:linear-gradient(135deg,#0891B2,#7C3AED);color:#fff">深</span>主力縱深<span class="layer-sub">千張大戶 · 法人借券空單 · 分點 — FinMind</span><button onclick="showHelp('deepchip')" class="help-btn" title="說明">ⓘ</button></div>
@@ -654,6 +660,7 @@ try {
 <script src="./layout.js"></script>
 <script src="./journal.js"></script>
 <script src="./scan.js"></script>
+<script src="./intel.js"></script>
 <script src="./app.js"></script>
 <script>document.getElementById('ver-tag').textContent='v'+APP_VERSION;</script>
 </body>

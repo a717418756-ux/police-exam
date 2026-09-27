@@ -21,7 +21,7 @@ importScripts('./config.js');
 const CACHE = 'stock-radar-v' + APP_VERSION;   // 隨 APP_VERSION 自動變動
 const ASSETS = [
   './index.html', './styles.css',
-  './config.js', './help.js', './db.js', './quant.js', './formula.js', './enhance.js', './advanced.js', './smc.js', './mainforce.js', './mtf.js', './resonance.js', './bingfa.js', './layout.js', './market.js', './journal.js', './scan.js', './app.js',
+  './config.js', './help.js', './db.js', './quant.js', './formula.js', './enhance.js', './advanced.js', './smc.js', './mainforce.js', './mtf.js', './resonance.js', './bingfa.js', './layout.js', './market.js', './journal.js', './scan.js', './intel.js', './app.js',
   './manifest.json', './icon-192.png', './icon-512.png', './icon-maskable-512.png', './apple-touch-icon.png'
 ];
 

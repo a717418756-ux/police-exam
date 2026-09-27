@@ -1,6 +1,6 @@
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['app.js'] = 164; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['app.js'] = 168; } catch (e) {}
 
 // ══════════════════════════════════════════════════════════════════════
 // 短線雷達 Pro — 風險優先分層決策系統
@@ -757,6 +757,10 @@ async function go(){
     // 融資融券散戶心理（台股限定，非同步不擋主流程）
     try{ if(D.currency==='TWD' && typeof loadMarginCard==='function') loadMarginCard(D); }
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('融資融券',err); }
+
+    // v168 情報面（新聞/PTT/重大訊息 × 事件研究；非同步，AI 歸納較慢，不擋主流程）
+    try{ if(typeof loadIntelCard==='function') loadIntelCard(D); }
+    catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('情報面',err); }
 
     // RS Rating / Beta / Alpha / 兵法系統（需大盤基準，此時 formulas 已就緒）
     fetchBenchmark(D.currency==='TWD').then(bench=>{
