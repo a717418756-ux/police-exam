@@ -1091,6 +1091,44 @@ async function backendTests() {
     const kv = {}; fetchImpl = async u => asResp(IT.route(u, IT.gem));
     const ks = await W2.fetchIntel('2330', { SYNC: { put: async (k, v) => { kv[k] = v; } } });
     ok('有綁 KV 時每日存快照（供日後回測）', ks.snapshot === 'saved' && Object.keys(kv).some(k => /^intel:2330:\d{8}$/.test(k)), Object.keys(kv).join());
+
+    /* v168.2 用使用者實際部署的回應校正：Google 新聞對 Cloudflare 回 503、名稱查詢失敗原因被吞、PTT 0 篇無說明 */
+    ok('新聞：Yahoo 不可用時改用下一個來源，並回報用了誰', full.newsVia === 'Google新聞', full.newsVia);
+    IT.yrss = `<?xml version="1.0"?><rss version="2.0"><channel><title>台積電(2330) - Yahoo股市</title>
+<item><title>台積電先進製程接單滿載</title><link>https://tw.stock.yahoo.com/news/a1</link><pubDate>${pub(NOW - 3 * H)}</pubDate></item>
+<item><title>晶圓代工價格明年調漲</title><link>https://tw.stock.yahoo.com/news/a2</link><pubDate>${pub(NOW - 9 * H)}</pubDate></item></channel></rss>`;
+    const withY = (u, gem) => /tw\.stock\.yahoo\.com\/rss\?s=2330/.test(u) ? { txt: IT.yrss } : IT.route(u, gem);
+    fetchImpl = async u => asResp(withY(u, IT.gem));
+    const yh = await W2.fetchIntel('2330', {});
+    ok('新聞：Yahoo 個股 RSS 可用時優先使用', yh.newsVia === 'Yahoo股市' && yh.items.some(x => x.src === 'Yahoo股市' && /接單滿載/.test(x.title)), yh.newsVia);
+    ok('新聞：以頻道標題確認是這檔股票（標題沒寫代碼也收）', yh.items.some(x => /晶圓代工價格/.test(x.title)));
+    const generic = `<?xml version="1.0"?><rss version="2.0"><channel><title>Yahoo股市 - 最新新聞</title>
+<item><title>美股收盤道瓊上漲</title><link>https://x/1</link><pubDate>${pub(NOW - H)}</pubDate></item></channel></rss>`;
+    fetchImpl = async u => asResp(/tw\.stock\.yahoo\.com/.test(u) ? { txt: generic } : IT.route(u, IT.gem));
+    const gy = await W2.fetchIntel('2330', {});
+    ok('新聞：來源回的是整體新聞（非個股）→ 拒收、改用下一個', gy.newsVia === 'Google新聞' && !gy.items.some(x => /道瓊/.test(x.title)), gy.newsVia);
+    fetchImpl = async u => /news\.google\.com|tw\.stock\.yahoo\.com/.test(u) ? asResp({ status: 503, txt: 'x' }) : asResp(IT.route(u, IT.gem));
+    const nn = await W2.fetchIntel('2330', {});
+    ok('新聞：全部來源都失敗→逐一列出原因', nn.srcErrors.some(x => /Yahoo股市 HTTP 503/.test(x) && /Google新聞 HTTP 503/.test(x)), JSON.stringify(nn.srcErrors));
+
+    // 使用者實測：PTT 回了頁面但 0 篇——必須講出頁面是什麼、看到幾篇
+    const emptyPtt = '<html><head><title>看板 Stock 文章列表 - 批踢踢實業坊</title></head><body><div class="r-list-container"></div></body></html>';
+    fetchImpl = async u => /ptt\.cc/.test(u) ? asResp({ txt: emptyPtt }) : asResp(IT.route(u, IT.gem));
+    const ep0 = await W2.fetchIntel('2330', {});
+    ok('PTT 0 篇時說明頁面標題與連結數（被擋 vs 沒人討論）', ep0.notes.some(n => /看板 Stock 文章列表/.test(n) && /共 0 篇/.test(n) && /被擋/.test(n)), JSON.stringify(ep0.notes));
+    const otherPtt = `<div class="r-list-container"><div class="r-ent"><a href="/bbs/Stock/M.${ep(2)}.A.AAA.html">[新聞] 聯發科法說</a></div></div>`;
+    fetchImpl = async u => /ptt\.cc/.test(u) ? asResp({ txt: otherPtt }) : asResp(IT.route(u, IT.gem));
+    const ep1 = await W2.fetchIntel('2330', {});
+    ok('PTT 有文章但都不含代碼→講清楚看到幾篇', ep1.notes.some(n => /共 1 篇/.test(n) && !/被擋/.test(n)), JSON.stringify(ep1.notes));
+    ok('PTT 連結大小寫與額外屬性都容得下', W2.parsePTT(`<div class="r-ent"><a href="/bbs/stock/M.${ep(1)}.A.1a2.html" class="x">[標的] 2330 台積電 多</a></div>`, '2330').length === 1);
+
+    // 使用者實測：名稱查不到但沒說為什麼——用全新實例（名稱有快取）重現
+    const W3 = {};
+    new Function('module', src + '\nmodule.fetchIntel=fetchIntel;')(W3);
+    fetchImpl = async u => /STOCK_DAY_ALL|tpex_mainboard/.test(u) ? asResp({ status: 403, txt: 'forbidden' }) : asResp(IT.route(u, IT.gem));
+    const nm0 = await W3.fetchIntel('2330', {});
+    IT.nameFail = nm0;
+    ok('中文名稱查不到時列出每個來源的失敗原因', nm0.name === '' && nm0.notes.some(n => /上市 HTTP 403/.test(n) && /上櫃 HTTP 403/.test(n)), JSON.stringify(nm0.notes));
   }
 
 
@@ -1137,6 +1175,16 @@ async function backendTests() {
     const w2 = await W2.fetchIntel('2330', {}), g2 = G.fetchIntel('2330');
     cmp('整條情報管線（無金鑰）', strip(w2), strip(g2));
     ok('GAS 無 KV 時明講沒存快照', g2.snapshot === 'no-kv');
+    const withY = u => /tw\.stock\.yahoo\.com\/rss\?s=2330/.test(u) ? { txt: IT.yrss } : IT.route(u, IT.gem);
+    fetchImpl = async u => asResp(withY(u)); gsFetch = u => gsResp(withY(u));
+    cmp('整條情報管線（Yahoo 新聞）', strip(await W2.fetchIntel('2330', {})), strip(G.fetchIntel('2330')));
+    const emptyPtt = '<html><head><title>看板 Stock 文章列表</title></head><body><div class="r-list-container"></div></body></html>';
+    fetchImpl = async u => /ptt\.cc/.test(u) ? asResp({ txt: emptyPtt }) : asResp(IT.route(u, IT.gem));
+    gsFetch = u => /ptt\.cc/.test(u) ? gsResp({ txt: emptyPtt }) : gsResp(IT.route(u, IT.gem));
+    cmp('整條情報管線（PTT 0 篇診斷）', strip(await W2.fetchIntel('2330', {})), strip(G.fetchIntel('2330')));
+    gsFetch = u => /STOCK_DAY_ALL|tpex_mainboard/.test(u) ? gsResp({ status: 403, txt: 'x' }) : gsResp(IT.route(u, IT.gem));
+    cmp('名稱查詢失敗訊息', IT.nameFail.notes, G.fetchIntel('2330').notes);
+    gsFetch = u => gsResp(IT.route(u, IT.gem));
     gsFetch = u => /ptt\.cc/.test(u) ? gsResp({ status: 403, txt: 'x' }) : gsResp(IT.route(u, IT.gem));
     ok('GAS 單一來源失敗也列入 srcErrors', G.fetchIntel('2330').srcErrors.some(x => /PTT/.test(x) && /403/.test(x)));
   }
