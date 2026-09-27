@@ -12,7 +12,7 @@
 
    ⚠️ EVIDENCE tier U：未經回測，只顯示不計分。任何分數或紀律門都不讀這裡的結果。
    ══════════════════════════════════════════════════════════════════════ */
-try { (window.SR_FV = window.SR_FV || {})['intel.js'] = 169; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['intel.js'] = 170; } catch (e) {}
 
 /* 條目標題來自新聞與PTT（任何人都能發文），一律完整跳脫再進 innerHTML。
    不用 layout.js 的 esc：那支是「刪掉」特殊字元，會把「台積電 & 蘋果」弄成「台積電  蘋果」。 */
@@ -76,7 +76,7 @@ function renderIntel(j, D) {
     error: `<div style="font-size:11px;color:var(--warn);margin:10px 0">⚠️ AI 歸納失敗：${escI(j.ai.why)}——下方仍列出原始條目。</div>`,
   }[j.ai.status] || '';
   const DIR = { 1: ['▲', 'var(--buy)'], '-1': ['▼', 'var(--sell)'], 0: ['●', 'var(--muted)'] };
-  const kindName = { news: '新聞', ptt: 'PTT', mops: '公告' };
+  const kindName = { news: '新聞', social: '社群', ptt: 'PTT', mops: '公告' };
   const evRows = (j.events || []).map(e => {
     const trend = e.type === '股價走勢報導';   // 價格的結果，不計入方向——畫面上也不能用漲跌箭頭暗示它是訊號
     const [ar, col] = trend ? ['○', 'var(--muted2)'] : DIR[e.dir] || DIR[0], st = e.study;
@@ -93,6 +93,7 @@ function renderIntel(j, D) {
   const nw = j.attention && j.attention.news, pt = j.attention && j.attention.ptt;
   const att = [
     nw ? (nw.saturated ? `新聞 7日 ≥${nw.n} 則（已達上限）` : `新聞 近24h ${nw.last24} 則／前6日中位數 ${nw.med}`) : '',
+    j.attention && j.attention.social ? `網友社群 7日 ${j.attention.social} 篇` : '',
     pt ? `PTT 7日 ${pt.n} 篇${pt.bull + pt.bear ? `・［標的］多 ${pt.bull} 空 ${pt.bear}` : ''}` : '',
   ].filter(Boolean).join('　｜　');
   const src = j.items.map((it, i) => { const u = safeUrl(it.url);
