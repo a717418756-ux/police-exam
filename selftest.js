@@ -365,6 +365,25 @@ async function scanFlowTests() {
   const aiSrc = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
   ok('AI研判：不再從瀏覽器直接呼叫 Claude（沒有金鑰、從來沒成功過）', !/api\.anthropic\.com|aiAnalysis/.test(aiSrc));
 
+  // v180 使用者實測：9/28 教師節（9/25 中秋），最後交易日 9/24。只跳週末的推算會期待 9/28 → 法人、融資、估值卡全部誤報落後
+  const hol = await pg.evaluate(() => {
+    const n0 = Date.now, at = iso => { Date.now = () => Date.parse(iso); };
+    try {
+      _twHint = null; at('2026-09-28T17:05:00+08:00');
+      const noHint = checkDataFreshness('20260924', 0);
+      setTwExpected('20260924');
+      const withHint = checkDataFreshness('20260924', 0), realLag = checkDataFreshness('20260923', 0);
+      at('2026-09-29T17:00:00+08:00');
+      const nextDay = checkDataFreshness('20260924', 0);
+      return { noHint: noHint.stale, withHint: withHint.stale, realLag: realLag.stale, nextDay: nextDay.stale, exp: nextDay.expected };
+    } finally { Date.now = n0; _twHint = null; }
+  });
+  ok('連假：沒有後端提示時只會跳週末（重現誤報）', hol.noHint === true);
+  ok('連假：用後端扣除國定假日的日期，9/24 不再誤報落後', hol.withHint === false, JSON.stringify(hol));
+  ok('連假：真的落後（9/23）照樣會報', hol.realLag === true);
+  ok('連假：提示只在同一個推算日有效，隔天 9/29 收盤後就要 9/29 的資料', hol.nextDay === true && hol.exp === '20260929', JSON.stringify(hol));
+  ok('連假：查詢時把後端的應有交易日交給推算', /setTwExpected\(D\.chip\.expected\)/.test(fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8')));
+
   // v177 大盤基準：台美各自計時（原本共用時間戳，剛抓過美股會讓過期的台股基準繼續被用）
   const bc = await pg.evaluate(async () => {
     _benchCache = {}; const calls = [], f0 = window.fetchT, n0 = Date.now; let now = n0();
@@ -598,7 +617,7 @@ async function backendTests() {
   let fetchImpl = async () => { throw new Error('未設定'); };
   global.fetch = (...a) => fetchImpl(...a);
   const W = {};
-  new Function('module', src + '\nmodule.yahooChart=yahooChart;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTaifexFutures=fetchTaifexFutures;module.fetchTaifexPCR=fetchTaifexPCR;module.fetchMargin=fetchMargin;module.fetchTopPool=fetchTopPool;module.rocToYmd=rocToYmd;module.eventStudy=eventStudy;module.infoTilt=infoTilt;module.validateAI=validateAI;module.parseRSS=parseRSS;module.parsePTT=parsePTT;module.parseAnnounce=parseAnnounce;module.fetchIntel=fetchIntel;module.dropIntraday=dropIntraday;module.fetchNews=fetchNews;module.fetchIntelRouted=fetchIntelRouted;module.dedupKey=dedupKey;module.heat=heat;module.parseFinMindNews=parseFinMindNews;module.dayMoves=dayMoves;module.mergeDays=mergeDays;module.intelPrompt=intelPrompt;module.revSurprise=revSurprise;module.fetchNewsEn=fetchNewsEn;')(W);
+  new Function('module', src + '\nmodule.yahooChart=yahooChart;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTaifexFutures=fetchTaifexFutures;module.fetchTaifexPCR=fetchTaifexPCR;module.fetchMargin=fetchMargin;module.fetchTopPool=fetchTopPool;module.rocToYmd=rocToYmd;module.eventStudy=eventStudy;module.infoTilt=infoTilt;module.validateAI=validateAI;module.parseRSS=parseRSS;module.parsePTT=parsePTT;module.parseAnnounce=parseAnnounce;module.fetchIntel=fetchIntel;module.dropIntraday=dropIntraday;module.fetchNews=fetchNews;module.fetchIntelRouted=fetchIntelRouted;module.dedupKey=dedupKey;module.heat=heat;module.parseFinMindNews=parseFinMindNews;module.dayMoves=dayMoves;module.mergeDays=mergeDays;module.intelPrompt=intelPrompt;module.revSurprise=revSurprise;module.fetchNewsEn=fetchNewsEn;module.normCite=normCite;')(W);
   const W2 = W;
 
   // Code.gs：補上 GAS 全域物件
@@ -637,7 +656,7 @@ async function backendTests() {
     ok('Code.gs 只用 ES5 語法（Rhino 可解析）', !bad.length, bad.join('、'));
   }
   const G = {};
-  new Function('module', fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8') + '\nmodule.fetchYahoo=fetchYahoo;module.fetchYahooTW=fetchYahooTW;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTopPool=fetchTopPool;module.rocToYmd=rocToYmd;module.eventStudy=eventStudy;module.infoTilt=infoTilt;module.validateAI=validateAI;module.parseRSS=parseRSS;module.parsePTT=parsePTT;module.parseAnnounce=parseAnnounce;module.fetchIntel=fetchIntel;module.dropIntraday=dropIntraday;module.fetchNews=fetchNews;module.dedupKey=dedupKey;module.doGet=doGet;module.doPost=doPost;module.heat=heat;module.parseFinMindNews=parseFinMindNews;module.dayMoves=dayMoves;module.mergeDays=mergeDays;module.intelPrompt=intelPrompt;module.revSurprise=revSurprise;module.fetchNewsEn=fetchNewsEn;')(G);
+  new Function('module', fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8') + '\nmodule.fetchYahoo=fetchYahoo;module.fetchYahooTW=fetchYahooTW;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTopPool=fetchTopPool;module.rocToYmd=rocToYmd;module.eventStudy=eventStudy;module.infoTilt=infoTilt;module.validateAI=validateAI;module.parseRSS=parseRSS;module.parsePTT=parsePTT;module.parseAnnounce=parseAnnounce;module.fetchIntel=fetchIntel;module.dropIntraday=dropIntraday;module.fetchNews=fetchNews;module.dedupKey=dedupKey;module.doGet=doGet;module.doPost=doPost;module.heat=heat;module.parseFinMindNews=parseFinMindNews;module.dayMoves=dayMoves;module.mergeDays=mergeDays;module.intelPrompt=intelPrompt;module.revSurprise=revSurprise;module.fetchNewsEn=fetchNewsEn;module.normCite=normCite;')(G);
 
   // twseGet 會先讀 resp.text()；測試替身統一用 jt() 同時提供 text 與 json
   const jt = o => ({ ok: true, status: 200, text: async () => JSON.stringify(o), json: async () => o });
@@ -1128,6 +1147,12 @@ async function backendTests() {
       const pr = W2.intelPrompt('2330', '台積電', its, dm);
       ok('逐日歸因：prompt 帶入程式算好的拆解與待開盤條目', /20260930｜個股 [+-]\d+\.\d%｜大盤 [^\n]*個股自身 \+[45]\.\d%（顯著）/.test(pr) && /收盤後（影響下一個交易日）的條目：\[3\]\[4\]/.test(pr), pr.slice(pr.indexOf('6. 逐日'), pr.indexOf('6. 逐日') + 120));
       IT.dm = { ser, mkt, its, now, aiDays };
+      // v180 使用者實測：AI 把多個引用寫在同一個括號「[1, 22]」→ 不會變連結、也逃過無效引用檢查
+      const vl = W2.validateAI({ summary: '擴產[1, 2]；赴美投資[3，99]、[4、0]', outlook: '若續強則留意[1, 7]', events: [] }, its);
+      ok('引用格式：「[1, 2]」拆成「[1][2]」，無效的編號照樣剔除', vl.summary === '擴產[1][2]；赴美投資[3]、[4][0]' && vl.outlook === '若續強則留意[1]', `${vl.summary}｜${vl.outlook}`);
+      const ml = W2.mergeDays(JSON.parse(JSON.stringify(dm)), [{ d: '20260930', why: '法說上修[0, 2]', ids: [0, 2] }]);
+      ok('引用格式：逐日原因裡的「[0, 2]」也要拆開，別天的引用照樣剔除', ml.days.find(x => x.d === '20260930').why === '法說上修[0]', ml.days.find(x => x.d === '20260930').why);
+      IT.citeIn = { summary: '擴產[1, 2]；赴美投資[3，99]、[4、0]', outlook: '若續強則留意[1, 7]', events: [] };
     }
 
     seed = 42; b = build([[-5, 0.008], [-4, 0.008], [-3, 0.008], [-2, 0.008], [-1, 0.008]]);
@@ -1550,6 +1575,7 @@ ${Array.from({ length: 3 }, (_, i) => `<item><title>台積電法說重點第${i}
     const aiIn = { summary: 'x[0] y[9]', events: [{ title: 'a', type: '法說', dir: '多', mag: 9, horizon: '中', conf: 2, ids: [0, 2, 9] }, { title: 'b', type: '?', dir: '?', mag: 0, horizon: '?', conf: -3, ids: [5] }] };
     cmp('AI輸出驗證', W2.validateAI(aiIn, its), G.validateAI(aiIn, its));
     const Q = IT.dm, wdm = W2.dayMoves(Q.ser, Q.mkt, Q.its, Q.now);
+    cmp('引用格式（清單拆開）', W2.validateAI(IT.citeIn, IT.dm.its), G.validateAI(IT.citeIn, IT.dm.its));
     cmp('PTT 推文淨值', W2.parsePTT(IT.pttPush, '2330', '台積電'), G.parsePTT(IT.pttPush, '2330', '台積電'));
     cmp('月營收驚奇度', W2.revSurprise(IT.revRows('2026-09-09')), G.revSurprise(IT.revRows('2026-09-09')));
     cmp('月營收（歷史不足）', W2.revSurprise(IT.revRows('').slice(-20)), G.revSurprise(IT.revRows('').slice(-20)));

@@ -11,7 +11,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 
 // ▼▼▼ 每次改版把這個數字 +1（例如 6 → 7），就會自動清除舊快取 ▼▼▼
-const APP_VERSION = 179;
+const APP_VERSION = 180;
 
 /* ── 快取存活時間（統一常數，v95）─────────────────────────────────────
    v95修：原本四個快取各自寫死不同TTL（股價5分/融資5分/大盤10分/縱深10分），
@@ -76,7 +76,7 @@ function evScorable(k) { try { const e = EVIDENCE[k]; return !!(e && e.w > 0); }
    app.js 啟動時比對，不符就直接點名是哪個檔沒更新——
    以前只能靠「畫面文字怎麼還是舊的」去猜，這種事發生過不只一次。 */
 const FILE_VERS = {
-  'help.js': 179, 'db.js': 177, 'market.js': 163, 'quant.js': 163, 'formula.js': 163, 'enhance.js': 163, 'advanced.js': 177, 'smc.js': 163, 'mainforce.js': 177, 'mtf.js': 163, 'resonance.js': 163, 'bingfa.js': 163, 'layout.js': 176, 'journal.js': 177, 'scan.js': 167, 'intel.js': 179, 'app.js': 178
+  'help.js': 179, 'db.js': 177, 'market.js': 163, 'quant.js': 163, 'formula.js': 163, 'enhance.js': 163, 'advanced.js': 177, 'smc.js': 163, 'mainforce.js': 177, 'mtf.js': 163, 'resonance.js': 163, 'bingfa.js': 163, 'layout.js': 176, 'journal.js': 177, 'scan.js': 167, 'intel.js': 179, 'app.js': 180
 };
 
 const EVIDENCE = {
@@ -128,7 +128,18 @@ const COND_EV = {
    的實際資料日，超過門檻就主動標紅警示，不用使用者自己算。
    時程依據：T86/MI_MARGN 約當日下午公布；SBL(借券)按慣例T+1公布。
    ──────────────────────────────────────────────────────────────── */
+/* v180 使用者實測（2026/9/28 教師節，前一個交易日 9/24，9/25 中秋）：這裡只會跳過週末、不認得國定假日，
+   連假時法人、融資、估值卡會誤報「資料落後約4個交易日，請暫緩採信」。
+   後端抓法人（T86）時，TWSE 對休市日明確回「沒有資料」，據此算出的 chip.expected 已扣除國定假日。
+   有這個提示就用它——只在「同一個推算基準日」內有效（過了16:00 或隔天就重新推算），
+   而且抓取失敗的日子後端不會當成休市，所以不會把真正的落後掩蓋掉。 */
+let _twHint = null;   // { base: 當時依週末推算的日期, exp: 後端扣除國定假日後的日期 }
+function setTwExpected(exp) { if (/^\d{8}$/.test(String(exp || ''))) _twHint = { base: weekdayTradeDate(0), exp: String(exp) }; }
 function expectedTradeDate(lagDays) {
+  const ymd = weekdayTradeDate(lagDays);
+  return !lagDays && _twHint && _twHint.base === ymd && _twHint.exp < ymd ? _twHint.exp : ymd;
+}
+function weekdayTradeDate(lagDays) {   // 只跳週末的推算
   lagDays = lagDays || 0;
   /* v119修：原寫法 Date.now() + getTimezoneOffset()*60000 + 8h 是「重複校正」——
      Date.now() 本身已是 UTC 毫秒，再加 offset 等於多轉一次時區。
