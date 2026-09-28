@@ -20,7 +20,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['db.js'] = 177; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['db.js'] = 181; } catch (e) {}
 
 const DB_NAME = 'stockRadarDB';
 // DB schema 版本獨立管理（schema 沒變就不用動；這裡固定 1）
@@ -236,7 +236,17 @@ async function exportBackup(includeSecrets) {
   };
 }
 
-async function importBackup(obj) {
+/* 套用刪除墓碑：與本機聯集、刪掉本機仍留著的那些交易；keep＝這次明確要保留的交易 id（從備份檔還原時用） */
+async function applyTombstones(ids, keep) {
+  const gone = new Set([...((await dbGetSetting('deletedIds')) || []), ...(Array.isArray(ids) ? ids : [])]);
+  for (const id of keep || []) gone.delete(id);
+  await dbSetSetting('deletedIds', [...gone]);
+  for (const t of await dbGetAllTrades()) if (gone.has(t.id)) await dbDeleteTrade(t.id);   // 別台裝置刪掉的，這台也刪
+  return gone;
+}
+/* restore＝使用者自己挑的備份檔：檔案裡的交易就是要救回來的，即使之前刪過（否則誤刪後永遠救不回）。
+   雲端載入不是 restore：墓碑優先，別台刪掉的不會被舊副本救回。 */
+async function importBackup(obj, restore) {
   if (!obj || obj.app !== 'StockRadarPro') throw new Error('檔案格式不符，非本程式備份檔');
   if (obj.settings) {
     if (obj.settings.capital != null) await dbSetSetting('capital', obj.settings.capital);
@@ -247,13 +257,10 @@ async function importBackup(obj) {
     if (obj.settings.syncUrl) { await dbSetSetting('syncUrl', obj.settings.syncUrl); try { SYNC_URL = obj.settings.syncUrl; } catch (e) {} }
     if (obj.settings.finmindToken) { await dbSetSetting('finmindToken', obj.settings.finmindToken); try { FINMIND_TOKEN = obj.settings.finmindToken; } catch (e) {} }
   }
-  const gone = new Set([...((await dbGetSetting('deletedIds')) || []), ...(Array.isArray(obj.deletedIds) ? obj.deletedIds : [])]);
-  if (gone.size) {
-    await dbSetSetting('deletedIds', [...gone]);
-    for (const t of await dbGetAllTrades()) if (gone.has(t.id)) await dbDeleteTrade(t.id);   // 別台裝置刪掉的，這台也刪
-  }
+  const trades = Array.isArray(obj.trades) ? obj.trades : [];
+  const gone = await applyTombstones(restore ? [] : obj.deletedIds, restore ? trades.map(t => t.id) : []);
   let n = 0;
-  if (Array.isArray(obj.trades)) for (const t of obj.trades) if (!gone.has(t.id)) { await dbAddTrade(t); n++; }
+  for (const t of trades) if (!gone.has(t.id)) { await dbAddTrade(t); n++; }
   return n;
 }
 
@@ -264,6 +271,11 @@ async function importBackup(obj) {
 async function cloudSave() {
   const backupUrl = (typeof SYNC_URL !== 'undefined' && SYNC_URL) ? SYNC_URL : GAS_URL;
   if (!backupUrl || backupUrl.indexOf('http') !== 0) throw new Error('尚未設定備份網址（請填查詢網址或雲端備份網址）');
+  /* v181 先讀雲端現有的刪除墓碑併進本機再存：否則一台沒載入過的舊裝置一存，雲端的墓碑就被整份覆蓋掉，
+     別台刪掉的交易又回到雲端、之後新裝置載入就會救回來（重新算進勝率與 6% 預算） */
+  const cur = await (await fetch(`${backupUrl}?action=sync_get`)).json();
+  if (!cur.ok) throw new Error('讀不到雲端現況，未儲存（避免蓋掉其他裝置的刪除紀錄）：' + (cur.error || ''));
+  await applyTombstones(cur.data && cur.data.deletedIds);
   const backup = await exportBackup();   // 完整備份內容（含 trades + settings + 版本 + 時間）
   const r = await fetch(`${backupUrl}?action=sync_save`, {
     method: 'POST',

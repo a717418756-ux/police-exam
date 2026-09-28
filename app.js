@@ -1,6 +1,6 @@
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['app.js'] = 180; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['app.js'] = 181; } catch (e) {}
 
 // ══════════════════════════════════════════════════════════════════════
 // 短線雷達 Pro — 風險優先分層決策系統
@@ -568,7 +568,7 @@ async function go(){
   try{
     const D=trimIntradayBar(await fetchStock(queryCode));
     if(stale())return;
-    if(D.chip&&D.chip.expected)setTwExpected(D.chip.expected);   // v180 後端已扣除國定假日的「應有交易日」，連假時各卡才不會誤報落後
+    if(D.chip&&D.chip.expected)setTwExpected(D.chip.expected,window._dataFetchedAt);   // v180 後端已扣除國定假日的「應有交易日」，連假時各卡才不會誤報落後
     // ATR 用未還原市價序列算（下游停損/劇本/紀律門都用原始價，ATR基準需一致，
     // 否則「還原ATR」套用在「原始價±N×ATR」公式上會算出錯誤的停損距離）
     const atr=calcATR(D.rawHighs||D.highs, D.rawLows||D.lows, D.rawCloses||D.closes, 14);

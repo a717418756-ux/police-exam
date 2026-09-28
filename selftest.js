@@ -213,7 +213,7 @@ async function scanFlowTests() {
   const pg = await ctx.newPage();
   const errs = [];
   pg.on('pageerror', e => errs.push(e.message));
-  let poolDelay = 0, poolCalls = 0, poolCodes = ['2001', '2002', '2003'], intelDelay = 0;
+  let poolDelay = 0, poolCalls = 0, poolCodes = ['2001', '2002', '2003'], intelDelay = 0; const intelCalls = {};
   const T0 = Date.now();
   let intelResp = { ok: true, code: '2330', name: '台積電', asOf: T0, board: '上市', lastBar: '20260926',
     items: [{ kind: 'news', title: '台積電法說上修全年營收', src: '經濟日報', url: 'https://news.example/a', t: T0 - 5 * 3600e3 },
@@ -240,7 +240,7 @@ async function scanFlowTests() {
     if (a === 'pool') { poolCalls++;
       if (poolDelay) await new Promise(r => setTimeout(r, poolDelay));
       return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, codes: poolCodes, dataDate: '20260921', universe: 999, cutoff: 1e8 }) }); }
-    if (a === 'intel') { if (intelDelay) await new Promise(r => setTimeout(r, intelDelay));
+    if (a === 'intel') { intelCalls[u.searchParams.get('code')] = (intelCalls[u.searchParams.get('code')] || 0) + 1; if (intelDelay) await new Promise(r => setTimeout(r, intelDelay));
       return route.fulfill({ contentType: 'application/json', body: JSON.stringify(intelResp) }); }
     if (a === 'scan') { const codes = u.searchParams.get('codes').split(',');
       return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, results: codes.map(code => { const k = bars(120);
@@ -359,6 +359,20 @@ async function scanFlowTests() {
   ic = await intelText();
   ok('情報卡：同一檔連點兩次，結果出來後不會再被進度蓋掉', /共振/.test(ic.txt) && !/已等/.test(ic.txt), ic.txt.slice(0, 60));
   intelDelay = 0;
+  // v181 A→B→A 快速切回：共用進行中的請求（不重打 Gemini，也不讓後到的失敗蓋掉好結果）
+  intelDelay = 1200;
+  await pg.evaluate(() => { window._activeCode = '3008'; loadIntelCard({ code: '3008', currency: 'TWD', chip: null });
+    window._activeCode = '3034'; loadIntelCard({ code: '3034', currency: 'TWD', chip: null });
+    window._activeCode = '3008'; window._ip4 = loadIntelCard({ code: '3008', currency: 'TWD', chip: null }); });
+  await pg.evaluate(() => window._ip4); await pg.waitForTimeout(300);
+  ok('情報卡：同一檔進行中的請求共用，後端只被打一次', intelCalls['3008'] === 1 && /共振/.test((await intelText()).txt), JSON.stringify(intelCalls));
+  intelDelay = 0;
+  // 資料到了但顯示程式出錯：兩張卡都要明講，不可停在「已等 N 秒」「等待中」
+  const okResp = intelResp; intelResp = Object.assign({}, okResp, { code: '2408', moves: { beta: 1, sd: 0.01, n: 60, pending: [], days: 'x' } });
+  await pg.evaluate(() => { window._activeCode = '2408'; return loadIntelCard({ code: '2408', currency: 'TWD', chip: null }); });
+  const rErr = await pg.evaluate(() => [document.getElementById('intel-content').innerText, document.getElementById('ai-body').innerText]);
+  ok('情報卡：顯示出錯時兩張卡都明講，不會卡在等待', rErr.every(t => /顯示時出錯/.test(t)), rErr.join('｜').slice(0, 120));
+  intelResp = okResp;
   // 卡片進「心理AI」分頁，不再每頁都出現
   const pane = await pg.evaluate(() => { if (typeof buildLayout === 'function') buildLayout(); const c = document.getElementById('intel-card'), p = c && c.closest('.tab-pane'); return p ? p.id : '(不在任何分頁)'; });
   ok('情報卡：只出現在「心理AI」分頁', pane === 'pane-t-mind', pane);
@@ -382,7 +396,15 @@ async function scanFlowTests() {
   ok('連假：用後端扣除國定假日的日期，9/24 不再誤報落後', hol.withHint === false, JSON.stringify(hol));
   ok('連假：真的落後（9/23）照樣會報', hol.realLag === true);
   ok('連假：提示只在同一個推算日有效，隔天 9/29 收盤後就要 9/29 的資料', hol.nextDay === true && hol.exp === '20260929', JSON.stringify(hol));
-  ok('連假：查詢時把後端的應有交易日交給推算', /setTwExpected\(D\.chip\.expected\)/.test(fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8')));
+  ok('連假：查詢時把後端的應有交易日連同「資料抓取時刻」交給推算', /setTwExpected\(D\.chip\.expected,window\._dataFetchedAt\)/.test(fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8')));
+  // v181 審查發現：快取的資料（15:58 抓、16:02 重查）若用「現在」當推算基準，提示會一路掩蓋到隔天 16:00
+  const hol2 = await pg.evaluate(() => {
+    const n0 = Date.now;
+    try { _twHint = null; Date.now = () => Date.parse('2026-09-30T16:02:00+08:00');
+      setTwExpected('20260929', Date.parse('2026-09-30T15:58:00+08:00'));
+      return checkDataFreshness('20260929', 0); } finally { Date.now = n0; _twHint = null; }
+  });
+  ok('連假：快取資料的提示用當時的推算基準，不掩蓋 16:00 後真正該有的新資料', hol2.stale === true && hol2.expected === '20260930', JSON.stringify(hol2));
 
   // v177 大盤基準：台美各自計時（原本共用時間戳，剛抓過美股會讓過期的台股基準繼續被用）
   const bc = await pg.evaluate(async () => {
@@ -427,6 +449,24 @@ async function scanFlowTests() {
   ok('雲端載入：沒有備份時明講（兩種後端的空回應都算）', /沒有備份/.test(cl.gasEmpty) && /沒有備份/.test(cl.cfEmpty), `${cl.gasEmpty}｜${cl.cfEmpty}`);
   ok('雲端載入：刪掉的交易不會被雲端舊副本救回', cl.revived === false);
   ok('雲端載入：別台裝置刪掉的交易，這台載入後也刪掉', cl.otherKept === false && cl.n === 0, JSON.stringify(cl));
+  // v181 審查發現：舊裝置一存就把雲端的刪除紀錄整份蓋掉；誤刪後拿備份檔也救不回
+  const cl2 = await pg.evaluate(async () => {
+    const f0 = window.fetch; let cloud = { app: 'StockRadarPro', trades: [], settings: {}, deletedIds: ['t_x'] };
+    window.fetch = async (u, o) => /sync_save/.test(u) ? (cloud = JSON.parse(o.body), { json: async () => ({ ok: true }) })
+      : /sync_get/.test(u) ? { json: async () => ({ ok: true, data: cloud }) } : f0(u, o);
+    const has = async id => (await dbGetAllTrades()).some(t => t.id === id), out = {};
+    try {
+      GAS_URL = 'https://selftest.local/exec';
+      await dbSetSetting('deletedIds', []); await dbAddTrade({ id: 't_x', date: '2026-09-01', code: '9999' });   // 舊裝置：還留著、也沒載入過
+      await cloudSave();
+      out.cloudKeepsTomb = (cloud.deletedIds || []).includes('t_x'); out.cloudHasTrade = cloud.trades.some(t => t.id === 't_x'); out.localHas = await has('t_x');
+      const n = await importBackup({ app: 'StockRadarPro', trades: [{ id: 't_x', date: '2026-09-01', code: '9999' }], settings: {} }, true);   // 使用者拿舊備份檔救回
+      out.restored = n === 1 && await has('t_x'); out.tombGone = !((await dbGetSetting('deletedIds')) || []).includes('t_x');
+    } finally { window.fetch = f0; await dbDeleteTrade('t_x'); await dbSetSetting('deletedIds', []); }
+    return out;
+  });
+  ok('雲端儲存：先併入雲端的刪除紀錄，舊裝置一存不會把刪掉的交易送回雲端', cl2.cloudKeepsTomb && !cl2.cloudHasTrade && !cl2.localHas, JSON.stringify(cl2));
+  ok('備份檔還原：使用者自己挑的檔案可以救回之前刪掉的交易', cl2.restored && cl2.tombGone, JSON.stringify(cl2));
 
   ok('掃描流程全程無 JavaScript 錯誤', errs.length === 0, errs.slice(0, 2).join(' | '));
   await b.close(); srv.close();
@@ -581,7 +621,7 @@ function intelFrontTests() {
   ok('情報卡：舊版後端（v174 以前的格式）不會讓卡片崩潰', !oldErr, oldErr);
   const barH = F.renderIntel(J(0.8, st(0.05, 3), { att: { news: { n: 9, series: ser3, pending: 5, med: 2.5, ratio: 1, trend: '持平' } } }), chip(0, 0));
   ok('情報卡：每交易日長條圖＋「待開盤」虛線', /9\/22/.test(barH) && /待開盤/.test(barH) && /dashed/.test(barH) && /熱度持平/.test(barH));
-  ok('情報卡：有 FinMind token 時一併送給後端', /action=intel&code=\$\{encodeURIComponent\(D\.code\)\}\$\{tk\}/.test(fs.readFileSync(path.join(ROOT, 'intel.js'), 'utf8')));
+  ok('情報卡：有 FinMind token 時一併送給後端', /action=intel&code=\$\{encodeURIComponent\(code\)\}\$\{tk\}/.test(fs.readFileSync(path.join(ROOT, 'intel.js'), 'utf8')));
   const tr = J(0.8, st(0.05, 3)); tr.events.unshift({ title: '股價大漲', type: '股價走勢報導', dir: 1, mag: 3, conf: 1, ids: [0], first: NOW, study: st(0.09, 5) });
   v = V(tr, chip(0, 0));
   ok('情報判讀：主要事件不取「股價走勢報導」', /法說上修/.test(v.sub), v.sub);
@@ -1482,6 +1522,10 @@ ${Array.from({ length: 3 }, (_, i) => `<item><title>台積電法說重點第${i}
     fetchImpl = async u => { if (/relay\.test/.test(u)) { const e = new Error('The operation was aborted'); e.name = 'AbortError'; throw e; } localN++; return asResp(IT.route(u, IT.gem)); };
     const rt = await routed({ GAS_RELAY: 'https://relay.test/exec' });
     ok('整筆轉接：GAS 逾時就明講，不再自己抓一輪', rt.engine === '（丟出例外）' && /50 秒/.test(rt.srcErrors[0]) && localN === 0, `${rt.srcErrors[0]}｜本地又抓了 ${localN} 次`);
+    { const n0 = Date.now; let clock = n0(); Date.now = () => clock; localN = 0;   // v181：40 秒後才回 5xx，剩下的時間不夠再抓一輪
+      fetchImpl = async u => { if (/relay\.test/.test(u)) { clock += 40000; return asResp({ status: 502, txt: 'bad gateway' }); } localN++; return asResp(IT.route(u, IT.gem)); };
+      const rl2 = await routed({ GAS_RELAY: 'https://relay.test/exec' }); Date.now = n0;
+      ok('整筆轉接：GAS 很晚才失敗→明講原因，不再自己抓一輪（會超過前端上限）', rl2.engine === '（丟出例外）' && /40 秒後失敗/.test(rl2.srcErrors[0]) && localN === 0, `${rl2.srcErrors[0]}｜${localN}`); }
     const relayMs = +(fs.readFileSync(path.join(ROOT, 'worker.js'), 'utf8').match(/GAS_RELAY\}\?action=intel[^\n]*\{\}, (\d+)\)/) || [])[1];
     const pageMs = +(fs.readFileSync(path.join(ROOT, 'intel.js'), 'utf8').match(/let INTEL_WAIT = (\d+)/) || [])[1];
     ok('時間預算：Worker 等 GAS 的上限比前端上限短至少 5 秒', relayMs > 0 && pageMs - relayMs >= 5000, `Worker ${relayMs} ms／前端 ${pageMs} ms`);
@@ -1593,6 +1637,31 @@ ${Array.from({ length: 3 }, (_, i) => `<item><title>台積電法說重點第${i}
     const w = await W2.fetchIntel('2330', { GEMINI_KEY: 'k-test' }), gg = G.fetchIntel('2330');
     const strip = o => { const c = JSON.parse(JSON.stringify(o)); delete c.asOf; delete c.snapshot; delete c.engine; return c; };   // engine 本來就不同
     cmp('整條情報管線（含AI）', strip(w), strip(gg));
+    // v181 GAS 平行預抓：已知網址一次發出（不再一個接一個相加）；fetchAll 整批失敗時退回逐一抓，結果不變
+    { const U0 = global.UrlFetchApp, batches = [], singles = [];
+      global.UrlFetchApp = { fetch: (u, o) => { singles.push(u); return U0.fetch(u, o); }, fetchAll: rq => { batches.push(rq.map(r => r.url)); return U0.fetchAll(rq); } };
+      gsProps = { GEMINI_KEY: 'k-test' };
+      const gp = G.fetchIntel('2330'), big = batches.find(b => b.length >= 6) || [];
+      ok('GAS：新聞、PTT、公告、日K、月營收、國際新聞一次平行發出', ['news.google.com/rss/search?q=2330', 'ptt.cc', 't187ap04_L', '2330.TW', '0050.TW', 'TaiwanStockMonthRevenue', 'hl=en-US'].every(k => big.some(u => u.indexOf(k) >= 0))
+        && !singles.some(u => /ptt\.cc|t187ap04_L|finance\/chart|MonthRevenue/.test(u)), `批次 ${big.length} 個；逐一 ${singles.filter(u => !/generativelanguage|t187ap03_L/.test(u)).join(',').slice(0, 120)}`);
+      global.UrlFetchApp = { fetch: U0.fetch, fetchAll: rq => { if (rq.some(r => /ptt\.cc/.test(r.url))) throw new Error('Timeout'); return U0.fetchAll(rq); } };
+      cmp('GAS：預抓整批失敗→逐一抓，結果與預抓相同', strip(G.fetchIntel('2330')), strip(gp));
+      global.UrlFetchApp = U0; gsProps = {}; }
+    // v181 入庫當天 14:00 前查詢：FinMind 已經有＝早就公布，時間不可排到未來（原本會被當成未來消息丟掉）
+    { const n0 = Date.now, fake = Date.parse(new Date(n0() + 8 * 3600e3).toISOString().slice(0, 10) + 'T10:00:00+08:00'), seen0 = IT.revSeen;
+      IT.revSeen = new Date(fake + 8 * 3600e3).toISOString().slice(0, 10); Date.now = () => fake;
+      fetchImpl = async u => asResp(IT.route(u, IT.gem)); gsFetch = u => gsResp(IT.route(u, IT.gem));
+      const wr = await W2.fetchIntel('2330', {}), gr = G.fetchIntel('2330');
+      Date.now = n0; IT.revSeen = seen0;
+      const ri = o => o.items.find(x => x.kind === 'rev');
+      ok('月營收：入庫當天盤中查詢仍列入條目，時間取「現在」', ri(wr) && ri(wr).t === fake && ri(gr) && ri(gr).t === fake, JSON.stringify([ri(wr), ri(gr)]).slice(0, 120)); }
+    // v181 ETF／新上市沒有月營收：不是抓取失敗，不列入來源錯誤
+    { const noRev = u => /TaiwanStockMonthRevenue/.test(u) ? { json: { msg: 'success', status: 200, data: [] } } : IT.route(u, IT.gem);
+      fetchImpl = async u => asResp(noRev(u)); gsFetch = u => gsResp(noRev(u));
+      const we = await W2.fetchIntel('2330', {}), ge = G.fetchIntel('2330');
+      ok('月營收：ETF／新上市沒有資料→註明，不列為來源失敗', [we, ge].every(o => o.revenue === null && !o.srcErrors.some(x => /月營收/.test(x)) && o.notes.some(x => /沒有可比的月營收/.test(x))), JSON.stringify([we.srcErrors, we.notes]).slice(0, 160));
+      fetchImpl = async u => asResp(IT.route(u, IT.gem)); gsFetch = u => gsResp(IT.route(u, IT.gem)); }
+    ok('引用格式：括號內有空白也拆（[ 1, 2 ]、[ 3 ]）', W2.normCite('a[ 1, 2 ]b[ 3 ]') === 'a[1][2]b[3]' && G.normCite('a[ 1, 2 ]b[ 3 ]') === 'a[1][2]b[3]', W2.normCite('a[ 1, 2 ]b[ 3 ]'));
     gsProps = {};
     const w2 = await W2.fetchIntel('2330', {}), g2 = G.fetchIntel('2330');
     cmp('整條情報管線（無金鑰）', strip(w2), strip(g2));

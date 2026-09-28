@@ -21,7 +21,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['journal.js'] = 177; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['journal.js'] = 181; } catch (e) {}
 
 /* ── 開啟 / 關閉面板 ─────────────────────────────────────────────────── */
 /* ── 分批進場 / 加碼工具 ──────────────────────────────────────────────
@@ -742,7 +742,7 @@ async function importLocalFile(input) {
   try {
     const text = await file.text();
     const obj = JSON.parse(text);
-    const n = await importBackup(obj);
+    const n = await importBackup(obj, true);   // 使用者自己挑的檔案＝要還原的，之前刪過的也救回
     msg.textContent = `✅ 已匯入 ${n} 筆交易紀錄`; msg.style.color = 'var(--buy)';
     await loadSettings(); await refreshJournal(); await syncWinRateToMain(); await refreshRiskBudget();   // v177：載入的交易要算進本月 6% 預算
   } catch (e) {

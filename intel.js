@@ -12,7 +12,7 @@
 
    ⚠️ EVIDENCE tier U：未經回測，只顯示不計分。任何分數或紀律門都不讀這裡的結果。
    ══════════════════════════════════════════════════════════════════════ */
-try { (window.SR_FV = window.SR_FV || {})['intel.js'] = 179; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['intel.js'] = 181; } catch (e) {}
 
 /* 條目標題來自新聞與PTT（任何人都能發文），一律完整跳脫再進 innerHTML。
    不用 layout.js 的 esc：那支是「刪掉」特殊字元，會把「台積電 & 蘋果」弄成「台積電  蘋果」。 */
@@ -108,7 +108,7 @@ function renderIntel(j, D) {
   const rv = j.revenue, md = d => `${+d.slice(5, 7)}/${+d.slice(8, 10)}`;
   const revBox = rv ? (() => {
     const st = rv.study, sig = st && st.status === 'ok' && Math.abs(st.scar) >= SIG;
-    const sur = rv.sur == null ? `歷史只有 ${rv.n} 個月（需 12 個月），不算驚奇度`
+    const sur = rv.sur == null ? (rv.n >= 12 ? `過去 ${rv.n} 個月年增率完全相同，無法算驚奇度` : `歷史只有 ${rv.n} 個月（需 12 個月），不算驚奇度`)
       : `驚奇度 ${rv.sur >= 0 ? '+' : ''}${rv.sur.toFixed(1)}${Math.abs(rv.sur) >= 2 ? (rv.sur > 0 ? '，明顯優於常態' : '，明顯差於常態') : '，在常態範圍內'}（過去 ${rv.n} 個月年增平均 ${pctI(rv.mean)}）`;
     const react = !rv.seen ? '公布日不明（FinMind 2026/4/21 以前的資料沒有入庫日），不做市場反應分析'
       : !st ? '' : st.status === 'pending' ? `${md(rv.seen)} 公布，市場尚未交易` : st.status !== 'ok' ? '歷史資料不足，無法做市場反應分析'
@@ -169,7 +169,8 @@ function renderAiCard(j) {
         <div style="font-size:11px;color:${sig ? 'var(--txt)' : 'var(--muted)'};margin-top:3px;line-height:1.6">${why}</div></div>`; }).join('');
   const pend = mv ? mv.pending.length : 0;
   const outlook = aiOK && j.ai.outlook ? citeI(j.ai.outlook, j.items)
-    : aiOK ? '（AI 這次沒有給出展望）'
+    : aiOK ? (mv ? '（AI 這次沒有給出展望）' : '（沒有逐日拆解時不產生展望）')
+    : j.ai.status === 'no-items' ? '近7日沒有可歸納的消息，下一個交易日消息面沒有新變數。'
     : `AI ${j.ai.status === 'no-key' ? '未啟用（後端尚未設定 GEMINI_KEY）' : '歸納失敗'}——上面的逐日拆解是程式算的，仍然有效；收盤後有 ${pend} 則消息，見情報卡的來源條目。`;
   return `<div style="font-size:10px;color:var(--muted);letter-spacing:.5px;margin-bottom:2px">近一週逐日拆解：這天漲跌是大盤帶的，還是個股自己的事？</div>${rows}
     <div style="margin-top:10px;padding:9px 11px;background:var(--bg);border-left:3px solid var(--acc);border-radius:7px">
@@ -178,7 +179,28 @@ function renderAiCard(j) {
     <div style="font-size:9.5px;color:var(--muted2);margin-top:8px;line-height:1.6">拆解：漲跌＝大盤帶動（β×大盤漲跌）＋個股自身；${mv ? `β=${mv.beta.toFixed(2)}，用分析期間之前 ${mv.n} 個交易日估計。` : ''}個股自身超過 1.96 倍日常波動才算顯著，才對照「當天」的消息（13:30 後的消息算下一個交易日）。展望是情境，不是漲跌預測；未經回測，不計入任何分數——能不能做以紀律門為準。</div>`;
 }
 
-const _intelCache = new Map();   // code → { t, j }：同一檔10分鐘內不重抓（AI 呼叫有額度）
+const _intelCache = new Map();
+/* v181 同一檔進行中的請求共用：A→B→A 快速切回時，不重打一次後端（Gemini 有額度），
+   也不會讓後到的那次失敗蓋掉先到的好結果；進度秒數沿用第一次開始的時間 */
+const _intelFlight = new Map();
+function intelFlight(code) {
+  if (!_intelFlight.has(code)) {
+    const p = (async () => {
+      const tk = typeof FINMIND_TOKEN !== 'undefined' && FINMIND_TOKEN ? `&token=${encodeURIComponent(FINMIND_TOKEN)}` : '';   // 有 token 時 FinMind 額度較高；沒有也能用
+      const r = await fetchT(`${GAS_URL}?action=intel&code=${encodeURIComponent(code)}${tk}`, {}, INTEL_WAIT);
+      if (!r.ok) throw new Error(`後端 HTTP ${r.status}`);
+      const txt = await r.text();
+      let j;
+      try { j = JSON.parse(txt); } catch (e) { throw new Error('後端回傳的不是 JSON——多半是後端尚未部署 v168 的 intel 端點'); }
+      if (!j.ok) throw new Error(j.error || '後端錯誤');
+      if (!Array.isArray(j.items) || !j.ai) throw new Error('後端沒有情報欄位——worker.js / Code.gs 尚未更新到 v168，請重新部署');
+      _intelCache.set(code, { t: Date.now(), j });
+      return j;
+    })().finally(() => _intelFlight.delete(code));
+    _intelFlight.set(code, { p, t0: Date.now() });
+  }
+  return _intelFlight.get(code);
+}   // code → { t, j }：同一檔10分鐘內不重抓（AI 呼叫有額度）
 /* v176 進度顯示：後端是一次請求，途中回報不了進度——能確定的只有「已經等了幾秒」。
    秒數持續跳動＝頁面活著、仍在等後端；階段文字依一般耗時推估（標明「預估」）；
    到上限就明講逾時並給重試，不會無限轉圈。 */
@@ -212,15 +234,9 @@ async function loadIntelCard(D) {
     const c = _intelCache.get(D.code);
     if (c && Date.now() - c.t < 600e3) j = c.j;
     else {
-      intelProgress(box, D.code, Date.now());
-      const tk = typeof FINMIND_TOKEN !== 'undefined' && FINMIND_TOKEN ? `&token=${encodeURIComponent(FINMIND_TOKEN)}` : '';   // 有 token 時 FinMind 額度較高；沒有也能用
-      const r = await fetchT(`${GAS_URL}?action=intel&code=${encodeURIComponent(D.code)}${tk}`, {}, INTEL_WAIT);
-      if (!r.ok) throw new Error(`後端 HTTP ${r.status}`);
-      const txt = await r.text();
-      try { j = JSON.parse(txt); } catch (e) { throw new Error('後端回傳的不是 JSON——多半是後端尚未部署 v168 的 intel 端點'); }
-      if (!j.ok) throw new Error(j.error || '後端錯誤');
-      if (!Array.isArray(j.items) || !j.ai) throw new Error('後端沒有情報欄位——worker.js / Code.gs 尚未更新到 v168，請重新部署');
-      _intelCache.set(D.code, { t: Date.now(), j });
+      const f = intelFlight(D.code);
+      intelProgress(box, D.code, f.t0);
+      j = await f.p;
     }
   } catch (e) {
     if (window._activeCode && window._activeCode !== D.code) return;
@@ -235,6 +251,10 @@ async function loadIntelCard(D) {
   }
   if (window._activeCode && window._activeCode !== D.code) return;   // 已換股，丟棄遲到結果
   clearInterval(_intelTimer);
-  box.innerHTML = renderIntel(j, D);
-  if (aiBox) aiBox.innerHTML = renderAiCard(j);
+  try { box.innerHTML = renderIntel(j, D); if (aiBox) aiBox.innerHTML = renderAiCard(j); }
+  catch (e) {   // 資料已到但顯示程式出錯：明講，不讓兩張卡停在「已等 N 秒」「等待中」
+    const m = `<div style="font-size:12px;color:var(--warn)">⚠️ 情報面資料已取得，但顯示時出錯（${escI(e && e.message || e)}）——這是程式問題，請回報</div>`;
+    box.innerHTML = m; if (aiBox) aiBox.innerHTML = m;
+    if (typeof ErrorLog !== 'undefined') ErrorLog.push('情報面顯示', e);
+  }
 }
