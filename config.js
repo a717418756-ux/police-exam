@@ -11,7 +11,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 
 // ▼▼▼ 每次改版把這個數字 +1（例如 6 → 7），就會自動清除舊快取 ▼▼▼
-const APP_VERSION = 175;
+const APP_VERSION = 176;
 
 /* ── 快取存活時間（統一常數，v95）─────────────────────────────────────
    v95修：原本四個快取各自寫死不同TTL（股價5分/融資5分/大盤10分/縱深10分），
@@ -76,7 +76,7 @@ function evScorable(k) { try { const e = EVIDENCE[k]; return !!(e && e.w > 0); }
    app.js 啟動時比對，不符就直接點名是哪個檔沒更新——
    以前只能靠「畫面文字怎麼還是舊的」去猜，這種事發生過不只一次。 */
 const FILE_VERS = {
-  'help.js': 168, 'db.js': 163, 'market.js': 163, 'quant.js': 163, 'formula.js': 163, 'enhance.js': 163, 'advanced.js': 163, 'smc.js': 163, 'mainforce.js': 163, 'mtf.js': 163, 'resonance.js': 163, 'bingfa.js': 163, 'layout.js': 163, 'journal.js': 174, 'scan.js': 167, 'intel.js': 175, 'app.js': 168
+  'help.js': 168, 'db.js': 163, 'market.js': 163, 'quant.js': 163, 'formula.js': 163, 'enhance.js': 163, 'advanced.js': 163, 'smc.js': 163, 'mainforce.js': 163, 'mtf.js': 163, 'resonance.js': 163, 'bingfa.js': 163, 'layout.js': 176, 'journal.js': 174, 'scan.js': 167, 'intel.js': 176, 'app.js': 176
 };
 
 const EVIDENCE = {
@@ -182,7 +182,7 @@ async function fetchT(url, opts = {}, ms = FE_TIMEOUT) {
     // 曾導致法人資料頑固不更新，換FinMind token（網址變了）才被迫抓新，即此雷
     return await fetch(url, { cache: 'no-store', ...opts, signal: ctrl.signal });
   } catch (e) {
-    if (e.name === 'AbortError') throw new Error('後端回應超時（20秒）——可能是某個資料來源異常，請稍後再試');
+    if (e.name === 'AbortError') throw new Error(`後端回應超時（${Math.round(ms / 1000)}秒）——可能是某個資料來源異常，請稍後再試`);   // v176：原本寫死「20秒」，實際上限是 45／60 秒
     throw e;
   } finally {
     clearTimeout(timer);

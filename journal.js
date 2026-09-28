@@ -21,7 +21,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['journal.js'] = 163; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['journal.js'] = 174; } catch (e) {}
 
 /* ── 開啟 / 關閉面板 ─────────────────────────────────────────────────── */
 /* ── 分批進場 / 加碼工具 ──────────────────────────────────────────────
@@ -755,7 +755,12 @@ async function importLocalFile(input) {
 // ── 雲端備份 ──────────────────────────────────────────────────────────
 async function doCloudSave() {
   const msg = $('settings-msg'); msg.textContent = '雲端儲存中...'; msg.style.color = 'var(--muted)';
-  try { await saveSettings(); await cloudSave(); msg.textContent = '✅ 已存到雲端'; msg.style.color = 'var(--buy)'; }
+  try {
+    await saveSettings();
+    const j = await cloudSave();   // v174：GAS 會回報已用空間（上限約 600 筆交易），接近時提醒
+    msg.textContent = '✅ 已存到雲端' + (j && j.usedPct != null ? `（已用 ${j.usedPct}%${j.usedPct >= 70 ? '，接近上限，請定期下載備份檔' : ''}）` : '');
+    msg.style.color = j && j.usedPct >= 70 ? 'var(--warn)' : 'var(--buy)';
+  }
   catch (e) { msg.textContent = '❌ ' + e.message; msg.style.color = 'var(--sell)'; await ErrorLog.push('cloudSave', e); }
 }
 async function doCloudLoad() {

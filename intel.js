@@ -12,7 +12,7 @@
 
    ⚠️ EVIDENCE tier U：未經回測，只顯示不計分。任何分數或紀律門都不讀這裡的結果。
    ══════════════════════════════════════════════════════════════════════ */
-try { (window.SR_FV = window.SR_FV || {})['intel.js'] = 175; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['intel.js'] = 176; } catch (e) {}
 
 /* 條目標題來自新聞與PTT（任何人都能發文），一律完整跳脫再進 innerHTML。
    不用 layout.js 的 esc：那支是「刪掉」特殊字元，會把「台積電 & 蘋果」弄成「台積電  蘋果」。 */
@@ -132,19 +132,40 @@ function renderIntel(j, D) {
 }
 
 const _intelCache = new Map();   // code → { t, j }：同一檔10分鐘內不重抓（AI 呼叫有額度）
+/* v176 進度顯示：後端是一次請求，途中回報不了進度——能確定的只有「已經等了幾秒」。
+   秒數持續跳動＝頁面活著、仍在等後端；階段文字依一般耗時推估（標明「預估」）；
+   到上限就明講逾時並給重試，不會無限轉圈。 */
+let INTEL_WAIT = 60000;
+const INTEL_STAGES = [[0, '連線後端'], [3, '抓取新聞、PTT、公告與K線'], [12, 'AI 歸納事件、計算事件研究'], [35, '比平常久，仍在等待後端']];
+let _intelTimer = 0;
+function intelProgress(box, code, t0) {
+  clearInterval(_intelTimer);   // 同一檔連點兩次時，停掉前一個計時，否則它會在結果出來後繼續蓋上「已等 N 秒」
+  const paint = () => {
+    const s = Math.floor((Date.now() - t0) / 1000), st = INTEL_STAGES.filter(x => s >= x[0]).pop()[1], max = INTEL_WAIT / 1000;
+    box.innerHTML = `<div style="font-size:12px;color:var(--muted);line-height:1.6">${st}（預估）… 已等 <b>${s}</b> 秒<span style="color:var(--muted2)">　通常 10～25 秒，最多等 ${max} 秒</span></div>
+      <div style="height:3px;background:var(--bd);border-radius:2px;margin-top:6px;overflow:hidden" title="已等待時間／等待上限（不是完成度）"><div style="height:100%;width:${Math.min(100, s / max * 100)}%;background:var(--acc);transition:width 1s linear"></div></div>`;
+  };
+  paint();   // 第一次一定要畫：否則畫面會停留在上一檔股票的情報（換股時最危險）
+  const id = setInterval(() => {   // 用自己的 id 停自己：共用變數此時可能已是新股票的計時，停錯會讓新畫面卡住
+    if (window._activeCode && window._activeCode !== code) { clearInterval(id); return; }
+    paint();
+  }, 1000);
+  _intelTimer = id;
+}
 async function loadIntelCard(D) {
   const card = document.getElementById('intel-card'), box = document.getElementById('intel-content');
   if (!card || !box) return;
   if (D.currency !== 'TWD' || !GAS_URL) { card.style.display = 'none'; return; }
   card.style.display = 'block';
-  box.innerHTML = '<div style="font-size:12px;color:var(--muted)">正在蒐集新聞、PTT 與重大訊息，AI 歸納約需 5～20 秒…</div>';
+  window._intelD = D;   // 給「重試」按鈕用
   let j;
   try {
     const c = _intelCache.get(D.code);
     if (c && Date.now() - c.t < 600e3) j = c.j;
     else {
+      intelProgress(box, D.code, Date.now());
       const tk = typeof FINMIND_TOKEN !== 'undefined' && FINMIND_TOKEN ? `&token=${encodeURIComponent(FINMIND_TOKEN)}` : '';   // 有 token 時 FinMind 額度較高；沒有也能用
-      const r = await fetchT(`${GAS_URL}?action=intel&code=${encodeURIComponent(D.code)}${tk}`, {}, 60000);
+      const r = await fetchT(`${GAS_URL}?action=intel&code=${encodeURIComponent(D.code)}${tk}`, {}, INTEL_WAIT);
       if (!r.ok) throw new Error(`後端 HTTP ${r.status}`);
       const txt = await r.text();
       try { j = JSON.parse(txt); } catch (e) { throw new Error('後端回傳的不是 JSON——多半是後端尚未部署 v168 的 intel 端點'); }
@@ -154,9 +175,15 @@ async function loadIntelCard(D) {
     }
   } catch (e) {
     if (window._activeCode && window._activeCode !== D.code) return;
-    box.innerHTML = `<div style="font-size:12px;color:var(--warn)">⚠️ 情報面取得失敗：${escI(e && e.message || e)}</div>`;
+    clearInterval(_intelTimer);
+    const msg = String(e && e.message || e), slow = /超時/.test(msg);
+    box.innerHTML = `<div style="font-size:12px;color:var(--warn);line-height:1.6">⚠️ ${slow
+      ? `等了 ${INTEL_WAIT / 1000} 秒後端都沒有回應——多半是 GAS 執行太久或某個資料來源卡住，不是頁面當機`
+      : `情報面取得失敗：${escI(msg)}`}
+      <button onclick="loadIntelCard(window._intelD)" style="margin-left:6px;font-size:11px;padding:3px 10px;border-radius:5px;border:1px solid var(--bd2);background:transparent;color:var(--acc);cursor:pointer">重試</button></div>`;
     return;
   }
   if (window._activeCode && window._activeCode !== D.code) return;   // 已換股，丟棄遲到結果
+  clearInterval(_intelTimer);
   box.innerHTML = renderIntel(j, D);
 }

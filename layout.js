@@ -14,7 +14,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['layout.js'] = 163; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['layout.js'] = 176; } catch (e) {}
 
 // 分頁定義（順序即按鈕順序）。cards 含該頁所有卡片 id
 const TABS = [
@@ -31,7 +31,7 @@ const TABS = [
   { id:'t-signal', icon:'🔍', name:'訊號',
     cards:['smc-card','sr-card','vpradar-card','multiperiod-card','cat-row','ind-grid'] },
   { id:'t-mind', icon:'🧠', name:'心理AI',
-    cards:['crowd-card','psych-card','ai-card'] },
+    cards:['intel-card','crowd-card','psych-card','ai-card'] },   // v176 情報面（新聞/PTT/AI）歸心理AI
 ];
 
 let _layoutBuilt = false;

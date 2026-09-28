@@ -78,6 +78,19 @@ function logicTests() {
     }
   const missing = [...used].filter(k => !defined.has(k));
   ok('所有 showHelp key 都有對應說明', missing.length === 0, missing.join(','));
+  /* v176：新卡片必須三處同步（index.html／layout.js 分頁／app.js 重置清單），漏一處就是「幽靈卡」——
+     每個分頁都看得到它。layout.js 檔頭早就寫了這條，v168 加情報卡時還是漏了，改成自動檢查。 */
+  {
+    const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8'), lay = fs.readFileSync(path.join(ROOT, 'layout.js'), 'utf8');
+    const cards = [...html.matchAll(/<div id="([\w-]+-card)"/g)].map(m => m[1]);
+    const tabs = new Set([...lay.matchAll(/cards:\[([^\]]*)\]/g)].flatMap(m => m[1].match(/[\w-]+/g)));
+    const rm = app.match(/\[('stock-bar'[^\]]*)\]\.forEach\(id=>\$\(id\)\.style\.display='none'\)/), reset = new Set(rm ? rm[1].match(/[\w-]+/g) : []);
+    ok('每張卡片都歸到某個分頁（否則每個分頁都會出現它）', cards.length > 20 && cards.every(c => tabs.has(c)), cards.filter(c => !tabs.has(c)).join(','));
+    ok('每張卡片都在換股時的重置清單', cards.every(c => reset.has(c)), cards.filter(c => !reset.has(c)).join(','));
+  }
+  const gs = fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8');
+  ok('GAS 不再傳 UrlFetchApp 不支援的 timeout 參數（它一直被忽略，會誤導讀者）', !/timeout:\s*FETCH_TIMEOUT_SEC/.test(gs) && !/var FETCH_TIMEOUT_SEC/.test(gs));
+  ok('逾時訊息講的是實際秒數（原本寫死 20 秒）', /後端回應超時（\$\{Math\.round\(ms \/ 1000\)\}秒）/.test(cfg) && !/超時（20秒）/.test(cfg));
 }
 
 /* ── 第二部分：實際跑整個網頁（需 playwright）────────────────────────── */
@@ -208,7 +221,8 @@ async function scanFlowTests() {
     events: [{ title: '法說上修全年營收', type: '法說', dir: 1, mag: 2, horizon: '中', conf: 0.8, ids: [0, 1], first: T0 - 5 * 3600e3, srcKinds: ['news', 'ptt'],
       study: { status: 'ok', t0: '20260926', afterClose: false, L: 2, car: 0.042, scar: 2.9, pre: 0.003, preScar: 0.4, beta: 1.1, n: 110 } }],
     tilt: { tilt: 0.8, conflict: 0, n: 1 },
-    attention: { news: { n: 3, last24: 2, med: 1, ratio: 2, daily: [2, 1, 0, 0, 0, 0, 0] }, ptt: { n: 1, last24: 1, med: 0, ratio: 1, daily: [1, 0, 0, 0, 0, 0, 0], bull: 1, bear: 0 } },
+    attention: { news: { n: 9, series: [{ d: '20260922', n: 2 }, { d: '20260923', n: 3 }, { d: '20260924', n: 4 }], pending: 2, med: 2.5, ratio: 1.75, trend: '升溫' },
+      ptt: { n: 1, series: [], pending: 1, bull: 1, bear: 0 } },
     ai: { status: 'ok', model: 'gemini-test', prompt: 'v168.1', dropped: 1, summary: '市場在談法說上修[0]。' }, notes: [], srcErrors: [], snapshot: 'saved' };
   const bars = n => { const c = [], h = [], l = [], v = [];
     for (let i = 0; i < n; i++) { const x = 100 + Math.sin(i / 5) * 5 + i * 0.1;
@@ -284,6 +298,47 @@ async function scanFlowTests() {
   intelResp = good;
   await pg.evaluate(() => { window._activeCode = 'AAPL'; return loadIntelCard({ code: 'AAPL', currency: 'USD' }); });
   ok('情報卡：美股不顯示（資料源只有台股）', !(await intelText()).vis);
+
+  // v176 進度顯示
+  intelDelay = 2600;
+  await pg.evaluate(() => { window._activeCode = '2412'; window._ip = loadIntelCard({ code: '2412', currency: 'TWD', chip: null }); });
+  await pg.waitForTimeout(1400);
+  ic = await intelText();
+  ok('情報卡：抓取中顯示已等秒數與預估階段（區分當機／抓取中）', /已等 [12] 秒/.test(ic.txt) && /預估/.test(ic.txt) && /最多等 60 秒/.test(ic.txt), ic.txt.slice(0, 80));
+  await pg.evaluate(() => window._ip);
+  ic = await intelText();
+  ok('情報卡：完成後進度換成結果', !/已等/.test(ic.txt) && /共振/.test(ic.txt), ic.txt.slice(0, 60));
+  // 逾時：上限調短來測
+  intelDelay = 2500;
+  await pg.evaluate(() => { INTEL_WAIT = 1200; window._activeCode = '2603'; return loadIntelCard({ code: '2603', currency: 'TWD', chip: null }); });
+  ic = await intelText();
+  ok('情報卡：逾時明講「不是頁面當機」並給重試', /沒有回應/.test(ic.txt) && /不是頁面當機/.test(ic.txt) && /重試/.test(ic.txt), ic.txt.slice(0, 80));
+  intelDelay = 0;
+  await pg.evaluate(() => { INTEL_WAIT = 60000; });
+  await pg.evaluate(() => document.querySelector('#intel-content button').click());   // 掃描面板仍蓋在上層，直接觸發按鈕本身的 onclick
+  await pg.waitForTimeout(700);
+  ok('情報卡：按重試會重新抓並顯示結果', /共振/.test((await intelText()).txt));
+  // 換股不互蓋：兩檔都沒快取、都在抓。舊計時器不可停掉新股票的計時，也不可蓋掉新畫面
+  intelDelay = 3000;
+  await pg.evaluate(() => { window._activeCode = '2882'; loadIntelCard({ code: '2882', currency: 'TWD', chip: null }); });
+  await pg.waitForTimeout(300);
+  await pg.evaluate(() => { window._activeCode = '2454'; window._ip2 = loadIntelCard({ code: '2454', currency: 'TWD', chip: null }); });
+  await pg.waitForTimeout(2300);
+  ic = await intelText();
+  ok('情報卡：換股後新股票的秒數照常往上跳（沒被舊計時器停掉）', /已等 2 秒/.test(ic.txt), ic.txt.slice(0, 50));
+  await pg.evaluate(() => window._ip2); await pg.waitForTimeout(1500);
+  ic = await intelText();
+  ok('情報卡：換股後舊的計時與結果都不會蓋掉新股票畫面', /共振/.test(ic.txt) && !/已等/.test(ic.txt), ic.txt.slice(0, 60));
+  // 同一檔連點兩次：結果出來後不可再被「已等 N 秒」蓋掉
+  intelDelay = 1500;
+  await pg.evaluate(() => { window._activeCode = '1101'; loadIntelCard({ code: '1101', currency: 'TWD', chip: null }); window._ip3 = loadIntelCard({ code: '1101', currency: 'TWD', chip: null }); });
+  await pg.evaluate(() => window._ip3); await pg.waitForTimeout(1600);
+  ic = await intelText();
+  ok('情報卡：同一檔連點兩次，結果出來後不會再被進度蓋掉', /共振/.test(ic.txt) && !/已等/.test(ic.txt), ic.txt.slice(0, 60));
+  intelDelay = 0;
+  // 卡片進「心理AI」分頁，不再每頁都出現
+  const pane = await pg.evaluate(() => { if (typeof buildLayout === 'function') buildLayout(); const c = document.getElementById('intel-card'), p = c && c.closest('.tab-pane'); return p ? p.id : '(不在任何分頁)'; });
+  ok('情報卡：只出現在「心理AI」分頁', pane === 'pane-t-mind', pane);
 
   ok('掃描流程全程無 JavaScript 錯誤', errs.length === 0, errs.slice(0, 2).join(' | '));
   await b.close(); srv.close();
@@ -418,6 +473,19 @@ function intelFrontTests() {
   ok('情報判讀：PTT一面倒→標為擁擠風險而非方向', v.notes.some(n => /擁擠/.test(n) && /不是方向訊號/.test(n)));
   v = V(J(0.8, st(0.01, 0.5), { att: { news: { saturated: true, n: 60 } } }), chip(0, 0));
   ok('情報判讀：新聞截斷→明講無法算倍數', v.notes.some(n => /上限/.test(n)));
+  const ser3 = [{ d: '20260922', n: 2 }, { d: '20260923', n: 3 }, { d: '20260924', n: 2 }];
+  v = V(J(0.8, st(0.01, 0.5), { att: { news: { n: 19, series: ser3, pending: 12, med: 2.5, ratio: 1, trend: '持平' } } }), chip(0, 0));
+  ok('情報判讀：收盤後（連假）累積暴增→提醒將影響下一交易日', v.notes.some(n => /收盤後已累積 12 則/.test(n) && /下一個交易日/.test(n)), JSON.stringify(v.notes));
+  v = V(J(0.8, st(0.01, 0.5), { att: { news: { n: 16, series: [{ d: '20260922', n: 2 }, { d: '20260923', n: 3 }, { d: '20260924', n: 9 }], pending: 1, med: 2.5, ratio: 2.4, trend: '升溫' } } }), chip(0, 0));
+  ok('情報判讀：最新交易日暴增→標出日期與倍數', v.notes.some(n => /09\/24 當日 9 則/.test(n) && /3\.6 倍/.test(n)), JSON.stringify(v.notes));
+  v = V(J(0.8, st(0.01, 0.5), { att: { news: { n: 9, series: ser3, pending: 2, med: 2.5, ratio: 1, trend: '持平' } } }), chip(0, 0));
+  ok('情報判讀：熱度正常時不發暴增警示', !v.notes.some(n => /暴增/.test(n)));
+  const oldBk = J(0.8, st(0.01, 0.5), { att: { news: { n: 3, last24: 2, med: 1, ratio: 2, daily: [2, 1, 0, 0, 0, 0, 0] } } });
+  let oldErr = ''; try { F.renderIntel(oldBk, chip(0, 0)); } catch (e) { oldErr = e.message; }
+  ok('情報卡：舊版後端（v174 以前的格式）不會讓卡片崩潰', !oldErr, oldErr);
+  const barH = F.renderIntel(J(0.8, st(0.05, 3), { att: { news: { n: 9, series: ser3, pending: 5, med: 2.5, ratio: 1, trend: '持平' } } }), chip(0, 0));
+  ok('情報卡：每交易日長條圖＋「待開盤」虛線', /9\/22/.test(barH) && /待開盤/.test(barH) && /dashed/.test(barH) && /熱度持平/.test(barH));
+  ok('情報卡：有 FinMind token 時一併送給後端', /action=intel&code=\$\{encodeURIComponent\(D\.code\)\}\$\{tk\}/.test(fs.readFileSync(path.join(ROOT, 'intel.js'), 'utf8')));
   const tr = J(0.8, st(0.05, 3)); tr.events.unshift({ title: '股價大漲', type: '股價走勢報導', dir: 1, mag: 3, conf: 1, ids: [0], first: NOW, study: st(0.09, 5) });
   v = V(tr, chip(0, 0));
   ok('情報判讀：主要事件不取「股價走勢報導」', /法說上修/.test(v.sub), v.sub);
@@ -453,15 +521,25 @@ async function backendTests() {
   let fetchImpl = async () => { throw new Error('未設定'); };
   global.fetch = (...a) => fetchImpl(...a);
   const W = {};
-  new Function('module', src + '\nmodule.yahooChart=yahooChart;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTaifexFutures=fetchTaifexFutures;module.fetchTaifexPCR=fetchTaifexPCR;module.fetchMargin=fetchMargin;module.fetchTopPool=fetchTopPool;module.rocToYmd=rocToYmd;module.eventStudy=eventStudy;module.attention=attention;module.infoTilt=infoTilt;module.validateAI=validateAI;module.parseRSS=parseRSS;module.parsePTT=parsePTT;module.parseAnnounce=parseAnnounce;module.fetchIntel=fetchIntel;module.dropIntraday=dropIntraday;')(W);
+  new Function('module', src + '\nmodule.yahooChart=yahooChart;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTaifexFutures=fetchTaifexFutures;module.fetchTaifexPCR=fetchTaifexPCR;module.fetchMargin=fetchMargin;module.fetchTopPool=fetchTopPool;module.rocToYmd=rocToYmd;module.eventStudy=eventStudy;module.infoTilt=infoTilt;module.validateAI=validateAI;module.parseRSS=parseRSS;module.parsePTT=parsePTT;module.parseAnnounce=parseAnnounce;module.fetchIntel=fetchIntel;module.dropIntraday=dropIntraday;module.fetchNews=fetchNews;module.fetchIntelRouted=fetchIntelRouted;module.dedupKey=dedupKey;module.heat=heat;module.parseFinMindNews=parseFinMindNews;')(W);
   const W2 = W;
 
   // Code.gs：補上 GAS 全域物件
   const pad = n => String(n).padStart(2, '0');
   let gsFetch = () => ({ getResponseCode: () => 200, getContentText: () => '{}' });
-  global.UrlFetchApp = { fetch: (...a) => gsFetch(...a) };
+  global.UrlFetchApp = { fetch: (...a) => gsFetch(...a), fetchAll: reqs => reqs.map(r => gsFetch(r.url, r)) };
   let gsProps = {};
-  global.PropertiesService = { getUserProperties: () => ({ getProperty: () => null, setProperty: () => {} }),
+  /* 使用者屬性庫：照 Google 實際限制——單一值超過 9KB 就丟錯（v174 以前的測試替身不擋，所以一直沒發現） */
+  const userStore = {};
+  const u8 = v => Buffer.byteLength(String(v), 'utf8');
+  const userProps = {
+    getProperty: k => (k in userStore ? userStore[k] : null),
+    // 真的屬性庫以 UTF-8 儲存：被切開的半個 emoji 會變成 �（Node 的 UTF-8 編碼行為相同）
+    setProperty: (k, v) => { if (u8(v) > 9216) throw new Error('Argument too large: value'); userStore[k] = Buffer.from(String(v), 'utf8').toString('utf8'); },
+    setProperties: o => { for (const k in o) if (u8(o[k]) > 9216) throw new Error('Argument too large: value'); for (const k in o) userStore[k] = Buffer.from(String(o[k]), 'utf8').toString('utf8'); },
+    getKeys: () => Object.keys(userStore), deleteProperty: k => { delete userStore[k]; },
+  };
+  global.PropertiesService = { getUserProperties: () => userProps,
     getScriptProperties: () => ({ getProperty: k => gsProps[k] || null }) };
   global.ContentService = { createTextOutput: t => ({ setMimeType: () => t }), MimeType: { JSON: 1 } };
   global.Utilities = { sleep() {}, formatDate(d, tz, fmt) {
@@ -471,7 +549,7 @@ async function backendTests() {
     return fmt === 'yyyy-MM-dd' ? `${y}-${m}-${dd}` : `${y}${m}${dd}`;
   } };
   const G = {};
-  new Function('module', fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8') + '\nmodule.fetchYahoo=fetchYahoo;module.fetchYahooTW=fetchYahooTW;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTopPool=fetchTopPool;module.rocToYmd=rocToYmd;module.eventStudy=eventStudy;module.attention=attention;module.infoTilt=infoTilt;module.validateAI=validateAI;module.parseRSS=parseRSS;module.parsePTT=parsePTT;module.parseAnnounce=parseAnnounce;module.fetchIntel=fetchIntel;module.dropIntraday=dropIntraday;')(G);
+  new Function('module', fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8') + '\nmodule.fetchYahoo=fetchYahoo;module.fetchYahooTW=fetchYahooTW;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTopPool=fetchTopPool;module.rocToYmd=rocToYmd;module.eventStudy=eventStudy;module.infoTilt=infoTilt;module.validateAI=validateAI;module.parseRSS=parseRSS;module.parsePTT=parsePTT;module.parseAnnounce=parseAnnounce;module.fetchIntel=fetchIntel;module.dropIntraday=dropIntraday;module.fetchNews=fetchNews;module.dedupKey=dedupKey;module.doGet=doGet;module.doPost=doPost;module.heat=heat;module.parseFinMindNews=parseFinMindNews;')(G);
 
   // twseGet 會先讀 resp.text()；測試替身統一用 jt() 同時提供 text 與 json
   const jt = o => ({ ok: true, status: 200, text: async () => JSON.stringify(o), json: async () => o });
@@ -965,7 +1043,7 @@ async function backendTests() {
 <item><title><![CDATA[台積電 &amp; 蘋果新訂單 - 鉅亨網]]></title><link>https://news.google.com/rss/articles/A2</link><pubDate>${pub(NOW - 30 * H)}</pubDate><source url="https://news.cnyes.com">鉅亨網</source></item>
 <item><title>台積電股價大漲5% - 工商時報</title><link>https://news.google.com/rss/articles/A3</link><pubDate>${pub(NOW - 2 * H)}</pubDate><source url="https://ctee.com.tw">工商時報</source></item>
 </channel></rss>`;
-    const rs = W2.parseRSS(IT.rss);
+    const rs = W2.parseRSS(IT.rss).items;
     ok('新聞RSS：解析標題、去掉尾端媒體名', rs.length === 3 && rs[0].title === '台積電法說上修全年營收' && rs[0].src === '經濟日報', JSON.stringify(rs[0]).slice(0, 80));
     ok('新聞RSS：CDATA 與 &amp; 正確解碼', rs[1].title === '台積電 & 蘋果新訂單', rs[1].title);
     ok('新聞RSS：發布時間正確', Math.abs(rs[0].t - (NOW - 5 * H)) < 1000);
@@ -981,7 +1059,7 @@ async function backendTests() {
 <div class="r-ent"><div class="title"><a href="/bbs/Stock/M.${ep(20)}.A.4D5.html">[新聞] 台積電(2330)法說會重點</a></div></div>
 <div class="r-ent"><div class="title"><a href="/bbs/Stock/M.${ep(40)}.A.5E6.html">[請益] 23300是什麼代號</a></div></div>
 </div>`;
-    const pt = W2.parsePTT(IT.ptt, '2330');
+    const pt = W2.parsePTT(IT.ptt, '2330').items;
     ok('PTT：只留標題真的含該代碼的（23300 不算）', pt.length === 4 && !pt.some(x => /23300/.test(x.title)), pt.map(x => x.title).join('|'));
     ok('PTT：[標的] 多/空 直接計數，不需 AI', pt[0].side === 1 && pt[1].side === -1, `${pt[0].side},${pt[1].side}`);
     ok('PTT：回文 Re: 不重複計入多空', pt[2].side === 0);
@@ -1004,13 +1082,36 @@ async function backendTests() {
     let aErr = ''; try { W2.parseAnnounce([{ code: '2330', title: 'x' }], '2330'); } catch (e) { aErr = String(e.message); }
     ok('重大訊息：欄名變更時丟錯並列出實際欄名', /欄名不符/.test(aErr) && /code/.test(aErr), aErr);
 
-    // ── 注意力與截斷偵測 ──
-    const mk = hs => hs.map(h => ({ t: NOW - h * H }));
-    const spread = [1, 2, 3, 30, 50, 55, 75, 80, 100, 120, 125, 145, 150];   // 近24h 3則，之前每日約2則
-    const at = W2.attention(mk(spread), NOW, 60);
-    ok('注意力：近24h vs 前6日中位數', at.last24 === 3 && at.med === 2 && Math.abs(at.ratio - 1.5) < 1e-9, JSON.stringify(at));
-    const sat = W2.attention(mk(Array.from({ length: 60 }, (_, i) => i * 0.8)), NOW, 60);
-    ok('注意力：筆數塞滿上限且未涵蓋6日→標記截斷、不給倍數', sat.saturated === true && sat.ratio === undefined, JSON.stringify(sat));
+    // ── 熱度與趨勢（v175）：依「影響哪個交易日」歸戶，真實日曆：9/25 中秋、9/26-27 週末 ──
+    const TPE = (d, hm) => Date.parse(`2026-09-${d}T${hm}:00+08:00`);
+    const HNOW = TPE('28', '10:00');   // 週一盤中：K 線已丟掉今天未收的那根
+    const HD = ['20260917', '20260918', '20260921', '20260922', '20260923', '20260924'];
+    const hItems = [['21', '09:00'], ['21', '14:00'], ['22', '10:00'], ['22', '13:29'], ['22', '13:30'], ['23', '12:00'], ['23', '20:00'],
+      ...Array(6).fill(['24', '09:00']), ['25', '10:00'], ['26', '12:00'], ['28', '09:30']].map(([d, hm]) => ({ t: TPE(d, hm) }));
+    const ht = W2.heat(hItems, HNOW, 20, hItems, HD, true);
+    IT.heat = { hItems, HNOW, HD };
+    ok('熱度：13:29 算當天、13:30（收盤）起算下一交易日', ht.series.find(x => x.d === '20260922').n === 3 && ht.series.find(x => x.d === '20260923').n === 2, JSON.stringify(ht.series));
+    ok('熱度：中秋、週末、今天盤中的消息都歸「下一交易日累積中」，不當成冷清的日子', ht.pending === 3, String(ht.pending));
+    ok('熱度：最前面那個交易日的消息期間早於蒐集窗→不完整，不列入', ht.series[0].d === '20260922', ht.series[0].d);
+    ok('熱度：每交易日計數與趨勢', JSON.stringify(ht.series.map(x => x.n)) === '[3,2,7]' && ht.med === 2.5 && ht.ratio === 1.5 && ht.trend === '升溫', JSON.stringify(ht));
+    const hc = W2.heat(hItems, HNOW, 5, hItems.slice(5), HD, false);   // 來源被截斷：最舊一筆 9/23 12:00
+    ok('熱度：來源截斷時，早於最舊一筆的交易日不列入；不足3日→不給趨勢', hc.saturated === true, JSON.stringify(hc));
+    ok('熱度：逐日完整的來源（FinMind）不受筆數上限影響', W2.heat(hItems, HNOW, 5, hItems.slice(5), HD, true).trend === '升溫');
+    ok('熱度：沒有交易日清單時只給總數', JSON.stringify(W2.heat(hItems, HNOW, 20, hItems, null, true)) === JSON.stringify({ n: 15 }));   // 9/21 09:00 在窗外
+
+    // ── FinMind 新聞：使用者實測回應的三個特性 ──
+    const fmRows = [
+      { date: '2026-09-24 06:24:25', stock_id: '2330', link: 'https://tw.stock.yahoo.com/news/a', source: 'Yahoo股市', title: '4萬8大關驚險守住！台股終場下跌132點 台積電收2475元 - Yahoo股市' },
+      { date: '2026-09-24 06:24:25', stock_id: '2330', link: 'https://tw.stock.yahoo.com/news/a', source: 'tw.stock.yahoo.com', title: '4萬8大關驚險守住！台股終場下跌132點 台積電收2475元 - tw.stock.yahoo.com' },
+      { date: '2026-09-24 03:46:48', stock_id: '2330', link: 'https://www.cmoney.tw/forum/article/1', source: 'CMoney', title: '2330 台積電 - 半導體管線題材燒不停！- 股市爆料同學會 - CMoney' },
+    ];
+    const fp = W2.parseFinMindNews(fmRows);
+    ok('FinMind：時間是 UTC（「終場下跌」06:24 ＝ 台北 14:24 收盤後）', fp[0].t === Date.parse('2026-09-24T06:24:25Z') && new Date(fp[0].t + 8 * H).getUTCHours() === 14, new Date(fp[0].t).toISOString());
+    ok('FinMind：同一連結兩種來源寫法只算一則', fp.length === 2, String(fp.length));
+    ok('FinMind：去掉標題尾巴「 - 來源」', fp[0].title === '4萬8大關驚險守住！台股終場下跌132點 台積電收2475元', fp[0].title);
+    ok('FinMind：CMoney 論壇標為社群並清標題', fp[1].kind === 'social' && fp[1].title === '半導體管線題材燒不停！', JSON.stringify(fp[1]));
+    const hu = W2.heat(fp.filter(x => x.kind === 'news'), TPE('28', '10:00'), 20, fp, HD, true);
+    ok('FinMind：盤後新聞歸到下一交易日（若誤當台北時間會算進 9/24）', hu.pending === 1 && !hu.series.some(x => x.n), JSON.stringify(hu));
 
     // ── AI 輸出驗證：幻覺引用必須剔除 ──
     const items5 = [0, 1, 2, 3, 4].map(i => ({ t: NOW - (i + 1) * H, kind: i < 2 ? 'news' : 'ptt' }));
@@ -1044,8 +1145,9 @@ async function backendTests() {
       if (/news\.google\.com/.test(u)) return { txt: IT.rss };
       if (/ptt\.cc/.test(u)) return { txt: IT.ptt };
       if (/t187ap04_L/.test(u)) return { json: IT.ann };
-      if (/STOCK_DAY_ALL/.test(u)) return { json: [{ Date: '1150926', SecuritiesCompanyCode: '2330', CompanyName: '台積電', TransactionAmount: '1' }] };
-      if (/tpex_mainboard/.test(u)) return { json: [{ Date: '1150926', Code: '6488', Name: '環球晶', TradeValue: '1' }] };
+      if (/t187ap03_L/.test(u)) return { json: [
+        { 出表日期: '1150926', 公司代號: '2330', 公司名稱: '台灣積體電路製造股份有限公司', 公司簡稱: '台積電', 外國企業註冊地國: '－' },
+        { 出表日期: '1150926', 公司代號: '2317', 公司名稱: '鴻海精密工業股份有限公司', 公司簡稱: '鴻海', 外國企業註冊地國: '－' }] };
       if (/0050\.TW/.test(u)) return { json: yc(240, 0.0003) };
       if (/finance\/chart\/2330\.TW/.test(u)) return { json: yc(240, 0.0006) };
       if (/generativelanguage/.test(u)) return gem;
@@ -1092,26 +1194,144 @@ async function backendTests() {
     const ks = await W2.fetchIntel('2330', { SYNC: { put: async (k, v) => { kv[k] = v; } } });
     ok('有綁 KV 時每日存快照（供日後回測）', ks.snapshot === 'saved' && Object.keys(kv).some(k => /^intel:2330:\d{8}$/.test(k)), Object.keys(kv).join());
 
-    /* v168.2 用使用者實際部署的回應校正：Google 新聞對 Cloudflare 回 503、名稱查詢失敗原因被吞、PTT 0 篇無說明 */
-    ok('新聞：Yahoo 不可用時改用下一個來源，並回報用了誰', full.newsVia === 'Google新聞', full.newsVia);
-    IT.yrss = `<?xml version="1.0"?><rss version="2.0"><channel><title>台積電(2330) - Yahoo股市</title>
-<item><title>台積電先進製程接單滿載</title><link>https://tw.stock.yahoo.com/news/a1</link><pubDate>${pub(NOW - 3 * H)}</pubDate></item>
-<item><title>晶圓代工價格明年調漲</title><link>https://tw.stock.yahoo.com/news/a2</link><pubDate>${pub(NOW - 9 * H)}</pubDate></item></channel></rss>`;
-    const withY = (u, gem) => /tw\.stock\.yahoo\.com\/rss\?s=2330/.test(u) ? { txt: IT.yrss } : IT.route(u, gem);
-    fetchImpl = async u => asResp(withY(u, IT.gem));
-    const yh = await W2.fetchIntel('2330', {});
-    ok('新聞：Yahoo 個股 RSS 可用時優先使用', yh.newsVia === 'Yahoo股市' && yh.items.some(x => x.src === 'Yahoo股市' && /接單滿載/.test(x.title)), yh.newsVia);
-    ok('新聞：以頻道標題確認是這檔股票（標題沒寫代碼也收）', yh.items.some(x => /晶圓代工價格/.test(x.title)));
-    const generic = `<?xml version="1.0"?><rss version="2.0"><channel><title>Yahoo股市 - 最新新聞</title>
-<item><title>美股收盤道瓊上漲</title><link>https://x/1</link><pubDate>${pub(NOW - H)}</pubDate></item></channel></rss>`;
-    fetchImpl = async u => asResp(/tw\.stock\.yahoo\.com/.test(u) ? { txt: generic } : IT.route(u, IT.gem));
-    const gy = await W2.fetchIntel('2330', {});
-    ok('新聞：來源回的是整體新聞（非個股）→ 拒收、改用下一個', gy.newsVia === 'Google新聞' && !gy.items.some(x => /道瓊/.test(x.title)), gy.newsVia);
-    fetchImpl = async u => /news\.google\.com|tw\.stock\.yahoo\.com/.test(u) ? asResp({ status: 503, txt: 'x' }) : asResp(IT.route(u, IT.gem));
-    const nn = await W2.fetchIntel('2330', {});
-    ok('新聞：全部來源都失敗→逐一列出原因', nn.srcErrors.some(x => /Yahoo股市 HTTP 503/.test(x) && /Google新聞 HTTP 503/.test(x)), JSON.stringify(nn.srcErrors));
+    // ── v175 FinMind 管線：8 個 UTC 日、熱度只用 FinMind、token、部分失敗 ──
+    IT.fmRows = fmRows;
+    IT.fmResp = u => { const d = new URL(u).searchParams.get('start_date');
+      return { msg: 'success', status: 200, data: [0, 1].map(k => ({ date: `${d} 0${2 + k}:00:00`, stock_id: '2330', link: `https://fm/${d}/${k}`, source: '經濟日報', title: `台積電先進製程消息${d}-${k} - 經濟日報` })) }; };
+    const fmSeen = []; let fmAuth = null;
+    fetchImpl = async (u, o) => { if (/finmindtrade/.test(u)) { fmSeen.push(new URL(u).searchParams.get('start_date')); fmAuth = o && o.headers && o.headers.Authorization; return asResp({ json: IT.fmResp(u) }); } return asResp(IT.route(u, IT.gem)); };
+    const fmI = await W2.fetchIntel('2330', {}, 'tok-1');
+    const nowD = new Date().toISOString().slice(0, 10);
+    ok('FinMind：抓 8 個 UTC 日（涵蓋台北 7×24 小時）', fmSeen.length === 8 && new Set(fmSeen).size === 8 && fmSeen.includes(nowD), fmSeen.join(','));
+    ok('FinMind：有 token 時放 Authorization header', fmAuth === 'Bearer tok-1', String(fmAuth));
+    ok('新聞：FinMind 與 Google 合併、標示來源', fmI.newsVia === 'FinMind＋Google新聞' && fmI.items.some(x => /先進製程消息/.test(x.title)) && fmI.items.some(x => /法說上修/.test(x.title)), fmI.newsVia);
+    const fmNewsN = [].concat(...[...new Set(fmSeen)].map(d => IT.fmResp('https://x/?start_date=' + d).data)).filter(r => { const a = Date.now() - Date.parse(r.date.replace(' ', 'T') + 'Z'); return a >= 0 && a < 7 * 864e5; }).length;   // 今天 UTC 日晚於現在的不算
+    ok('熱度：只用 FinMind 計數（不混 Google，避免近期假升溫）', fmI.attention.news.n === fmNewsN, `heat.n=${fmI.attention.news.n} FinMind=${fmNewsN}`);
+    fetchImpl = async (u, o) => { if (/finmindtrade/.test(u)) { fmAuth = o && o.headers && o.headers.Authorization; return asResp({ json: IT.fmResp(u) }); } return asResp(IT.route(u, IT.gem)); };
+    await W2.fetchIntel('2330', {}, '');
+    ok('FinMind：沒有 token 也能呼叫（不送空的 Authorization）', fmAuth === undefined, String(fmAuth));
+    let fmN = 0;
+    fetchImpl = async u => /finmindtrade/.test(u) ? (++fmN === 3 ? asResp({ status: 402, txt: 'quota' }) : asResp({ json: IT.fmResp(u) })) : asResp(IT.route(u, IT.gem));
+    const fmPart = await W2.fetchIntel('2330', {}, '');
+    ok('FinMind：任一天失敗→整批不用（缺一天計數就不準），改用 Google 並講明', fmPart.newsVia === 'Google新聞' && fmPart.notes.some(n => /FinMind HTTP 402/.test(n) && /額度/.test(n) && /改用 Google/.test(n)), JSON.stringify(fmPart.notes));
+    let relayU = '';
+    fetchImpl = async u => /relay\.test/.test(u) ? (relayU = u, asResp({ txt: 'x' })) : asResp(IT.route(u, IT.gem));
+    await W2.fetchIntelRouted('2330', { GAS_RELAY: 'https://relay.test/exec' }, 'tok-2');
+    ok('整筆轉接：FinMind token 一併轉給 GAS', /&token=tok-2/.test(relayU), relayU);
+    fetchImpl = async u => asResp(IT.route(u, IT.gem));
 
-    // 使用者實測：PTT 回了頁面但 0 篇——必須講出頁面是什麼、看到幾篇
+    /* v170 依使用者兩個後端同時實測的回應校正（2026-09-28）：
+       Google 新聞只擋 Cloudflare、STOCK_DAY_ALL 沒有中文名稱、櫃買中心擋雲端主機、
+       Yahoo rss?s= 不是個股參數、「股市爆料同學會」是網友發文不是新聞 */
+    ok('名稱：取自上市公司基本資料的「公司簡稱」而非全名', full.name === '台積電', full.name);
+    ok('新聞：Google 直連成功時回報來源', full.newsVia === 'Google新聞', full.newsVia);
+
+    // 社群發文分類（實測 60 則裡約 35 則是 CMoney 網友發文）
+    const socialRss = `<?xml version="1.0"?><rss version="2.0"><channel><title>"2330 台積電 when:7d" - Google 新聞</title>
+<item><title>2330 台積電 - 外資同步落跑！主動ETF也大賣- 股市爆料同學會</title><link>https://n/1</link><pubDate>${pub(NOW - 2 * H)}</pubDate><source url="https://cmoney.tw">CMoney</source></item>
+<item><title>2330 台積電 - 👍👍👍 - 股市爆料同學會</title><link>https://n/2</link><pubDate>${pub(NOW - 4 * H)}</pubDate><source url="https://cmoney.tw">CMoney</source></item>
+<item><title>台股收盤／跌132點 台積電收2,475元跌1% - 經濟日報</title><link>https://n/3</link><pubDate>${pub(NOW - 6 * H)}</pubDate><source url="https://udn.com">經濟日報</source></item>
+</channel></rss>`;
+    fetchImpl = async u => /news\.google\.com/.test(u) ? asResp({ txt: socialRss }) : asResp(IT.route(u, IT.gem));
+    const so = await W2.fetchIntel('2330', {});
+    const raw = (await W2.fetchNews('2330', '台積電')).items.filter(x => x.kind === 'social');
+    ok('社群：「股市爆料同學會」標為網友社群而非新聞', raw.length === 2 && raw.every(x => x.src === 'CMoney社群'), JSON.stringify(raw.map(x => x.src)));
+    ok('社群：去掉「2330 台積電 - 」前綴與尾巴', raw.some(x => x.title === '外資同步落跑！主動ETF也大賣'), raw.map(x => x.title).join('|'));
+    ok('社群：不計入新聞注意力，另外計數', so.attention.news.n === 1 && so.attention.social === 2, JSON.stringify(so.attention));
+    ok('社群：標題沒提到本公司的不進條目（前綴是論壇標籤不算）', !so.items.some(x => x.kind === 'social'), JSON.stringify(so.items.map(x => x.title)));
+
+    // v172 重現使用者實測：87 則社群發文洗版、真新聞只剩 9 則
+    let gq = '';
+    const flood = `<?xml version="1.0"?><rss version="2.0"><channel><title>"2330 台積電" - Google 新聞</title>
+${Array.from({ length: 40 }, (_, i) => `<item><title>2330 台積電 - 【美股快訊】特斯拉第${i}季交車 - 股市爆料同學會</title><link>https://n/s${i}</link><pubDate>${pub(NOW - (i + 1) * 0.5 * H)}</pubDate><source url="https://cmoney.tw">CMoney</source></item>`).join('\n')}
+${Array.from({ length: 8 }, (_, i) => `<item><title>2330 台積電 - 台積電傳明年漲價第${i}波 - 股市爆料同學會</title><link>https://n/r${i}</link><pubDate>${pub(NOW - (i + 1) * 0.6 * H)}</pubDate><source url="https://cmoney.tw">CMoney</source></item>`).join('\n')}
+${Array.from({ length: 3 }, (_, i) => `<item><title>台積電法說重點第${i}則 - 經濟日報</title><link>https://n/n${i}</link><pubDate>${pub(NOW - (i + 30) * H)}</pubDate><source url="https://udn.com">經濟日報</source></item>`).join('\n')}
+</channel></rss>`;
+    fetchImpl = async u => { if (/news\.google\.com/.test(u)) { gq = decodeURIComponent(u); return asResp({ txt: flood }); } return asResp(IT.route(u, IT.gem)); };
+    const fl = await W2.fetchIntel('2330', {});
+    const byKind = k => fl.items.filter(x => x.kind === k);
+    ok('社群洗版：查詢排除 CMoney（把名額留給真新聞）', /-site:cmoney\.tw/.test(gq), gq);
+    ok('社群洗版：真新聞較舊也不會被擠掉', byKind('news').length === 3, String(byKind('news').length));
+    ok('社群洗版：社群最多5則且都提到本公司', byKind('social').length === 5 && byKind('social').every(x => /台積電/.test(x.title)), byKind('social').map(x => x.title).join('|'));
+    ok('社群洗版：公告與PTT照常保留', byKind('mops').length === 2 && byKind('ptt').length === 4, `mops=${byKind('mops').length} ptt=${byKind('ptt').length}`);
+    IT.flood = flood;
+    IT.socialRss = socialRss;
+
+    /* v173 ① 雲端備份：沒綁 KV 時原本回 ok:true 卻什麼都沒存（使用者實測 snapshot=no-kv 才發現）。
+       直接呼叫 Worker 真正的請求處理函式，不是只測內部函式。 */
+    const WH = {};
+    new Function('module', fs.readFileSync(path.join(ROOT, 'worker.js'), 'utf8').replace('export default', 'module.handler =') )(WH);
+    const call = async (u, env, init) => JSON.parse(await (await WH.handler.fetch(new Request('https://w.test/?' + u, init), env)).text());
+    const bk = { app: 'StockRadarPro', user: 'u1', trades: [{ id: 1 }] };
+    const s0 = await call('action=sync_save', {}, { method: 'POST', body: JSON.stringify(bk) });
+    ok('雲端備份：沒綁 KV 時儲存必須回失敗（不可假裝成功）', s0.ok === false && /沒有綁定 KV/.test(s0.error), JSON.stringify(s0));
+    const g0 = await call('action=sync_get&user=u1', {});
+    ok('雲端備份：沒綁 KV 時讀取必須回失敗（不可偽裝成空備份）', g0.ok === false && /沒有綁定 KV/.test(g0.error), JSON.stringify(g0));
+    const store = {}, kvE = { SYNC: { put: async (k, v) => { store[k] = v; }, get: async k => store[k] || null } };
+    const s1 = await call('action=sync_save', kvE, { method: 'POST', body: JSON.stringify(bk) });
+    const g1 = await call('action=sync_get&user=u1', kvE);
+    ok('雲端備份：有綁 KV 時存得進、讀得回', s1.ok === true && g1.ok === true && g1.data.trades[0].id === 1, JSON.stringify(g1));
+
+    /* ③ 去重：使用者實測同一則新聞三種寫法 */
+    const dup = ['嘉科3期計劃啟動 點名台積電增設5座封裝廠 | ETtoday新聞雲', '嘉科3期計劃啟動　點名台積電增設5座封裝廠', '嘉科3期計劃啟動 點名台積電增設5座封裝廠'];
+    ok('去重：轉載尾巴、全形空白視為同一則', new Set(dup.map(W2.dedupKey)).size === 1, dup.map(W2.dedupKey).join(' / '));
+    ok('去重：UDN「| 股市要聞| 股市」尾巴與半形空白', W2.dedupKey('台積電盤後鉅額交易飆2,749元再創新天價| 股市要聞| 股市') === W2.dedupKey('台積電盤後鉅額交易飆2,749元 再創新天價'));
+    ok('去重：不同新聞不會被誤合併', W2.dedupKey('台積電A16量產倒數') !== W2.dedupKey('台積電A14量產倒數'));
+    IT.dup = dup;
+
+    // v171 整筆交給 GAS：Cloudflare 連 Google 新聞被擋、連 Gemini 被地區限制（使用者實測）
+    const gasIntel = { ok: true, code: '2330', name: '台積電', asOf: NOW, engine: 'GAS', items: [{ kind: 'news', title: '台積電法說上修', src: '經濟日報', url: 'https://n/9', t: NOW - 3 * H }],
+      events: [], tilt: null, newsVia: 'Google新聞', attention: {}, ai: { status: 'ok', summary: 'x' }, notes: [], srcErrors: [], snapshot: 'no-kv' };
+    let relayUrl = '';
+    const kv2 = {};
+    // 包起來：改壞時變成一項紅燈，而不是讓整個檢查程式中斷
+    const routed = async env => { try { return await W2.fetchIntelRouted('2330', env); } catch (e) { return { engine: '（丟出例外）', srcErrors: [String(e.message || e)], items: [] }; } };
+    fetchImpl = async u => /relay\.test/.test(u) ? (relayUrl = u, asResp({ json: gasIntel })) : asResp(IT.route(u, IT.gem));
+    const rl = await routed({ GAS_RELAY: 'https://relay.test/exec', SYNC: { put: async (k, v) => { kv2[k] = JSON.parse(v); } } });
+    ok('整筆轉接：設定 GAS_RELAY 時由 GAS 處理', rl.engine === 'GAS' && /action=intel&code=2330/.test(relayUrl) && rl.items[0].title === '台積電法說上修', relayUrl);
+    ok('整筆轉接：Worker 仍負責存 KV 快照（GAS 做不到）', rl.snapshot === 'saved' && Object.values(kv2).some(v => v.engine === 'GAS'), rl.snapshot);
+    fetchImpl = async u => /relay\.test/.test(u) ? asResp({ txt: '<html>Google 登入</html>' }) : asResp(IT.route(u, IT.gem));
+    const rb = await routed({ GAS_RELAY: 'https://relay.test/exec' });
+    ok('整筆轉接：GAS 失敗→退回 Cloudflare 自己抓，並把原因放第一條', rb.engine === 'Cloudflare' && /GAS 處理失敗/.test(rb.srcErrors[0]) && /不是JSON/.test(rb.srcErrors[0]) && rb.items.length > 0, rb.srcErrors[0]);
+    fetchImpl = async u => /relay\.test/.test(u) ? asResp({ json: { ok: true, price: 1 } }) : asResp(IT.route(u, IT.gem));
+    const ro = await routed({ GAS_RELAY: 'https://relay.test/exec' });
+    ok('整筆轉接：GAS 版本過舊（沒有情報欄位）→ 講明並退回', /版本過舊/.test(ro.srcErrors[0]), ro.srcErrors[0]);
+    fetchImpl = async u => asResp(IT.route(u, IT.gem));
+    ok('整筆轉接：沒設 GAS_RELAY 時由 Cloudflare 處理', (await routed({})).engine === 'Cloudflare');
+    fetchImpl = async u => /news\.google\.com/.test(u) ? asResp({ status: 503, txt: 'x' }) : asResp(IT.route(u, IT.gem));
+    const envDiag = await routed({ GEMINI_KEY: 'secret-value', GAS_RELAY_: 'https://typo', SYNC: { put: async () => {} } });
+    ok('沒讀到 GAS_RELAY 且被擋時，列出 Worker 實際讀到的變數名稱', envDiag.notes.some(n => /未讀到 GAS_RELAY/.test(n) && /「GAS_RELAY_」/.test(n) && /「GEMINI_KEY」/.test(n)), JSON.stringify(envDiag.notes));
+    ok('變數診斷只列名稱，絕不洩漏值', !JSON.stringify(envDiag).includes('secret-value'));
+    fetchImpl = async u => asResp(IT.route(u, IT.gem));
+    ok('沒被擋時不顯示這個提示（避免雜訊）', !(await routed({})).notes.some(n => /GAS_RELAY/.test(n)));
+    ok('intel 路由走 fetchIntelRouted', /action === 'intel'[\s\S]{0,200}fetchIntelRouted\(code, env, p\.get\('token'\)/.test(fs.readFileSync(path.join(ROOT, 'worker.js'), 'utf8')));
+    // Gemini 地區限制（使用者實測訊息原文）
+    fetchImpl = async u => asResp(IT.route(u, { status: 400, txt: '{"error":{"code":400,"message":"User location is not supported for the API use.","status":"FAILED_PRECONDITION"}}' }));
+    const loc = await W2.fetchIntel('2330', { GEMINI_KEY: 'k' });
+    ok('AI 地區限制：講出原因與解法（設定 GAS_RELAY）', loc.ai.status === 'error' && /香港/.test(loc.ai.why) && /GAS_RELAY/.test(loc.ai.why), loc.ai.why);
+    fetchImpl = async u => /news\.google\.com/.test(u) ? asResp({ status: 503, txt: 'x' }) : asResp(IT.route(u, IT.gem));
+    const nn = await W2.fetchIntel('2330', {});
+    ok('新聞：Google 擋掉時講出原因，不是靜默沒新聞', nn.srcErrors.some(x => /Google新聞 HTTP 503/.test(x)), JSON.stringify(nn.srcErrors));
+    const generic = `<?xml version="1.0"?><rss version="2.0"><channel><title>財經要聞</title>
+<item><title>美股收盤道瓊上漲</title><link>https://x/1</link><pubDate>${pub(NOW - H)}</pubDate></item></channel></rss>`;
+    fetchImpl = async u => asResp(/news\.google\.com/.test(u) ? { txt: generic } : IT.route(u, IT.gem));
+    const gy = await W2.fetchIntel('2330', {});
+    ok('新聞：來源回整體新聞（非該股）→ 拒收', gy.srcErrors.some(x => /不是這檔股票的新聞/.test(x)) && !gy.items.some(x => /道瓊/.test(x.title)), JSON.stringify(gy.srcErrors));
+
+    // PTT：用名稱搜（[新聞]/[心得] 常只寫公司名）
+    let pttUrl = '';
+    fetchImpl = async u => { if (/ptt\.cc/.test(u)) pttUrl = u; return asResp(IT.route(u, IT.gem)); };
+    const pn = await W2.fetchIntel('2330', {});
+    ok('PTT：有中文名稱時用名稱搜尋', /search\?q=%E5%8F%B0%E7%A9%8D%E9%9B%BB/.test(pttUrl), pttUrl);
+    ok('PTT：標題只寫公司名也算（不只看代碼）', W2.parsePTT(`<div class="r-ent"><a href="/bbs/Stock/M.${ep(1)}.A.1A2.html">[新聞] 台積電先進封裝擴產</a></div>`, '2330', '台積電').items.length === 1);
+    ok('PTT：多空計數仍正確', pn.attention.ptt.bull === 1 && pn.attention.ptt.bear === 1);
+    const oldPtt = `<div class="r-list-container"><div class="r-ent"><a href="/bbs/Stock/M.${ep(24 * 12)}.A.AAA.html">[標的] 2330 台積電 多</a></div></div>`;
+    fetchImpl = async u => /ptt\.cc/.test(u) ? asResp({ txt: oldPtt }) : asResp(IT.route(u, IT.gem));
+    const po = await W2.fetchIntel('2330', {});
+    const oldYmd = new Date(NOW - 12 * 864e5 + 8 * H).toISOString().slice(5, 10).replace('-', '/');
+    ok('PTT：近7日沒有時，講出最近一篇在哪天（使用者實測情境）', po.notes.some(n => n.includes(`最近一篇相關文章在 ${oldYmd}`)), JSON.stringify(po.notes));
+
+    // PTT 0 篇診斷（保留）
     const emptyPtt = '<html><head><title>看板 Stock 文章列表 - 批踢踢實業坊</title></head><body><div class="r-list-container"></div></body></html>';
     fetchImpl = async u => /ptt\.cc/.test(u) ? asResp({ txt: emptyPtt }) : asResp(IT.route(u, IT.gem));
     const ep0 = await W2.fetchIntel('2330', {});
@@ -1119,16 +1339,21 @@ async function backendTests() {
     const otherPtt = `<div class="r-list-container"><div class="r-ent"><a href="/bbs/Stock/M.${ep(2)}.A.AAA.html">[新聞] 聯發科法說</a></div></div>`;
     fetchImpl = async u => /ptt\.cc/.test(u) ? asResp({ txt: otherPtt }) : asResp(IT.route(u, IT.gem));
     const ep1 = await W2.fetchIntel('2330', {});
-    ok('PTT 有文章但都不含代碼→講清楚看到幾篇', ep1.notes.some(n => /共 1 篇/.test(n) && !/被擋/.test(n)), JSON.stringify(ep1.notes));
-    ok('PTT 連結大小寫與額外屬性都容得下', W2.parsePTT(`<div class="r-ent"><a href="/bbs/stock/M.${ep(1)}.A.1a2.html" class="x">[標的] 2330 台積電 多</a></div>`, '2330').length === 1);
+    ok('PTT 有文章但都不相關→講清楚看到幾篇', ep1.notes.some(n => /共 1 篇/.test(n) && !/被擋/.test(n)), JSON.stringify(ep1.notes));
+    ok('PTT 連結大小寫與額外屬性都容得下', W2.parsePTT(`<div class="r-ent"><a href="/bbs/stock/M.${ep(1)}.A.1a2.html" class="x">[標的] 2330 台積電 多</a></div>`, '2330').items.length === 1);
 
-    // 使用者實測：名稱查不到但沒說為什麼——用全新實例（名稱有快取）重現
-    const W3 = {};
-    new Function('module', src + '\nmodule.fetchIntel=fetchIntel;')(W3);
-    fetchImpl = async u => /STOCK_DAY_ALL|tpex_mainboard/.test(u) ? asResp({ status: 403, txt: 'forbidden' }) : asResp(IT.route(u, IT.gem));
-    const nm0 = await W3.fetchIntel('2330', {});
+    // 名稱：失敗原因要講出來；欄名用關鍵字找；上櫃代碼要說明原因（用全新實例，名稱有快取）
+    const fresh = () => { const w = {}; new Function('module', src + '\nmodule.fetchIntel=fetchIntel;')(w); return w; };
+    fetchImpl = async u => /t187ap03_L/.test(u) ? asResp({ status: 403, txt: 'forbidden' }) : asResp(IT.route(u, IT.gem));
+    const nm0 = await fresh().fetchIntel('2330', {});
     IT.nameFail = nm0;
-    ok('中文名稱查不到時列出每個來源的失敗原因', nm0.name === '' && nm0.notes.some(n => /上市 HTTP 403/.test(n) && /上櫃 HTTP 403/.test(n)), JSON.stringify(nm0.notes));
+    ok('名稱：查詢失敗時講出原因', nm0.name === '' && nm0.notes.some(n => /上市公司基本資料 HTTP 403/.test(n)), JSON.stringify(nm0.notes));
+    fetchImpl = async u => /t187ap03_L/.test(u) ? asResp({ json: [{ code: '2330', shortName: 'TSMC' }] }) : asResp(IT.route(u, IT.gem));
+    const nm1 = await fresh().fetchIntel('2330', {});
+    ok('名稱：欄名對不上時列出實際欄名', nm1.notes.some(n => /欄名不符/.test(n) && /shortName/.test(n)), JSON.stringify(nm1.notes));
+    fetchImpl = async u => asResp(IT.route(u, IT.gem));
+    const nm2 = await fresh().fetchIntel('6488', {});
+    ok('名稱：上櫃代碼查不到時說明是來源被擋', nm2.notes.some(n => /上市清單無此代碼/.test(n) && /櫃買中心/.test(n)), JSON.stringify(nm2.notes));
   }
 
 
@@ -1169,24 +1394,91 @@ async function backendTests() {
     gsFetch = u => gsResp(IT.route(u, IT.gem));
     gsProps = { GEMINI_KEY: 'k-test' };
     const w = await W2.fetchIntel('2330', { GEMINI_KEY: 'k-test' }), gg = G.fetchIntel('2330');
-    const strip = o => { const c = JSON.parse(JSON.stringify(o)); delete c.asOf; delete c.snapshot; return c; };
+    const strip = o => { const c = JSON.parse(JSON.stringify(o)); delete c.asOf; delete c.snapshot; delete c.engine; return c; };   // engine 本來就不同
     cmp('整條情報管線（含AI）', strip(w), strip(gg));
     gsProps = {};
     const w2 = await W2.fetchIntel('2330', {}), g2 = G.fetchIntel('2330');
     cmp('整條情報管線（無金鑰）', strip(w2), strip(g2));
     ok('GAS 無 KV 時明講沒存快照', g2.snapshot === 'no-kv');
-    const withY = u => /tw\.stock\.yahoo\.com\/rss\?s=2330/.test(u) ? { txt: IT.yrss } : IT.route(u, IT.gem);
-    fetchImpl = async u => asResp(withY(u)); gsFetch = u => gsResp(withY(u));
-    cmp('整條情報管線（Yahoo 新聞）', strip(await W2.fetchIntel('2330', {})), strip(G.fetchIntel('2330')));
+    const withS = u => /news\.google\.com/.test(u) ? { txt: IT.socialRss } : IT.route(u, IT.gem);
+    fetchImpl = async u => asResp(withS(u)); gsFetch = u => gsResp(withS(u));
+    cmp('整條情報管線（社群分類）', strip(await W2.fetchIntel('2330', {})), strip(G.fetchIntel('2330')));
+    const withF = u => /news\.google\.com/.test(u) ? { txt: IT.flood } : IT.route(u, IT.gem);
+    fetchImpl = async u => asResp(withF(u)); gsFetch = u => gsResp(withF(u));
+    cmp('整條情報管線（社群洗版配額）', strip(await W2.fetchIntel('2330', {})), strip(G.fetchIntel('2330')));
+    fetchImpl = async u => asResp(withS(u)); gsFetch = u => gsResp(withS(u));
+    cmp('新聞抓取與社群分類', await W2.fetchNews('2330', '台積電'), G.fetchNews('2330', '台積電'));
+    cmp('交易日熱度', W2.heat(IT.heat.hItems, IT.heat.HNOW, 20, IT.heat.hItems, IT.heat.HD, true), G.heat(IT.heat.hItems, IT.heat.HNOW, 20, IT.heat.hItems, IT.heat.HD, true));
+    cmp('交易日熱度（來源截斷）', W2.heat(IT.heat.hItems, IT.heat.HNOW, 5, IT.heat.hItems.slice(5), IT.heat.HD, false), G.heat(IT.heat.hItems, IT.heat.HNOW, 5, IT.heat.hItems.slice(5), IT.heat.HD, false));
+    cmp('FinMind 新聞解析', W2.parseFinMindNews(IT.fmRows), G.parseFinMindNews(IT.fmRows));
+    const withFM = u => /finmindtrade/.test(u) ? { json: IT.fmResp(u) } : IT.route(u, IT.gem);
+    fetchImpl = async u => asResp(withFM(u)); gsFetch = u => gsResp(withFM(u));
+    cmp('整條情報管線（FinMind＋Google）', strip(await W2.fetchIntel('2330', {}, '')), strip(G.fetchIntel('2330', '')));
+    fetchImpl = async u => asResp(IT.route(u, IT.gem)); gsFetch = u => gsResp(IT.route(u, IT.gem));
+    cmp('去重鍵', IT.dup.map(W2.dedupKey), IT.dup.map(G.dedupKey));
+    ok('GAS 標示由 GAS 處理', G.fetchIntel('2330').engine === 'GAS');
     const emptyPtt = '<html><head><title>看板 Stock 文章列表</title></head><body><div class="r-list-container"></div></body></html>';
     fetchImpl = async u => /ptt\.cc/.test(u) ? asResp({ txt: emptyPtt }) : asResp(IT.route(u, IT.gem));
     gsFetch = u => /ptt\.cc/.test(u) ? gsResp({ txt: emptyPtt }) : gsResp(IT.route(u, IT.gem));
     cmp('整條情報管線（PTT 0 篇診斷）', strip(await W2.fetchIntel('2330', {})), strip(G.fetchIntel('2330')));
-    gsFetch = u => /STOCK_DAY_ALL|tpex_mainboard/.test(u) ? gsResp({ status: 403, txt: 'x' }) : gsResp(IT.route(u, IT.gem));
+    gsFetch = u => /t187ap03_L/.test(u) ? gsResp({ status: 403, txt: 'x' }) : gsResp(IT.route(u, IT.gem));
     cmp('名稱查詢失敗訊息', IT.nameFail.notes, G.fetchIntel('2330').notes);
     gsFetch = u => gsResp(IT.route(u, IT.gem));
     gsFetch = u => /ptt\.cc/.test(u) ? gsResp({ status: 403, txt: 'x' }) : gsResp(IT.route(u, IT.gem));
     ok('GAS 單一來源失敗也列入 srcErrors', G.fetchIntel('2330').srcErrors.some(x => /PTT/.test(x) && /403/.test(x)));
+  }
+
+  /* ⑪ v174 GAS 雲端備份：單一值 9KB 上限（一筆交易約 800 bytes，約 11 筆就爆） */
+  {
+    const trade = i => ({ date: '2026-09-24', entryDate: '2026-09-10', code: '2330', direction: 'long', result: 'win', entryPrice: 2350, exitPrice: 2475,
+      pnlPct: 5.32, pnl: 125000, shares: 1000, mae: -2.1, mfe: 7.4, plannedStop: 2280, exitReason: '達目標', judgment: 'good',
+      judgmentReason: '順勢進場、停損依ATR、分批出場符合計畫🎯第' + i + '筆', entryFormulas: { probWin: 57, sti: 1.2, mfd: 0.35, eco: 61, psy: 48, fusion: 22, crash: 10 },
+      batchRecords: [{ date: '2026-09-10', price: 2350, qty: 500 }], exitRecords: [{ date: '2026-09-24', price: 2475, qty: 500, exitJudge: '達目標' }], sim: false, id: i });
+    const backup = n => ({ app: 'StockRadarPro', version: 174, settings: { capital: 1000000, risk: 1 }, trades: Array.from({ length: n }, (_, i) => trade(i)) });
+    const post = b => JSON.parse(G.doPost({ parameter: { action: 'sync_save' }, postData: { contents: JSON.stringify(b) } }));
+    const get = () => JSON.parse(G.doGet({ parameter: { action: 'sync_get' } }));
+    const reset = () => { for (const k in userStore) delete userStore[k]; };
+
+    reset();
+    let oldErr = ''; try { userProps.setProperty('sync_data', JSON.stringify(backup(20))); } catch (e) { oldErr = e.message; }
+    ok('（重現）舊做法：20 筆交易存成單一值就超過 9KB', /too large/.test(oldErr), oldErr);
+
+    reset();
+    const b50 = backup(50), r50 = post(b50);
+    ok('雲端備份：50 筆交易存得進去', r50.ok === true && r50.usedPct > 0, JSON.stringify(r50));
+    const g50 = get();
+    ok('雲端備份：讀回來與存進去完全一致', g50.ok && JSON.stringify(g50.data) === JSON.stringify(b50));
+    ok('雲端備份：每一段都在 9KB 以內', Object.keys(userStore).filter(k => /^sync_data_\d+$/.test(k)).every(k => u8(userStore[k]) <= 9216));
+
+    // emoji 剛好落在切段處（UTF-16 代理對不可被切開）
+    reset();
+    const L0 = JSON.stringify({ app: 'StockRadarPro', note: '' }).length;   // note 內容從 L0-2 開始
+    const pad = { app: 'StockRadarPro', note: 'x'.repeat(1999 - (L0 - 2)) + '🎯🎯🎯🎯' };
+    ok('（夾具自檢）emoji 的前半確實落在切段處', JSON.stringify(pad).charCodeAt(1999) >= 0xD800 && JSON.stringify(pad).charCodeAt(1999) <= 0xDBFF);
+    const re = post(pad), ge = get();
+    ok('雲端備份：emoji 落在切段處也不會壞', re.ok && ge.ok && ge.data.note === pad.note, ge.data && ge.data.note && ge.data.note.slice(-6));
+
+    // 備份變短：上一次多出來的段落要清掉，不能混進新資料
+    reset(); post(backup(50)); const b5 = backup(5); post(b5);
+    ok('雲端備份：備份變短後讀回的是新資料（不殘留舊段）', JSON.stringify(get().data) === JSON.stringify(b5) && !Object.keys(userStore).some(k => /^sync_data_(\d+)$/.test(k) && +k.split('_')[2] >= +userStore.sync_data_n));
+
+    // 舊格式相容：v173 以前存的單一值讀得到，新存一次後自動換成分段格式
+    reset(); userStore.sync_data = JSON.stringify(backup(3));
+    ok('雲端備份：舊格式備份仍讀得回來', get().data.trades.length === 3);
+    post(backup(4));
+    ok('雲端備份：新存一次後舊格式自動清除', !('sync_data' in userStore) && get().data.trades.length === 4);
+
+    // 少一段：寧可失敗，也不要還原出殘缺資料覆蓋手機
+    reset(); post(backup(50)); delete userStore.sync_data_1;
+    const gm = get();
+    ok('雲端備份：缺段時拒絕還原並講明原因', gm.ok === false && /缺第 2\//.test(gm.error), JSON.stringify(gm).slice(0, 100));
+
+    // 超過總上限：明講改用下載備份檔
+    reset();
+    const huge = post({ app: 'StockRadarPro', blob: 'x'.repeat(470 * 1024) });
+    ok('雲端備份：超過 GAS 總上限時明講改用下載備份檔', huge.ok === false && /下載備份檔/.test(huge.error), huge.error);
+    reset();
+    ok('前端：存檔成功時顯示已用空間、接近上限時提醒', /j\.usedPct >= 70/.test(fs.readFileSync(path.join(ROOT, 'journal.js'), 'utf8')));
   }
 
   // ⑧ 前端判定：假日不得誤報、真失敗必須示警
@@ -1197,10 +1489,11 @@ async function backendTests() {
 
 (async () => {
   console.log('═══ StockRadar 自我檢查 ═══');
-  logicTests();
-  intelFrontTests();
-  await backendTests();
-  if (!LOGIC_ONLY) { await layoutTests(); await scanFlowTests(); await browserTests(); }
+  /* v176：任何一段丟出例外時，記成一項失敗並照樣印出總結——原本會整個中斷、看不到其餘結果 */
+  for (const [name, fn] of [['邏輯', logicTests], ['情報前端', intelFrontTests], ['後端', backendTests],
+    ...(LOGIC_ONLY ? [] : [['版面', layoutTests], ['掃描流程', scanFlowTests], ['瀏覽器', browserTests]])]) {
+    try { await fn(); } catch (e) { ok(`「${name}」檢查段中斷`, false, String(e && e.message || e).slice(0, 160)); }
+  }
   console.log(`\n通過 ${pass} 項｜失敗 ${fail} 項`);
   if (fails.length) { console.log('\n❌ 失敗項目：'); fails.forEach(f => console.log('  - ' + f)); }
   else console.log('✅ 全部通過');
