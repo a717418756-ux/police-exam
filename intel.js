@@ -12,7 +12,7 @@
 
    ⚠️ EVIDENCE tier U：未經回測，只顯示不計分。任何分數或紀律門都不讀這裡的結果。
    ══════════════════════════════════════════════════════════════════════ */
-try { (window.SR_FV = window.SR_FV || {})['intel.js'] = 172; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['intel.js'] = 175; } catch (e) {}
 
 /* 條目標題來自新聞與PTT（任何人都能發文），一律完整跳脫再進 innerHTML。
    不用 layout.js 的 esc：那支是「刪掉」特殊字元，會把「台積電 & 蘋果」弄成「台積電  蘋果」。 */
@@ -43,9 +43,14 @@ function intelVerdict(j, D) {
     const sh = Math.max(p.bull, p.bear) / (p.bull + p.bear);
     if (sh >= 0.8) notes.push(`PTT［標的］${p.bull >= p.bear ? '看多' : '看空'} ${(sh * 100).toFixed(0)}%（${p.bull + p.bear}篇）——情緒一面倒屬「擁擠」風險，不是方向訊號`);
   }
+  /* v175 熱度依交易日歸戶（後端 heat()）：暴增＝最新交易日或「收盤後累積中」≥ 3 則且 ≥ 3× 先前交易日中位數 */
   const nw = j.attention && j.attention.news;
-  if (nw && nw.saturated) notes.push('新聞量已達來源上限，無法計算注意力倍數（熱門股常見）');
-  else if (nw && nw.ratio >= 3 && nw.last24 >= 3) notes.push(`新聞注意力暴增：近24小時 ${nw.last24} 則，為前6日中位數的 ${nw.ratio.toFixed(1)} 倍——預期波動放大`);
+  if (nw && nw.saturated) notes.push('新聞量已達來源上限，無法判斷熱度趨勢（熱門股常見）');
+  else if (nw && nw.med != null && Array.isArray(nw.series) && nw.series.length) {   // 舊版後端（v174 以前）沒有 series，不可崩
+    const bar = Math.max(nw.med, 1) * 3, last = nw.series[nw.series.length - 1];
+    if (nw.pending >= 3 && nw.pending >= bar) notes.push(`新聞熱度暴增：收盤後已累積 ${nw.pending} 則（將影響下一個交易日），為先前交易日中位數的 ${(nw.pending / Math.max(nw.med, 1)).toFixed(1)} 倍——預期波動放大`);
+    else if (last.n >= 3 && last.n >= bar) notes.push(`新聞熱度暴增：${last.d.slice(4, 6)}/${last.d.slice(6)} 當日 ${last.n} 則，為先前交易日中位數的 ${(last.n / Math.max(nw.med, 1)).toFixed(1)} 倍——預期波動放大`);
+  }
   if (j.tilt && j.tilt.conflict >= 0.35) notes.push(`事件方向分歧（少數方權重 ${(j.tilt.conflict * 100).toFixed(0)}%）`);
 
   if (j.ai.status !== 'ok') {
@@ -92,10 +97,17 @@ function renderIntel(j, D) {
   }).join('');
   const nw = j.attention && j.attention.news, pt = j.attention && j.attention.ptt;
   const att = [
-    nw ? (nw.saturated ? `新聞 7日 ≥${nw.n} 則（已達上限）` : `新聞 近24h ${nw.last24} 則／前6日中位數 ${nw.med}`) : '',
+    nw ? (nw.saturated ? `新聞 7日 ≥${nw.n} 則（已達上限）` : `新聞 7日 ${nw.n} 則${nw.trend ? `・熱度${nw.trend}（×${nw.ratio.toFixed(1)}）` : ''}`) : '',
     j.attention && j.attention.social ? `網友社群 7日 ${j.attention.social} 篇` : '',
     pt ? `PTT 7日 ${pt.n} 篇${pt.bull + pt.bear ? `・［標的］多 ${pt.bull} 空 ${pt.bear}` : ''}` : '',
   ].filter(Boolean).join('　｜　');
+  // 每交易日新聞量長條圖（最後一根虛線＝收盤後累積、待下一個交易日開盤反應）
+  const bars = nw && nw.series && nw.series.length ? (() => {
+    const cols = nw.series.map(x => ({ l: `${+x.d.slice(4, 6)}/${+x.d.slice(6)}`, n: x.n, p: false })).concat(nw.pending ? [{ l: '待開盤', n: nw.pending, p: true }] : []);
+    const mx = Math.max(1, ...cols.map(c => c.n));
+    return `<div style="display:flex;align-items:flex-end;gap:6px;height:84px;margin-top:10px" title="每交易日新聞量（13:30 後與假日的新聞算到下一個交易日）">${cols.map(c =>
+      `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%"><span style="font-size:9px;color:var(--muted)">${c.n}</span><div style="width:100%;max-width:26px;height:${Math.max(3, c.n / mx * 54)}px;border-radius:3px 3px 0 0;${c.p ? 'border:1px dashed var(--acc);background:transparent' : 'background:var(--acc)'}"></div><span style="font-size:9px;color:var(--muted2);margin-top:2px;white-space:nowrap">${c.l}</span></div>`).join('')}</div>`;
+  })() : '';
   const src = j.items.map((it, i) => { const u = safeUrl(it.url);
     return `<div style="font-size:10.5px;line-height:1.6;padding:3px 0;color:var(--muted)"><span style="color:var(--muted2)">[${i + 1}] ${tpI(it.t)}・${escI(it.src)}</span><br>${u ? `<a href="${u}" target="_blank" rel="noopener noreferrer" style="color:var(--txt);text-decoration:none">${escI(it.title)}</a>` : escI(it.title)}</div>`; }).join('');
   const status = [
@@ -112,7 +124,7 @@ function renderIntel(j, D) {
     </div>
     ${aiLine}
     ${evRows ? `<div style="margin-top:6px">${evRows}</div>` : ''}
-    ${att ? `<div style="font-size:10.5px;color:var(--muted);margin-top:8px;padding-top:8px;border-top:1px solid var(--bd)">${att}</div>` : ''}
+    ${att ? `<div style="font-size:10.5px;color:var(--muted);margin-top:8px;padding-top:8px;border-top:1px solid var(--bd)">${att}${bars}</div>` : ''}
     ${(j.srcErrors || []).length ? `<div style="font-size:10.5px;color:var(--warn);margin-top:8px;line-height:1.6">⚠️ 這些來源這次沒拿到——是「沒有資料」不是「沒有消息」：${j.srcErrors.map(escI).join('；')}</div>` : ''}
     ${(j.notes || []).map(n => `<div style="font-size:10.5px;color:var(--muted);margin-top:4px">ℹ️ ${escI(n)}</div>`).join('')}
     ${j.items.length ? `<details style="margin-top:8px"><summary style="font-size:11px;color:var(--muted2);cursor:pointer">來源條目（${j.items.length}）</summary><div style="margin-top:6px">${src}</div></details>` : ''}
@@ -131,7 +143,8 @@ async function loadIntelCard(D) {
     const c = _intelCache.get(D.code);
     if (c && Date.now() - c.t < 600e3) j = c.j;
     else {
-      const r = await fetchT(`${GAS_URL}?action=intel&code=${encodeURIComponent(D.code)}`, {}, 60000);
+      const tk = typeof FINMIND_TOKEN !== 'undefined' && FINMIND_TOKEN ? `&token=${encodeURIComponent(FINMIND_TOKEN)}` : '';   // 有 token 時 FinMind 額度較高；沒有也能用
+      const r = await fetchT(`${GAS_URL}?action=intel&code=${encodeURIComponent(D.code)}${tk}`, {}, 60000);
       if (!r.ok) throw new Error(`後端 HTTP ${r.status}`);
       const txt = await r.text();
       try { j = JSON.parse(txt); } catch (e) { throw new Error('後端回傳的不是 JSON——多半是後端尚未部署 v168 的 intel 端點'); }
