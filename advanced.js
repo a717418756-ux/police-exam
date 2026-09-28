@@ -33,21 +33,21 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['advanced.js'] = 163; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['advanced.js'] = 177; } catch (e) {}
 
 /* ── 大盤基準快取（避免每檔都重抓）─────────────────────────────────── */
-let _benchCache = { tw: null, us: null, time: 0 };
+let _benchCache = {};   // key → { c: closes, t }（v177：台美各自計時，原本共用一個時間戳，查一檔美股會讓台股基準「看起來」仍新鮮）
 async function fetchBenchmark(isTW) {
   const key = isTW ? 'tw' : 'us';
   // 快取 10 分鐘
-  if (_benchCache[key] && (Date.now() - _benchCache.time < CACHE_TTL)) return _benchCache[key];
+  const hit = _benchCache[key];
+  if (hit && Date.now() - hit.t < CACHE_TTL) return hit.c;
   if (!GAS_URL || GAS_URL.indexOf('http') !== 0) return null;
   try {
     const r = await fetchT(`${GAS_URL}?action=benchmark&market=${key}`);
     const j = await r.json();
     if (j.ok && j.closes) {
-      _benchCache[key] = j.closes;
-      _benchCache.time = Date.now();
+      _benchCache[key] = { c: j.closes, t: Date.now() };
       return j.closes;
     }
   } catch (e) {
