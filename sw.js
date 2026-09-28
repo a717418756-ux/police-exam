@@ -56,7 +56,6 @@ self.addEventListener('fetch', e => {
     u.includes('script.google.com') ||                // GAS 備份/查詢後端
     u.includes('googleusercontent') ||
     u.includes('.workers.dev') ||                      // Cloudflare Workers 查詢後端（先前遺漏，是舊資料的主因）
-    u.includes('anthropic') ||
     u.includes('yahoo') ||                              // Yahoo Finance K線
     u.includes('twse') || u.includes('tpex') ||        // 證交所/櫃買中心
     u.includes('taifex') ||                             // 期交所

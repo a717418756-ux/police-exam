@@ -1,6 +1,6 @@
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['app.js'] = 176; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['app.js'] = 178; } catch (e) {}
 
 // ══════════════════════════════════════════════════════════════════════
 // 短線雷達 Pro — 風險優先分層決策系統
@@ -547,30 +547,6 @@ function renderGrid(sigs){
   }
 }
 
-// ══ AI 分析 ════════════════════════════════════════════════════════════
-async function aiAnalysis(D,trend,risk,sigs){
-  $('ai-card').style.display='block';
-  $('ai-body').innerHTML='<div class="loading-row"><span class="spin"></span> AI 綜合研判中...</div>';
-  const cur=D.currency==='TWD'?'NT$':'$';
-  const sigSum=sigs.map(s=>`${s.name}:${s.s.toUpperCase()}`).join('、');
-  try{
-    const res=await fetchT('https://api.anthropic.com/v1/messages',{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1000,
-        system:`你是頂尖短線交易員，奉行「風險優先、成本優先、不做負期望值的交易」。請用繁體中文250字內，依分層邏輯給建議，不要廢話：
-1.🚦能不能做：以紀律門、期望值與停損距離為準，趨勢只作背景
-2.🎯關鍵訊號：最重要2~3個（背離、量能、Squeeze優先於一般指標）
-3.🛡️風險紀律：根據ATR停損與風報比，提醒部位與停損
-4.🧠心理提醒：點出當下最該避免的人性陷阱
-語氣專業直接。`,
-        messages:[{role:'user',content:`股票:${D.code}|現價:${cur}${fmt(D.rawCloses?D.rawCloses[D.rawCloses.length-1]:D.price)}|趨勢:${trend.verdict}|ATR停損:${cur}${fmt(risk.stopLoss)}|停利1:2:${cur}${fmt(risk.tp2)}|指標:${sigSum}`}]})
-    });
-    const d=await res.json();
-    const txt=d.content?.[0]?.text||'無法取得分析';
-    $('ai-body').innerHTML=txt.split('\n').filter(l=>l.trim()).map(l=>`<p>${l}</p>`).join('');
-  }catch(e){ $('ai-body').innerHTML='<p style="color:var(--muted)">AI 分析暫時不可用，請依上方分層結果研判。</p>'; }
-}
-
 // ══ 主流程 ═════════════════════════════════════════════════════════════
 function qs(t){$('ticker-input').value=t;go();}
 
@@ -584,10 +560,14 @@ async function go(){
   $('cat-row').style.display='none';$('cat-tabs').innerHTML='';
   activeCat='全部';
 
+  const queryCode=raw.toUpperCase();
+  window._activeCode=queryCode;  // 立即登記，任何比這更早查詢的舊請求回來時會被丟棄（防async競爭張冠李戴）
+  /* v177：按鈕停用擋不住 Enter／最近查詢／掃描「開啟完整分析」——它們直接呼叫 go()。
+     舊查詢的 await 回來時若已換股，整段不准再畫（否則會把上一檔的卡片畫進這一檔的畫面） */
+  const stale=()=>window._activeCode!==queryCode;
   try{
-    const queryCode=raw.toUpperCase();
-    window._activeCode=queryCode;  // 立即登記，任何比這更早查詢的舊請求回來時會被丟棄（防async競爭張冠李戴）
     const D=trimIntradayBar(await fetchStock(queryCode));
+    if(stale())return;
     // ATR 用未還原市價序列算（下游停損/劇本/紀律門都用原始價，ATR基準需一致，
     // 否則「還原ATR」套用在「原始價±N×ATR」公式上會算出錯誤的停損距離）
     const atr=calcATR(D.rawHighs||D.highs, D.rawLows||D.lows, D.rawCloses||D.closes, 14);
@@ -655,6 +635,7 @@ async function go(){
 
     // 大盤環境（第⓪層）+ 市場總分 + 專屬量化分數
     const market=await fetchMarket();
+    if(stale())return;
     renderMarket(market);
 
     // 市場環境總分（含 VIX）
@@ -702,17 +683,6 @@ async function go(){
     try{
       formulas=computeFormulas(D);
       renderFormulas(formulas);
-      // 記錄「當下這檔的公式分數」，供交易日誌帶入（讓匯出能改公式）
-      if(formulas){
-        window._lastAnalysis={
-          code:D.code, price:D.price, date:new Date().toISOString().slice(0,10),
-          sti:Math.round(formulas.sti.value*10)/10,
-          mfd:Math.round(formulas.mfd.value*100)/100,
-          eco:Math.round(formulas.eco.value),
-          fusion:formulas.fusion.value,
-          crash:formulas.crash.score
-        };
-      }
     }catch(err){ console.warn('自創公式計算失敗',err); if(typeof ErrorLog!=='undefined')ErrorLog.push('自創公式',err); }
 
     // 個股健康度體檢（彙整各層級）
@@ -807,12 +777,10 @@ async function go(){
       if(typeof applyLayout==='function') applyLayout();
     });
 
-    await aiAnalysis(D,trend,risk,allSigs);
-
     // 介面整合：把所有卡片分組為分頁
     if(typeof applyLayout==='function') applyLayout();
-  }catch(e){ showErr(e.message); }
-  finally{ btn.disabled=false;btn.innerHTML='⚡ 分析'; }
+  }catch(e){ if(!stale())showErr(e.message); }
+  finally{ if(!stale()){ btn.disabled=false;btn.innerHTML='⚡ 分析'; } }
 }
 
 document.getElementById('ticker-input').addEventListener('keydown',e=>{if(e.key==='Enter')go();});

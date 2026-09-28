@@ -20,7 +20,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['db.js'] = 163; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['db.js'] = 177; } catch (e) {}
 
 const DB_NAME = 'stockRadarDB';
 // DB schema 版本獨立管理（schema 沒變就不用動；這裡固定 1）
@@ -74,7 +74,11 @@ async function dbAddTrade(trade) {
     tx.onerror = () => rej(tx.error);
   });
 }
+/* v177 刪除留「墓碑」：雲端載入是合併（put），不留記錄的話，雲端或另一台裝置上的舊副本
+   會把刪掉的交易救回來，重新算進勝率與 6% 風險預算。墓碑隨備份上傳，載入時與本機聯集。 */
 async function dbDeleteTrade(id) {
+  const gone = (await dbGetSetting('deletedIds')) || [];
+  if (gone.indexOf(id) < 0) await dbSetSetting('deletedIds', gone.concat(id));
   const db = await openDB();
   return new Promise((res, rej) => {
     const tx = db.transaction('trades', 'readwrite');
@@ -227,7 +231,8 @@ async function exportBackup(includeSecrets) {
     exportedAt: new Date().toISOString(),
     note: includeSecrets ? '本檔含後端網址與 FinMind token，請勿外流或上傳到公開空間' : '本檔含後端網址，不含 FinMind token',
     trades,
-    settings
+    settings,
+    deletedIds: (await dbGetSetting('deletedIds')) || []
   };
 }
 
@@ -242,10 +247,14 @@ async function importBackup(obj) {
     if (obj.settings.syncUrl) { await dbSetSetting('syncUrl', obj.settings.syncUrl); try { SYNC_URL = obj.settings.syncUrl; } catch (e) {} }
     if (obj.settings.finmindToken) { await dbSetSetting('finmindToken', obj.settings.finmindToken); try { FINMIND_TOKEN = obj.settings.finmindToken; } catch (e) {} }
   }
-  if (Array.isArray(obj.trades)) {
-    for (const t of obj.trades) await dbAddTrade(t);
+  const gone = new Set([...((await dbGetSetting('deletedIds')) || []), ...(Array.isArray(obj.deletedIds) ? obj.deletedIds : [])]);
+  if (gone.size) {
+    await dbSetSetting('deletedIds', [...gone]);
+    for (const t of await dbGetAllTrades()) if (gone.has(t.id)) await dbDeleteTrade(t.id);   // 別台裝置刪掉的，這台也刪
   }
-  return obj.trades ? obj.trades.length : 0;
+  let n = 0;
+  if (Array.isArray(obj.trades)) for (const t of obj.trades) if (!gone.has(t.id)) { await dbAddTrade(t); n++; }
+  return n;
 }
 
 /* ══════════════════════════════════════════════════════════════════════
@@ -272,14 +281,11 @@ async function cloudLoad() {
   const r = await fetch(`${backupUrl}?action=sync_get`);
   const j = await r.json();
   if (!j.ok) throw new Error(j.error || '雲端讀取失敗');
-  const data = j.data || {};
-  if (data && data.app === 'StockRadarPro') {
-    await importBackup(data);
-  } else if (data.trades || data.settings) {
-    // 相容舊格式
-    await importBackup({ app: 'StockRadarPro', trades: data.trades || [], settings: data.settings || {} });
-  }
-  return data;
+  const data = j.data || {}, trades = Array.isArray(data.trades) ? data.trades : [];
+  /* v177：沒有備份時 Worker 回 {}、GAS 回 {trades:[],settings:{}}，原本都顯示「✅ 已從雲端載入」——
+     「雲端是空的」不可偽裝成「載入成功」 */
+  if (!trades.length && !(data.deletedIds || []).length && !Object.values(data.settings || {}).some(v => v != null)) throw new Error('雲端沒有備份資料——請先在有資料的裝置按「雲端儲存」');
+  return importBackup(data.app === 'StockRadarPro' ? data : { app: 'StockRadarPro', trades, settings: data.settings || {} });   // 後者＝相容舊格式
 }
 
 

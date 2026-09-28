@@ -12,7 +12,7 @@
 
    ⚠️ EVIDENCE tier U：未經回測，只顯示不計分。任何分數或紀律門都不讀這裡的結果。
    ══════════════════════════════════════════════════════════════════════ */
-try { (window.SR_FV = window.SR_FV || {})['intel.js'] = 176; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['intel.js'] = 178; } catch (e) {}
 
 /* 條目標題來自新聞與PTT（任何人都能發文），一律完整跳脫再進 innerHTML。
    不用 layout.js 的 esc：那支是「刪掉」特殊字元，會把「台積電 & 蘋果」弄成「台積電  蘋果」。 */
@@ -21,6 +21,9 @@ const safeUrl = u => /^https?:\/\//i.test(String(u || '')) ? escI(u) : '';
 const pctI = x => (x >= 0 ? '+' : '') + (x * 100).toFixed(1) + '%';
 const tpI = t => { const d = new Date(t + 8 * 3600e3); return `${d.getUTCMonth() + 1}/${d.getUTCDate()} ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`; };
 const SIG = 1.96;   // |SCAR| 門檻（雙尾 5%）
+// 內文的 [n] 換成可點的來源連結；指向不存在條目的引用直接拿掉
+const citeI = (s, items) => escI(s).replace(/\[(\d+)\]/g, (m, n) => { const it = items[+n], u = it && safeUrl(it.url);
+  return u ? `<a href="${u}" target="_blank" rel="noopener noreferrer" style="color:var(--acc);text-decoration:none;font-size:.85em;vertical-align:super">[${+n + 1}]</a>` : ''; });
 const TILT_MIN = 0.25;
 
 /* ── 判讀：資訊傾向 × 價格反應 × 法人 ── */
@@ -72,8 +75,7 @@ function intelVerdict(j, D) {
 function renderIntel(j, D) {
   const v = intelVerdict(j, D);
   const C = { bull: 'var(--buy)', bear: 'var(--sell)', warn: 'var(--warn)', info: 'var(--acc)', neutral: 'var(--muted)' }[v.tone];
-  const cite = s => escI(s).replace(/\[(\d+)\]/g, (m, n) => { const it = j.items[+n], u = it && safeUrl(it.url);
-    return u ? `<a href="${u}" target="_blank" rel="noopener noreferrer" style="color:var(--acc);text-decoration:none;font-size:.85em;vertical-align:super">[${+n + 1}]</a>` : ''; });
+  const cite = s => citeI(s, j.items);
   const aiLine = {
     ok: j.ai.summary ? `<div style="font-size:12px;line-height:1.7;margin:10px 0">${cite(j.ai.summary)}</div>` : '',
     'no-key': '<div style="font-size:11px;color:var(--muted);margin:10px 0">AI 歸納未啟用：後端尚未設定 GEMINI_KEY（Cloudflare：Settings → Variables and Secrets；GAS：專案設定 → 指令碼屬性）。下方仍列出原始條目與官方公告的市場反應。</div>',
@@ -131,6 +133,36 @@ function renderIntel(j, D) {
     <div style="font-size:9.5px;color:var(--muted2);margin-top:8px;line-height:1.6">${status}<br>CAR＝扣除大盤與個股β之後的累積異常報酬；|SCAR|≥1.96 代表反應大到不太可能是雜訊。13:30 後的消息從隔日起算。</div>`;
 }
 
+/* ── v178 AI 綜合研判：近一週逐日漲跌拆解＋歸因，與下一個交易日的消息面情境 ──
+   跟情報卡共用同一次後端回應（同一次 Gemini 呼叫），不另外抓。
+   拆解（大盤帶動 vs 個股自身）是程式算的，AI 只負責從「當天」的消息找原因；
+   個股自身不顯著的日子不找原因——那天是跟著大盤走，硬配新聞就是看圖說故事。 */
+function renderAiCard(j) {
+  const mv = j.moves, WD = '日一二三四五六', pc = x => `<span style="color:${x >= 0 ? 'var(--buy)' : 'var(--sell)'}">${pctI(x)}</span>`;
+  const day = d => `${+d.slice(4, 6)}/${+d.slice(6)}（${WD[new Date(`${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6)}T00:00:00Z`).getUTCDay()]}）`;
+  const aiOK = j.ai.status === 'ok';
+  const rows = mv === undefined ? '<div style="font-size:11px;color:var(--warn)">後端還沒更新到 v178（回應裡沒有逐日拆解）——請重新部署 Code.gs（新版本）與 worker.js</div>'
+    : !mv ? '<div style="font-size:11px;color:var(--muted)">日K或大盤資料不足（估計 β 至少要 60 個交易日），無法逐日拆解。</div>'
+    : mv.days.map(x => { const sig = Math.abs(x.z) >= SIG;
+      const why = !sig ? '個股自身不顯著——主要是跟著大盤或正常波動，不找消息硬配'
+        : x.why ? `可能原因：${citeI(x.why, j.items)}`
+        : aiOK ? '個股自身顯著，但當天的消息都解釋不了——可能是類股資金、籌碼，或新聞沒報的因素'
+        : '個股自身顯著（AI 未啟用，無法對照當天消息）';
+      return `<div style="padding:7px 0;border-top:1px solid var(--bd)">
+        <div style="display:flex;gap:8px;align-items:baseline;font-size:12px"><b style="min-width:70px">${day(x.d)}</b><span>漲跌 ${pc(x.ret)}</span>
+          <span style="font-size:10.5px;color:var(--muted)">大盤帶動 ${pctI(x.mkt)}・個股自身 ${sig ? `<b>${pc(x.ar)}</b>` : pctI(x.ar)}</span></div>
+        <div style="font-size:11px;color:${sig ? 'var(--txt)' : 'var(--muted)'};margin-top:3px;line-height:1.6">${why}</div></div>`; }).join('');
+  const pend = mv ? mv.pending.length : 0;
+  const outlook = aiOK && j.ai.outlook ? citeI(j.ai.outlook, j.items)
+    : aiOK ? '（AI 這次沒有給出展望）'
+    : `AI ${j.ai.status === 'no-key' ? '未啟用（後端尚未設定 GEMINI_KEY）' : '歸納失敗'}——上面的逐日拆解是程式算的，仍然有效；收盤後有 ${pend} 則消息，見情報卡的來源條目。`;
+  return `<div style="font-size:10px;color:var(--muted);letter-spacing:.5px;margin-bottom:2px">近一週逐日拆解：這天漲跌是大盤帶的，還是個股自己的事？</div>${rows}
+    <div style="margin-top:10px;padding:9px 11px;background:var(--bg);border-left:3px solid var(--acc);border-radius:7px">
+      <div style="font-size:11px;font-weight:700;color:var(--acc);margin-bottom:3px">下一個交易日的消息面${mv ? `（收盤後 ${pend} 則新消息）` : ''}</div>
+      <div style="font-size:12px;line-height:1.7">${outlook}</div></div>
+    <div style="font-size:9.5px;color:var(--muted2);margin-top:8px;line-height:1.6">拆解：漲跌＝大盤帶動（β×大盤漲跌）＋個股自身；${mv ? `β=${mv.beta.toFixed(2)}，用分析期間之前 ${mv.n} 個交易日估計。` : ''}個股自身超過 1.96 倍日常波動才算顯著，才對照「當天」的消息（13:30 後的消息算下一個交易日）。展望是情境，不是漲跌預測；未經回測，不計入任何分數——能不能做以紀律門為準。</div>`;
+}
+
 const _intelCache = new Map();   // code → { t, j }：同一檔10分鐘內不重抓（AI 呼叫有額度）
 /* v176 進度顯示：後端是一次請求，途中回報不了進度——能確定的只有「已經等了幾秒」。
    秒數持續跳動＝頁面活著、仍在等後端；階段文字依一般耗時推估（標明「預估」）；
@@ -154,9 +186,11 @@ function intelProgress(box, code, t0) {
 }
 async function loadIntelCard(D) {
   const card = document.getElementById('intel-card'), box = document.getElementById('intel-content');
+  const aiCard = document.getElementById('ai-card'), aiBox = document.getElementById('ai-body');
   if (!card || !box) return;
-  if (D.currency !== 'TWD' || !GAS_URL) { card.style.display = 'none'; return; }
+  if (D.currency !== 'TWD' || !GAS_URL) { card.style.display = 'none'; if (aiCard) aiCard.style.display = 'none'; return; }
   card.style.display = 'block';
+  if (aiCard) { aiCard.style.display = 'block'; aiBox.innerHTML = '<div style="font-size:12px;color:var(--muted)">等待情報面資料（與上方情報卡共用同一次抓取，進度看情報卡）…</div>'; }
   window._intelD = D;   // 給「重試」按鈕用
   let j;
   try {
@@ -181,9 +215,11 @@ async function loadIntelCard(D) {
       ? `等了 ${INTEL_WAIT / 1000} 秒後端都沒有回應——多半是 GAS 執行太久或某個資料來源卡住，不是頁面當機`
       : `情報面取得失敗：${escI(msg)}`}
       <button onclick="loadIntelCard(window._intelD)" style="margin-left:6px;font-size:11px;padding:3px 10px;border-radius:5px;border:1px solid var(--bd2);background:transparent;color:var(--acc);cursor:pointer">重試</button></div>`;
+    if (aiBox) aiBox.innerHTML = '<div style="font-size:12px;color:var(--warn)">⚠️ 情報面資料沒拿到，無法逐日歸因——錯誤原因與重試按鈕在上方情報卡</div>';
     return;
   }
   if (window._activeCode && window._activeCode !== D.code) return;   // 已換股，丟棄遲到結果
   clearInterval(_intelTimer);
   box.innerHTML = renderIntel(j, D);
+  if (aiBox) aiBox.innerHTML = renderAiCard(j);
 }

@@ -223,7 +223,12 @@ async function scanFlowTests() {
     tilt: { tilt: 0.8, conflict: 0, n: 1 },
     attention: { news: { n: 9, series: [{ d: '20260922', n: 2 }, { d: '20260923', n: 3 }, { d: '20260924', n: 4 }], pending: 2, med: 2.5, ratio: 1.75, trend: '升溫' },
       ptt: { n: 1, series: [], pending: 1, bull: 1, bear: 0 } },
-    ai: { status: 'ok', model: 'gemini-test', prompt: 'v168.1', dropped: 1, summary: '市場在談法說上修[0]。' }, notes: [], srcErrors: [], snapshot: 'saved' };
+    ai: { status: 'ok', model: 'gemini-test', prompt: 'v168.1', dropped: 1, summary: '市場在談法說上修[0]。', outlook: '若開盤延續法說利多[0]，則留意追價量能。' },
+    moves: { beta: 1.3, sd: 0.012, n: 120, pending: [1], days: [
+      { d: '20260929', ret: -0.051, mret: -0.009, mkt: -0.012, ar: -0.039, z: -3.2, ids: [], why: '', whyIds: [] },
+      { d: '20260930', ret: 0.061, mret: 0.008, mkt: 0.011, ar: 0.05, z: 4.1, ids: [0], why: '法說上修全年營收[0]', whyIds: [0] },
+      { d: '20261002', ret: -0.039, mret: -0.03, mkt: -0.039, ar: 0.0005, z: 0.04, ids: [], why: '', whyIds: [] }] },
+    notes: [], srcErrors: [], snapshot: 'saved' };
   const bars = n => { const c = [], h = [], l = [], v = [];
     for (let i = 0; i < n; i++) { const x = 100 + Math.sin(i / 5) * 5 + i * 0.1;
       c.push(+x.toFixed(2)); h.push(+(x * 1.01).toFixed(2)); l.push(+(x * 0.99).toFixed(2)); v.push(5e7); }
@@ -283,6 +288,13 @@ async function scanFlowTests() {
   ok('情報卡：摘要引用變成可點的來源連結', /href="https:\/\/news\.example\/a"/.test(ic.html) && /\[1\]/.test(ic.txt));
   ok('情報卡：標示剔除了幾個無引用事件、快照狀態', /剔除 1 個/.test(ic.txt) && /今日快照已存/.test(ic.txt));
   ok('情報卡：固定顯示「不計入任何分數」', /不計入任何分數/.test(ic.txt));
+  // v178 AI 綜合研判（Gemini）：與情報卡共用同一次回應
+  const aiText = () => pg.evaluate(() => { const c = document.getElementById('ai-card'); return { vis: c && c.style.display !== 'none', txt: document.getElementById('ai-body').innerText, html: document.getElementById('ai-body').innerHTML }; });
+  let ac = await aiText();
+  ok('AI研判：個股自己漲的那天給出引用當天消息的原因', ac.vis && /9\/30（三）/.test(ac.txt) && /可能原因：法說上修全年營收/.test(ac.txt) && /href="https:\/\/news\.example\/a"/.test(ac.html), ac.txt.slice(0, 120));
+  ok('AI研判：跟大盤跌的那天明講不顯著、不硬配消息', /10\/2（五）[\s\S]*?不顯著——主要是跟著大盤/.test(ac.txt), ac.txt);
+  ok('AI研判：顯著但當天沒有消息能解釋→明講查無原因', /9\/29（二）[\s\S]*?當天的消息都解釋不了/.test(ac.txt));
+  ok('AI研判：下一個交易日展望＋收盤後消息數，標明是情境不是預測', /收盤後 1 則新消息/.test(ac.txt) && /若開盤延續法說利多/.test(ac.txt) && /不是漲跌預測/.test(ac.txt) && /不計入任何分數/.test(ac.txt));
   // 換股競態：2330 的結果晚到時，畫面已經換成 2317，不可把 2330 的判讀蓋上去
   intelDelay = 800;
   await pg.evaluate(() => { window._intelRace = loadIntelCard({ code: '2331', currency: 'TWD', chip: null }); window._activeCode = '2317'; });
@@ -295,9 +307,15 @@ async function scanFlowTests() {
   await pg.evaluate(() => { window._activeCode = '2303'; return loadIntelCard({ code: '2303', currency: 'TWD' }); });
   ic = await intelText();
   ok('情報卡：舊版後端→明講需重新部署', /尚未更新到 v168/.test(ic.txt), ic.txt.slice(0, 80));
+  ok('AI研判：情報面沒拿到時明講，不留在「等待中」', /情報面資料沒拿到/.test((await aiText()).txt));
   intelResp = good;
   await pg.evaluate(() => { window._activeCode = 'AAPL'; return loadIntelCard({ code: 'AAPL', currency: 'USD' }); });
   ok('情報卡：美股不顯示（資料源只有台股）', !(await intelText()).vis);
+  ok('AI研判：美股不顯示（逐日歸因用的是台股消息）', !(await aiText()).vis);
+  const noMv = intelResp; intelResp = Object.assign({}, noMv, { moves: undefined, code: '2105' });
+  await pg.evaluate(() => { window._activeCode = '2105'; return loadIntelCard({ code: '2105', currency: 'TWD' }); });
+  ok('AI研判：v177 以前的後端（沒有逐日欄位）→ 明講要重新部署，不誤說資料不足', /還沒更新到 v178/.test((await aiText()).txt), (await aiText()).txt.slice(0, 60));
+  intelResp = noMv;
 
   // v176 進度顯示
   intelDelay = 2600;
@@ -339,6 +357,52 @@ async function scanFlowTests() {
   // 卡片進「心理AI」分頁，不再每頁都出現
   const pane = await pg.evaluate(() => { if (typeof buildLayout === 'function') buildLayout(); const c = document.getElementById('intel-card'), p = c && c.closest('.tab-pane'); return p ? p.id : '(不在任何分頁)'; });
   ok('情報卡：只出現在「心理AI」分頁', pane === 'pane-t-mind', pane);
+  const aiSrc = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
+  ok('AI研判：不再從瀏覽器直接呼叫 Claude（沒有金鑰、從來沒成功過）', !/api\.anthropic\.com|aiAnalysis/.test(aiSrc));
+
+  // v177 大盤基準：台美各自計時（原本共用時間戳，剛抓過美股會讓過期的台股基準繼續被用）
+  const bc = await pg.evaluate(async () => {
+    _benchCache = {}; const calls = [], f0 = window.fetchT, n0 = Date.now; let now = n0();
+    Date.now = () => now; window.fetchT = async u => { calls.push(u); return { json: async () => ({ ok: true, closes: [calls.length] }) }; };
+    try { await fetchBenchmark(true); now += CACHE_TTL + 1000; await fetchBenchmark(false); const tw = await fetchBenchmark(true); return { calls: calls.length, tw }; }
+    finally { window.fetchT = f0; Date.now = n0; _benchCache = {}; }
+  });
+  ok('大盤基準：台美各自計時，過期的台股基準會重抓', bc.calls === 3 && bc.tw[0] === 3, JSON.stringify(bc));
+
+  // v177 融資跨距不足：擁擠度不加分、融資卡不判讀並照實標示天數（同 v159 紀律門）
+  const mg = await pg.evaluate(async () => {
+    const c = Array.from({ length: 120 }, (_, i) => 100 + i); c[119] = 230;   // 多頭排列＋突破＋連漲＝散戶擁擠在多方
+    const D = { code: 'TSTM', currency: 'TWD', closes: c, highs: c.map(x => x * 1.01), lows: c.map(x => x * 0.99), volumes: c.map(() => 1e6), price: 230 };
+    const set = n => { _marginCache.TSTM = { d: { marginBal: 1000, shortBal: 50, shortRatio: 5, marginChg5: 9, chg5N: n }, t: Date.now() }; };
+    const run = n => { set(n); const r = computeCrowding(D, null); return { dir: r.crowdDir, note: r.marginNote }; };
+    const out = { short: run(2), full: run(5) };
+    set(2); window._activeCode = 'TSTM'; await loadMarginCard(D);
+    out.card = document.getElementById('margin-content').innerText;
+    delete _marginCache.TSTM; return out;
+  });
+  ok('擁擠度：融資只跨 2 日時不加分（跨足 5 日才加）', mg.full.dir === 1 && !!mg.full.note && !mg.short.note, JSON.stringify({ short: mg.short, full: mg.full }));
+  ok('融資卡：跨距不足時不判讀方向、照實標示天數', /資料天數不足/.test(mg.card) && /2日變化/.test(mg.card) && !/散戶追價|散戶接刀/.test(mg.card), mg.card.slice(0, 80));
+
+  // v177 雲端載入：空備份要明講；刪掉的交易不可被雲端舊副本救回
+  const cl = await pg.evaluate(async () => {
+    const f0 = window.fetch; let cloud = { trades: [], settings: {} };
+    window.fetch = async (u, o) => /sync_save/.test(u) ? (cloud = JSON.parse(o.body), { json: async () => ({ ok: true }) })
+      : /sync_get/.test(u) ? { json: async () => ({ ok: true, data: cloud }) } : f0(u, o);
+    const out = {}, has = async id => (await dbGetAllTrades()).some(t => t.id === id), err = async () => { try { await cloudLoad(); return '（沒有報錯）'; } catch (e) { return e.message; } };
+    try {
+      GAS_URL = 'https://selftest.local/exec';
+      out.gasEmpty = await err(); cloud = {}; out.cfEmpty = await err();
+      await dbAddTrade({ id: 't_tomb', date: '2026-09-01', code: '9999' }); await cloudSave();
+      await dbDeleteTrade('t_tomb'); await cloudLoad();
+      out.revived = await has('t_tomb');
+      await cloudSave(); await dbSetSetting('deletedIds', []); await dbAddTrade({ id: 't_tomb', date: '2026-09-01', code: '9999' });   // 另一台裝置還留著這筆
+      out.n = await cloudLoad(); out.otherKept = await has('t_tomb');
+    } finally { window.fetch = f0; await dbDeleteTrade('t_tomb'); await dbSetSetting('deletedIds', []); }
+    return out;
+  });
+  ok('雲端載入：沒有備份時明講（兩種後端的空回應都算）', /沒有備份/.test(cl.gasEmpty) && /沒有備份/.test(cl.cfEmpty), `${cl.gasEmpty}｜${cl.cfEmpty}`);
+  ok('雲端載入：刪掉的交易不會被雲端舊副本救回', cl.revived === false);
+  ok('雲端載入：別台裝置刪掉的交易，這台載入後也刪掉', cl.otherKept === false && cl.n === 0, JSON.stringify(cl));
 
   ok('掃描流程全程無 JavaScript 錯誤', errs.length === 0, errs.slice(0, 2).join(' | '));
   await b.close(); srv.close();
@@ -356,8 +420,8 @@ async function browserTests() {
   const errs = [];
   pg.on('pageerror', e => errs.push('PAGEERROR ' + e.message));
   pg.on('console', m => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errs.push('CONSOLE ' + m.text()); });
-  let todayBar = false, chip = null;
-  await pg.route('https://selftest.local/**', rt => { const u = new URL(rt.request().url()); const act = u.searchParams.get('action'); const code = u.searchParams.get('code');
+  let todayBar = false, chip = null, slowCode = null;
+  await pg.route('https://selftest.local/**', async rt => { if (slowCode && new URL(rt.request().url()).searchParams.get('code') === slowCode) await new Promise(r => setTimeout(r, 1200)); const u = new URL(rt.request().url()); const act = u.searchParams.get('action'); const code = u.searchParams.get('code');
     if (act === 'scan') { const list = (u.searchParams.get('codes') || '').split(',').filter(c => codes.includes(c));
       return rt.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, results: list.map(c => { const m = mkPayload(c, todayBar);
         return { code: c, ok: true, closes: m.closes, highs: m.highs, lows: m.lows, volumes: m.volumes, opens: m.opens, price: m.price, lastDate: m.lastDate }; }) }) }); }
@@ -399,6 +463,14 @@ async function browserTests() {
       ok(`${code} 目標為實測可達幅度(<15%)`, tgtPct < 15, tgtPct.toFixed(2) + '%');
     }
   }
+  // v177 兩次查詢重疊（Enter／最近查詢／掃描不經過停用的按鈕）：先查的晚回來，不可把它的卡片畫進後查那檔
+  slowCode = codes[1];
+  await pg.evaluate(([a, c2]) => { GAS_URL = 'https://selftest.local/exec'; Object.keys(_stockCache).forEach(k => delete _stockCache[k]);
+    const inp = document.getElementById('ticker-input'); inp.value = a; window._r1 = go(); inp.value = c2; window._r2 = go(); }, [codes[1], codes[2]]);
+  await pg.evaluate(() => Promise.all([window._r1, window._r2])); await pg.waitForTimeout(1800);
+  const race = await pg.evaluate(() => ({ bar: document.getElementById('sb-code').textContent, last: window._lastD && window._lastD.code, btn: document.getElementById('go-btn').disabled }));
+  ok('重疊查詢：先查的晚回來不會蓋掉後查那檔', race.bar === codes[2] && race.last === codes[2] && !race.btn, JSON.stringify(race));
+  slowCode = null;
   // 決定性：同一檔查兩次結果必須一字不差（否則使用者會看到結論忽多忽空）
   const a1 = await query(codes[0]); const a2 = await query(codes[0]);
   ok('同一檔重複查詢結果完全一致', a1.gate === a2.gate && a1.judge === a2.judge);
@@ -521,7 +593,7 @@ async function backendTests() {
   let fetchImpl = async () => { throw new Error('未設定'); };
   global.fetch = (...a) => fetchImpl(...a);
   const W = {};
-  new Function('module', src + '\nmodule.yahooChart=yahooChart;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTaifexFutures=fetchTaifexFutures;module.fetchTaifexPCR=fetchTaifexPCR;module.fetchMargin=fetchMargin;module.fetchTopPool=fetchTopPool;module.rocToYmd=rocToYmd;module.eventStudy=eventStudy;module.infoTilt=infoTilt;module.validateAI=validateAI;module.parseRSS=parseRSS;module.parsePTT=parsePTT;module.parseAnnounce=parseAnnounce;module.fetchIntel=fetchIntel;module.dropIntraday=dropIntraday;module.fetchNews=fetchNews;module.fetchIntelRouted=fetchIntelRouted;module.dedupKey=dedupKey;module.heat=heat;module.parseFinMindNews=parseFinMindNews;')(W);
+  new Function('module', src + '\nmodule.yahooChart=yahooChart;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTaifexFutures=fetchTaifexFutures;module.fetchTaifexPCR=fetchTaifexPCR;module.fetchMargin=fetchMargin;module.fetchTopPool=fetchTopPool;module.rocToYmd=rocToYmd;module.eventStudy=eventStudy;module.infoTilt=infoTilt;module.validateAI=validateAI;module.parseRSS=parseRSS;module.parsePTT=parsePTT;module.parseAnnounce=parseAnnounce;module.fetchIntel=fetchIntel;module.dropIntraday=dropIntraday;module.fetchNews=fetchNews;module.fetchIntelRouted=fetchIntelRouted;module.dedupKey=dedupKey;module.heat=heat;module.parseFinMindNews=parseFinMindNews;module.dayMoves=dayMoves;module.mergeDays=mergeDays;module.intelPrompt=intelPrompt;')(W);
   const W2 = W;
 
   // Code.gs：補上 GAS 全域物件
@@ -541,6 +613,8 @@ async function backendTests() {
   };
   global.PropertiesService = { getUserProperties: () => userProps,
     getScriptProperties: () => ({ getProperty: k => gsProps[k] || null }) };
+  let lockHeld = false;   // 照 GAS 行為：同一時間只有一個執行者拿得到鎖
+  global.LockService = { getScriptLock: () => ({ tryLock: () => (lockHeld ? false : (lockHeld = true)), releaseLock: () => { lockHeld = false; } }) };
   global.ContentService = { createTextOutput: t => ({ setMimeType: () => t }), MimeType: { JSON: 1 } };
   global.Utilities = { sleep() {}, formatDate(d, tz, fmt) {
     const x = new Date(d.getTime() + (tz === 'Asia/Taipei' ? 8 * 3600000 : 0));
@@ -549,7 +623,7 @@ async function backendTests() {
     return fmt === 'yyyy-MM-dd' ? `${y}-${m}-${dd}` : `${y}${m}${dd}`;
   } };
   const G = {};
-  new Function('module', fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8') + '\nmodule.fetchYahoo=fetchYahoo;module.fetchYahooTW=fetchYahooTW;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTopPool=fetchTopPool;module.rocToYmd=rocToYmd;module.eventStudy=eventStudy;module.infoTilt=infoTilt;module.validateAI=validateAI;module.parseRSS=parseRSS;module.parsePTT=parsePTT;module.parseAnnounce=parseAnnounce;module.fetchIntel=fetchIntel;module.dropIntraday=dropIntraday;module.fetchNews=fetchNews;module.dedupKey=dedupKey;module.doGet=doGet;module.doPost=doPost;module.heat=heat;module.parseFinMindNews=parseFinMindNews;')(G);
+  new Function('module', fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8') + '\nmodule.fetchYahoo=fetchYahoo;module.fetchYahooTW=fetchYahooTW;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTopPool=fetchTopPool;module.rocToYmd=rocToYmd;module.eventStudy=eventStudy;module.infoTilt=infoTilt;module.validateAI=validateAI;module.parseRSS=parseRSS;module.parsePTT=parsePTT;module.parseAnnounce=parseAnnounce;module.fetchIntel=fetchIntel;module.dropIntraday=dropIntraday;module.fetchNews=fetchNews;module.dedupKey=dedupKey;module.doGet=doGet;module.doPost=doPost;module.heat=heat;module.parseFinMindNews=parseFinMindNews;module.dayMoves=dayMoves;module.mergeDays=mergeDays;module.intelPrompt=intelPrompt;')(G);
 
   // twseGet 會先讀 resp.text()；測試替身統一用 jt() 同時提供 text 與 json
   const jt = o => ({ ok: true, status: 200, text: async () => JSON.stringify(o), json: async () => o });
@@ -1016,6 +1090,32 @@ async function backendTests() {
     ok('事件研究：13:15（盤中）歸當天', W2.eventStudy(cut(b, 193), b.mkt, T(dates[190], '13:15')).t0 === dates[190]);
     ok('事件研究：13:30（收盤）歸隔日', W2.eventStudy(cut(b, 193), b.mkt, T(dates[190], '13:30')).t0 === dates[191]);
 
+    /* v178 逐日拆解：重現使用者的情境——今天週一（10/5 開盤前），上週三個股自己大漲、週五跟著大盤大跌。
+       週二另有一天個股自己跌，但當天沒有任何消息（AI 若拿別天的消息來解釋，必須被擋下）。 */
+    {
+      const dts = dates.slice(0, 195), m = [100], s = [50];   // dates[191..194] = 9/29二 9/30三 10/1四 10/2五
+      for (let i = 1; i < 195; i++) { const rm = i === 194 ? -0.03 : 0.01 * Math.sin(i * 1.7); let rs = 0.0002 + 1.3 * rm + 0.001 * Math.sin(i * 3.1 + 1);
+        if (i === 192) rs += 0.05; if (i === 191) rs -= 0.04; m.push(m[i - 1] * (1 + rm)); s.push(s[i - 1] * (1 + rs)); }
+      const ser = { dates: dts, closes: s }, mkt = { dates: dts, closes: m }, now = T('20261005', '08:30');
+      const its = [['20260929', '14:00'], ['20260930', '10:00'], ['20261001', '11:00'], ['20261003', '10:00'], ['20261002', '13:45'], ['20260927', '10:00']]
+        .map(([d, hm], i) => ({ t: T(d, hm), kind: 'news', src: 'x', title: '條目' + i }));
+      const dm = W2.dayMoves(ser, mkt, its, now), day = d => dm && dm.days.find(x => x.d === d) || {};
+      ok('逐日拆解：分析的是7日窗內完整的交易日（上週二～五）', !!dm && dm.days.map(x => x.d).join() === '20260929,20260930,20261001,20261002', dm && dm.days.map(x => x.d).join());
+      ok('逐日拆解：β 估對（真值1.3，估計窗不含分析期間）', dm && Math.abs(dm.beta - 1.3) < 0.05, dm && dm.beta.toFixed(3));
+      ok('逐日拆解：週三個股自己漲 +5% → 顯著', Math.abs(day('20260930').ar - 0.05) < 0.005 && day('20260930').z >= 1.96, JSON.stringify(day('20260930')));
+      ok('逐日拆解：週五大跌是大盤帶動 → 個股自身不顯著', day('20261002').ret < -0.035 && Math.abs(day('20261002').mkt - day('20261002').ret) < 0.003 && Math.abs(day('20261002').z) < 1.96, JSON.stringify(day('20261002')));
+      ok('逐日拆解：消息歸日（週二盤後→週三、週三盤中→週三）', day('20260930').ids.join() === '0,1' && day('20261001').ids.join() === '2' && day('20260929').ids.length === 0, JSON.stringify(dm && dm.days.map(x => x.ids)));
+      ok('逐日拆解：週五收盤後與週末的消息→待開盤（影響今天週一）', dm && dm.pending.join() === '3,4', dm && dm.pending.join());
+      const aiDays = [{ d: '20260930', why: '法說上修[0]，另見[2]', ids: [0, 2] }, { d: '20260929', why: '被法說拖累[0]', ids: [0] }, { d: '20261002', why: '利空[4]', ids: [4] }];
+      const mg = W2.mergeDays(JSON.parse(JSON.stringify(dm)), aiDays), mday = d => mg.days.find(x => x.d === d);
+      ok('逐日歸因：只收當日條目（別天的引用剔除）', mday('20260930').whyIds.join() === '0' && mday('20260930').why === '法說上修[0]，另見', JSON.stringify(mday('20260930')));
+      ok('逐日歸因：當天沒有消息卻拿別天的來解釋→不採用', mday('20260929').why === '' && mday('20260929').z <= -1.96, JSON.stringify(mday('20260929')));
+      ok('逐日歸因：不顯著的日子不收 AI 的原因（跟大盤走，不看圖說故事）', mday('20261002').why === '', mday('20261002').why);
+      const pr = W2.intelPrompt('2330', '台積電', its, dm);
+      ok('逐日歸因：prompt 帶入程式算好的拆解與待開盤條目', /20260930｜個股 [+-]\d+\.\d%｜大盤 [^\n]*個股自身 \+[45]\.\d%（顯著）/.test(pr) && /收盤後（影響下一個交易日）的條目：\[3\]\[4\]/.test(pr), pr.slice(pr.indexOf('6. 逐日'), pr.indexOf('6. 逐日') + 120));
+      IT.dm = { ser, mkt, its, now, aiDays };
+    }
+
     seed = 42; b = build([[-5, 0.008], [-4, 0.008], [-3, 0.008], [-2, 0.008], [-1, 0.008]]);
     r = W2.eventStudy(cut(b, 191), b.mkt, T(dates[190], '10:00'));
     ok('事件研究：抓得到「消息前已先漲」（事前窗顯著）', r.preScar > 1.96 && Math.abs(r.pre - 0.04) < 0.008 && Math.abs(r.car) < 0.005, `pre=${(r.pre * 100).toFixed(2)}% car=${(r.car * 100).toFixed(2)}%`);
@@ -1296,6 +1396,14 @@ ${Array.from({ length: 3 }, (_, i) => `<item><title>台積電法說重點第${i}
     fetchImpl = async u => /relay\.test/.test(u) ? asResp({ json: { ok: true, price: 1 } }) : asResp(IT.route(u, IT.gem));
     const ro = await routed({ GAS_RELAY: 'https://relay.test/exec' });
     ok('整筆轉接：GAS 版本過舊（沒有情報欄位）→ 講明並退回', /版本過舊/.test(ro.srcErrors[0]), ro.srcErrors[0]);
+    // v177 時間預算：GAS 逾時後若再自己抓一輪，總時間超過前端上限，使用者只看到「沒回應」看不到原因
+    let localN = 0;
+    fetchImpl = async u => { if (/relay\.test/.test(u)) { const e = new Error('The operation was aborted'); e.name = 'AbortError'; throw e; } localN++; return asResp(IT.route(u, IT.gem)); };
+    const rt = await routed({ GAS_RELAY: 'https://relay.test/exec' });
+    ok('整筆轉接：GAS 逾時就明講，不再自己抓一輪', rt.engine === '（丟出例外）' && /50 秒/.test(rt.srcErrors[0]) && localN === 0, `${rt.srcErrors[0]}｜本地又抓了 ${localN} 次`);
+    const relayMs = +(fs.readFileSync(path.join(ROOT, 'worker.js'), 'utf8').match(/GAS_RELAY\}\?action=intel[^\n]*\{\}, (\d+)\)/) || [])[1];
+    const pageMs = +(fs.readFileSync(path.join(ROOT, 'intel.js'), 'utf8').match(/let INTEL_WAIT = (\d+)/) || [])[1];
+    ok('時間預算：Worker 等 GAS 的上限比前端上限短至少 5 秒', relayMs > 0 && pageMs - relayMs >= 5000, `Worker ${relayMs} ms／前端 ${pageMs} ms`);
     fetchImpl = async u => asResp(IT.route(u, IT.gem));
     ok('整筆轉接：沒設 GAS_RELAY 時由 Cloudflare 處理', (await routed({})).engine === 'Cloudflare');
     fetchImpl = async u => /news\.google\.com/.test(u) ? asResp({ status: 503, txt: 'x' }) : asResp(IT.route(u, IT.gem));
@@ -1385,6 +1493,10 @@ ${Array.from({ length: 3 }, (_, i) => `<item><title>台積電法說重點第${i}
     const its = [0, 1, 2].map(i => ({ t: Date.now() - (i + 1) * 3600e3, kind: 'news' }));
     const aiIn = { summary: 'x[0] y[9]', events: [{ title: 'a', type: '法說', dir: '多', mag: 9, horizon: '中', conf: 2, ids: [0, 2, 9] }, { title: 'b', type: '?', dir: '?', mag: 0, horizon: '?', conf: -3, ids: [5] }] };
     cmp('AI輸出驗證', W2.validateAI(aiIn, its), G.validateAI(aiIn, its));
+    const Q = IT.dm, wdm = W2.dayMoves(Q.ser, Q.mkt, Q.its, Q.now);
+    cmp('逐日拆解', wdm, G.dayMoves(Q.ser, Q.mkt, Q.its, Q.now));
+    cmp('逐日歸因合併', W2.mergeDays(JSON.parse(JSON.stringify(wdm)), Q.aiDays), G.mergeDays(JSON.parse(JSON.stringify(wdm)), Q.aiDays));
+    cmp('AI prompt（含逐日拆解）', W2.intelPrompt('2330', '台積電', Q.its, wdm), G.intelPrompt('2330', '台積電', Q.its, wdm));
 
     // 整條管線：兩邊都走同一組假來源
     const now0 = Date.now();
@@ -1461,6 +1573,13 @@ ${Array.from({ length: 3 }, (_, i) => `<item><title>台積電法說重點第${i}
     // 備份變短：上一次多出來的段落要清掉，不能混進新資料
     reset(); post(backup(50)); const b5 = backup(5); post(b5);
     ok('雲端備份：備份變短後讀回的是新資料（不殘留舊段）', JSON.stringify(get().data) === JSON.stringify(b5) && !Object.keys(userStore).some(k => /^sync_data_(\d+)$/.test(k) && +k.split('_')[2] >= +userStore.sync_data_n));
+
+    // v177 兩台裝置同時備份：拿不到鎖就明講，不硬寫（硬寫時一邊清殘段會刪掉另一邊剛寫的段）
+    reset(); lockHeld = true;
+    const busy = post(backup(2)), busyG = get();
+    lockHeld = false;
+    ok('雲端備份：另一台正在備份時明講請稍後，不硬寫也不硬讀', busy.ok === false && /10 秒後再試/.test(busy.error) && busyG.ok === false && !Object.keys(userStore).length, JSON.stringify(busy));
+    ok('雲端備份：做完會放開鎖（下一次照常）', post(backup(2)).ok === true && get().data.trades.length === 2);
 
     // 舊格式相容：v173 以前存的單一值讀得到，新存一次後自動換成分段格式
     reset(); userStore.sync_data = JSON.stringify(backup(3));

@@ -21,7 +21,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['journal.js'] = 174; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['journal.js'] = 177; } catch (e) {}
 
 /* ── 開啟 / 關閉面板 ─────────────────────────────────────────────────── */
 /* ── 分批進場 / 加碼工具 ──────────────────────────────────────────────
@@ -744,7 +744,7 @@ async function importLocalFile(input) {
     const obj = JSON.parse(text);
     const n = await importBackup(obj);
     msg.textContent = `✅ 已匯入 ${n} 筆交易紀錄`; msg.style.color = 'var(--buy)';
-    await loadSettings(); await refreshJournal(); await syncWinRateToMain();
+    await loadSettings(); await refreshJournal(); await syncWinRateToMain(); await refreshRiskBudget();   // v177：載入的交易要算進本月 6% 預算
   } catch (e) {
     msg.textContent = '❌ 匯入失敗：' + e.message; msg.style.color = 'var(--sell)';
     await ErrorLog.push('importLocalFile', e);
@@ -765,7 +765,7 @@ async function doCloudSave() {
 }
 async function doCloudLoad() {
   const msg = $('settings-msg'); msg.textContent = '雲端載入中...'; msg.style.color = 'var(--muted)';
-  try { await cloudLoad(); await loadSettings(); await refreshJournal(); await syncWinRateToMain(); msg.textContent = '✅ 已從雲端載入'; msg.style.color = 'var(--buy)'; }
+  try { const n = await cloudLoad(); await loadSettings(); await refreshJournal(); await syncWinRateToMain(); await refreshRiskBudget(); msg.textContent = `✅ 已從雲端載入 ${n} 筆交易`; msg.style.color = 'var(--buy)'; }
   catch (e) { msg.textContent = '❌ ' + e.message; msg.style.color = 'var(--sell)'; await ErrorLog.push('cloudLoad', e); }
 }
 
