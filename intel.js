@@ -12,7 +12,7 @@
 
    ⚠️ EVIDENCE tier U：未經回測，只顯示不計分。任何分數或紀律門都不讀這裡的結果。
    ══════════════════════════════════════════════════════════════════════ */
-try { (window.SR_FV = window.SR_FV || {})['intel.js'] = 178; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['intel.js'] = 179; } catch (e) {}
 
 /* 條目標題來自新聞與PTT（任何人都能發文），一律完整跳脫再進 innerHTML。
    不用 layout.js 的 esc：那支是「刪掉」特殊字元，會把「台積電 & 蘋果」弄成「台積電  蘋果」。 */
@@ -83,7 +83,7 @@ function renderIntel(j, D) {
     error: `<div style="font-size:11px;color:var(--warn);margin:10px 0">⚠️ AI 歸納失敗：${escI(j.ai.why)}——下方仍列出原始條目。</div>`,
   }[j.ai.status] || '';
   const DIR = { 1: ['▲', 'var(--buy)'], '-1': ['▼', 'var(--sell)'], 0: ['●', 'var(--muted)'] };
-  const kindName = { news: '新聞', social: '社群', ptt: 'PTT', mops: '公告' };
+  const kindName = { news: '新聞', intl: '國際', social: '社群', ptt: 'PTT', mops: '公告', rev: '月營收' };
   const evRows = (j.events || []).map(e => {
     const trend = e.type === '股價走勢報導';   // 價格的結果，不計入方向——畫面上也不能用漲跌箭頭暗示它是訊號
     const [ar, col] = trend ? ['○', 'var(--muted2)'] : DIR[e.dir] || DIR[0], st = e.study;
@@ -101,8 +101,22 @@ function renderIntel(j, D) {
   const att = [
     nw ? (nw.saturated ? `新聞 7日 ≥${nw.n} 則（已達上限）` : `新聞 7日 ${nw.n} 則${nw.trend ? `・熱度${nw.trend}（×${nw.ratio.toFixed(1)}）` : ''}`) : '',
     j.attention && j.attention.social ? `網友社群 7日 ${j.attention.social} 篇` : '',
-    pt ? `PTT 7日 ${pt.n} 篇${pt.bull + pt.bear ? `・［標的］多 ${pt.bull} 空 ${pt.bear}` : ''}` : '',
+    j.attention && j.attention.intl ? `國際外電 7日 ${j.attention.intl} 則` : '',
+    pt ? `PTT 7日 ${pt.n} 篇${pt.bull + pt.bear ? `・［標的］多 ${pt.bull} 空 ${pt.bear}` : ''}${pt.hot ? `・爆文 ${pt.hot}` : ''}${pt.boo ? `・噓文 ${pt.boo}` : ''}` : '',
   ].filter(Boolean).join('　｜　');
+  /* v179 月營收：官方硬資料。驚奇度＝本月年增率偏離過去24個月常態的程度，|SUR|≥2 才算明顯；公布後市場有沒有買單看事件研究 */
+  const rv = j.revenue, md = d => `${+d.slice(5, 7)}/${+d.slice(8, 10)}`;
+  const revBox = rv ? (() => {
+    const st = rv.study, sig = st && st.status === 'ok' && Math.abs(st.scar) >= SIG;
+    const sur = rv.sur == null ? `歷史只有 ${rv.n} 個月（需 12 個月），不算驚奇度`
+      : `驚奇度 ${rv.sur >= 0 ? '+' : ''}${rv.sur.toFixed(1)}${Math.abs(rv.sur) >= 2 ? (rv.sur > 0 ? '，明顯優於常態' : '，明顯差於常態') : '，在常態範圍內'}（過去 ${rv.n} 個月年增平均 ${pctI(rv.mean)}）`;
+    const react = !rv.seen ? '公布日不明（FinMind 2026/4/21 以前的資料沒有入庫日），不做市場反應分析'
+      : !st ? '' : st.status === 'pending' ? `${md(rv.seen)} 公布，市場尚未交易` : st.status !== 'ok' ? '歷史資料不足，無法做市場反應分析'
+      : `約 ${md(rv.seen)} 公布 → 市場反應 CAR ${pctI(st.car)}（${st.L}日，SCAR ${st.scar.toFixed(1)}，${sig ? '顯著' : '不顯著'}）${Math.abs(st.preScar) >= SIG ? `・公布前5日已有 ${pctI(st.pre)}（可能盤中公布或提前反應）` : ''}`;
+    return `<div style="margin-top:8px;padding:8px 11px;border:1px solid var(--bd);border-radius:8px;font-size:11px;line-height:1.7;color:var(--muted)">
+      📊 <b style="color:var(--txt)">${Math.floor(rv.ym / 100)}/${rv.ym % 100} 月營收（官方）</b>：年增 <b style="color:${rv.yoy >= 0 ? 'var(--buy)' : 'var(--sell)'}">${pctI(rv.yoy)}</b>${rv.mom != null ? `・月增 ${pctI(rv.mom)}` : ''}${rv.ytd != null ? `・今年累計年增 ${pctI(rv.ytd)}` : ''}${Math.abs(rv.streak) >= 3 ? `・連續 ${Math.abs(rv.streak)} 個月年${rv.streak > 0 ? '增' : '減'}` : ''}
+      <br>${sur}${react ? `<br>${react}` : ''}</div>`;
+  })() : '';
   // 每交易日新聞量長條圖（最後一根虛線＝收盤後累積、待下一個交易日開盤反應）
   const bars = nw && nw.series && nw.series.length ? (() => {
     const cols = nw.series.map(x => ({ l: `${+x.d.slice(4, 6)}/${+x.d.slice(6)}`, n: x.n, p: false })).concat(nw.pending ? [{ l: '待開盤', n: nw.pending, p: true }] : []);
@@ -124,6 +138,7 @@ function renderIntel(j, D) {
       ${v.sub ? `<div style="font-size:11px;color:var(--muted);margin-top:4px;line-height:1.6">${escI(v.sub)}</div>` : ''}
       ${v.notes.map(n => `<div style="font-size:11px;color:var(--warn);margin-top:5px;line-height:1.6">${escI(n)}</div>`).join('')}
     </div>
+    ${revBox}
     ${aiLine}
     ${evRows ? `<div style="margin-top:6px">${evRows}</div>` : ''}
     ${att ? `<div style="font-size:10.5px;color:var(--muted);margin-top:8px;padding-top:8px;border-top:1px solid var(--bd)">${att}${bars}</div>` : ''}

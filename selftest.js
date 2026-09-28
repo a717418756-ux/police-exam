@@ -222,7 +222,9 @@ async function scanFlowTests() {
       study: { status: 'ok', t0: '20260926', afterClose: false, L: 2, car: 0.042, scar: 2.9, pre: 0.003, preScar: 0.4, beta: 1.1, n: 110 } }],
     tilt: { tilt: 0.8, conflict: 0, n: 1 },
     attention: { news: { n: 9, series: [{ d: '20260922', n: 2 }, { d: '20260923', n: 3 }, { d: '20260924', n: 4 }], pending: 2, med: 2.5, ratio: 1.75, trend: '升溫' },
-      ptt: { n: 1, series: [], pending: 1, bull: 1, bear: 0 } },
+      ptt: { n: 1, series: [], pending: 1, bull: 1, bear: 0, hot: 1, boo: 0 }, intl: 2 },
+    revenue: { ym: 202608, rev: 3.2e11, yoy: 0.6, mom: 0.08, ytd: 0.31, mean: 0.2, n: 24, sur: 19.6, streak: 28, seen: '2026-09-09', t: 0,
+      study: { status: 'ok', t0: '20260910', L: 12, car: 0.051, scar: 2.6, pre: 0.004, preScar: 0.3, beta: 1.1, n: 110 } },
     ai: { status: 'ok', model: 'gemini-test', prompt: 'v168.1', dropped: 1, summary: '市場在談法說上修[0]。', outlook: '若開盤延續法說利多[0]，則留意追價量能。' },
     moves: { beta: 1.3, sd: 0.012, n: 120, pending: [1], days: [
       { d: '20260929', ret: -0.051, mret: -0.009, mkt: -0.012, ar: -0.039, z: -3.2, ids: [], why: '', whyIds: [] },
@@ -288,6 +290,9 @@ async function scanFlowTests() {
   ok('情報卡：摘要引用變成可點的來源連結', /href="https:\/\/news\.example\/a"/.test(ic.html) && /\[1\]/.test(ic.txt));
   ok('情報卡：標示剔除了幾個無引用事件、快照狀態', /剔除 1 個/.test(ic.txt) && /今日快照已存/.test(ic.txt));
   ok('情報卡：固定顯示「不計入任何分數」', /不計入任何分數/.test(ic.txt));
+  // v179 月營收、國際外電、PTT 反應
+  ok('情報卡：月營收顯示年增、驚奇度與公布後市場反應', /2026\/8 月營收（官方）/.test(ic.txt) && /年增 \+60\.0%/.test(ic.txt) && /驚奇度 \+19\.6，明顯優於常態/.test(ic.txt) && /連續 28 個月年增/.test(ic.txt) && /約 9\/9 公布 → 市場反應 CAR \+5\.1%.*顯著/.test(ic.txt), ic.txt.slice(ic.txt.indexOf('月營收') - 10, ic.txt.indexOf('月營收') + 160));
+  ok('情報卡：國際外電則數、PTT 爆文數', /國際外電 7日 2 則/.test(ic.txt) && /爆文 1/.test(ic.txt) && !/噓文/.test(ic.txt), ic.txt.slice(ic.txt.indexOf('新聞 7日'), ic.txt.indexOf('新聞 7日') + 120));
   // v178 AI 綜合研判（Gemini）：與情報卡共用同一次回應
   const aiText = () => pg.evaluate(() => { const c = document.getElementById('ai-card'); return { vis: c && c.style.display !== 'none', txt: document.getElementById('ai-body').innerText, html: document.getElementById('ai-body').innerHTML }; });
   let ac = await aiText();
@@ -593,7 +598,7 @@ async function backendTests() {
   let fetchImpl = async () => { throw new Error('未設定'); };
   global.fetch = (...a) => fetchImpl(...a);
   const W = {};
-  new Function('module', src + '\nmodule.yahooChart=yahooChart;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTaifexFutures=fetchTaifexFutures;module.fetchTaifexPCR=fetchTaifexPCR;module.fetchMargin=fetchMargin;module.fetchTopPool=fetchTopPool;module.rocToYmd=rocToYmd;module.eventStudy=eventStudy;module.infoTilt=infoTilt;module.validateAI=validateAI;module.parseRSS=parseRSS;module.parsePTT=parsePTT;module.parseAnnounce=parseAnnounce;module.fetchIntel=fetchIntel;module.dropIntraday=dropIntraday;module.fetchNews=fetchNews;module.fetchIntelRouted=fetchIntelRouted;module.dedupKey=dedupKey;module.heat=heat;module.parseFinMindNews=parseFinMindNews;module.dayMoves=dayMoves;module.mergeDays=mergeDays;module.intelPrompt=intelPrompt;')(W);
+  new Function('module', src + '\nmodule.yahooChart=yahooChart;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTaifexFutures=fetchTaifexFutures;module.fetchTaifexPCR=fetchTaifexPCR;module.fetchMargin=fetchMargin;module.fetchTopPool=fetchTopPool;module.rocToYmd=rocToYmd;module.eventStudy=eventStudy;module.infoTilt=infoTilt;module.validateAI=validateAI;module.parseRSS=parseRSS;module.parsePTT=parsePTT;module.parseAnnounce=parseAnnounce;module.fetchIntel=fetchIntel;module.dropIntraday=dropIntraday;module.fetchNews=fetchNews;module.fetchIntelRouted=fetchIntelRouted;module.dedupKey=dedupKey;module.heat=heat;module.parseFinMindNews=parseFinMindNews;module.dayMoves=dayMoves;module.mergeDays=mergeDays;module.intelPrompt=intelPrompt;module.revSurprise=revSurprise;module.fetchNewsEn=fetchNewsEn;')(W);
   const W2 = W;
 
   // Code.gs：補上 GAS 全域物件
@@ -622,8 +627,17 @@ async function backendTests() {
     const y = x.getUTCFullYear(), m = pad(x.getUTCMonth() + 1), dd = pad(x.getUTCDate());
     return fmt === 'yyyy-MM-dd' ? `${y}-${m}-${dd}` : `${y}${m}${dd}`;
   } };
+  /* v179 Code.gs 必須是 ES5（舊版 Rhino 執行環境一個 ES6 語法就整支腳本無法解析）——先前只靠人工檢查 */
+  {
+    const code = fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"\\])\/\/[^\n]*/g, '$1')
+      .replace(/'(?:[^'\\\n]|\\.)*'/g, "''");
+    const bad = [['=>', /=>/], ['let/const', /\b(let|const)\s/], ['樣板字串', /`[^`\n]*\$\{/], ['.includes', /\.includes\(/], ['.find', /\.find(Index)?\(/],
+      ['padStart', /padStart/], ['Math.sign', /Math\.sign/], ['展開 ...', /\.\.\.[A-Za-z_(\[]/], ['Set/Map', /new (Set|Map)\b/], ['\\p{}', /\\p\{/]]
+      .filter(([, re]) => re.test(code)).map(([n]) => n);
+    ok('Code.gs 只用 ES5 語法（Rhino 可解析）', !bad.length, bad.join('、'));
+  }
   const G = {};
-  new Function('module', fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8') + '\nmodule.fetchYahoo=fetchYahoo;module.fetchYahooTW=fetchYahooTW;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTopPool=fetchTopPool;module.rocToYmd=rocToYmd;module.eventStudy=eventStudy;module.infoTilt=infoTilt;module.validateAI=validateAI;module.parseRSS=parseRSS;module.parsePTT=parsePTT;module.parseAnnounce=parseAnnounce;module.fetchIntel=fetchIntel;module.dropIntraday=dropIntraday;module.fetchNews=fetchNews;module.dedupKey=dedupKey;module.doGet=doGet;module.doPost=doPost;module.heat=heat;module.parseFinMindNews=parseFinMindNews;module.dayMoves=dayMoves;module.mergeDays=mergeDays;module.intelPrompt=intelPrompt;')(G);
+  new Function('module', fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8') + '\nmodule.fetchYahoo=fetchYahoo;module.fetchYahooTW=fetchYahooTW;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTopPool=fetchTopPool;module.rocToYmd=rocToYmd;module.eventStudy=eventStudy;module.infoTilt=infoTilt;module.validateAI=validateAI;module.parseRSS=parseRSS;module.parsePTT=parsePTT;module.parseAnnounce=parseAnnounce;module.fetchIntel=fetchIntel;module.dropIntraday=dropIntraday;module.fetchNews=fetchNews;module.dedupKey=dedupKey;module.doGet=doGet;module.doPost=doPost;module.heat=heat;module.parseFinMindNews=parseFinMindNews;module.dayMoves=dayMoves;module.mergeDays=mergeDays;module.intelPrompt=intelPrompt;module.revSurprise=revSurprise;module.fetchNewsEn=fetchNewsEn;')(G);
 
   // twseGet 會先讀 resp.text()；測試替身統一用 jt() 同時提供 text 與 json
   const jt = o => ({ ok: true, status: 200, text: async () => JSON.stringify(o), json: async () => o });
@@ -1241,13 +1255,49 @@ async function backendTests() {
       for (let i = n; i >= 1; i--) { ts.push(Math.floor((NOW - i * 864e5) / 1000 / 86400) * 86400 + 3600); p *= 1 + drift + Math.sin(i) * 0.01; cl.push(p); }
       return { chart: { result: [{ timestamp: ts, meta: {}, indicators: { quote: [{ close: cl, high: cl, low: cl, open: cl, volume: cl.map(() => 1e6) }], adjclose: [{ adjclose: cl }] } }] } }; };
     IT.yc = yc;
+    /* v179 英文外電、月營收、PTT 推文淨值 */
+    IT.rssEn = `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>x</title>
+<item><title>TSMC lifts 2026 revenue outlook on AI demand - Reuters</title><link>https://news.google.com/rss/articles/E1</link><pubDate>${pub(NOW - 7 * H)}</pubDate><source url="https://www.reuters.com">Reuters</source></item>
+<item><title>Taiwan exports hit record as chip demand surges - Bloomberg</title><link>https://news.google.com/rss/articles/E2</link><pubDate>${pub(NOW - 9 * H)}</pubDate><source url="https://www.bloomberg.com">Bloomberg</source></item>
+<item><title>TSMCX is not the same company - Foo</title><link>https://news.google.com/rss/articles/E3</link><pubDate>${pub(NOW - 9 * H)}</pubDate><source url="https://foo.com">Foo</source></item>
+</channel></rss>`;
+    // 40 個月（2023/05～2026/08）：前12個月當基期，之後年增率 18%/22% 交替（平均20%），最後一個月突然年增 60%
+    IT.revRows = seen => { const out = [], v = [];
+      for (let i = 0; i < 40; i++) { const y = 2023 + Math.floor((4 + i) / 12), m = (4 + i) % 12 + 1;
+        v.push(i < 12 ? 100e9 * (1 + 0.01 * i) : v[i - 12] * (1 + (i === 39 ? 0.6 : i % 2 ? 0.22 : 0.18)));
+        out.push({ date: `${m === 12 ? y + 1 : y}-${String(m % 12 + 1).padStart(2, '0')}-01`, stock_id: '2330', country: 'Taiwan', revenue: Math.round(v[i]), revenue_month: m, revenue_year: y, create_time: i === 39 ? seen : '' }); }
+      return out; };
+    IT.revSeen = new Date(NOW - 2 * 864e5 + 8 * H).toISOString().slice(0, 10);   // 兩天前（台北日期）入庫
+    {
+      const rr = IT.revRows('2026-09-09'), rs = W2.revSurprise(rr), v = rr.map(x => x.revenue);
+      ok('月營收：本月年增率、月增率正確', rs && Math.abs(rs.yoy - 0.6) < 1e-6 && Math.abs(rs.mom - (v[39] / v[38] - 1)) < 1e-9 && rs.ym === 202608, JSON.stringify(rs));
+      ok('月營收：驚奇度＝偏離過去24個月常態（平均20%、年增60%→遠超過2）', rs && rs.n === 24 && Math.abs(rs.mean - 0.2) < 1e-9 && Math.abs(rs.sur - 0.4 / Math.sqrt(24 * 0.0004 / 23)) < 1e-6, rs && `${rs.n} ${rs.mean} ${rs.sur}`);
+      const ytd = [31, 32, 33, 34, 35, 36, 37, 38, 39].slice(-8).reduce((a, i) => a + v[i], 0) / [19, 20, 21, 22, 23, 24, 25, 26, 27].slice(-8).reduce((a, i) => a + v[i], 0) - 1;
+      ok('月營收：今年累計年增、連續年增月數', rs && Math.abs(rs.ytd - ytd) < 1e-9 && rs.streak === 28, rs && `${rs.ytd} vs ${ytd}｜${rs.streak}`);
+      ok('月營收：公布日取 FinMind 入庫日', rs && rs.seen === '2026-09-09');
+      const stable = IT.revRows(''); stable[39].revenue = Math.round(stable[27].revenue * 1.22);
+      const st = W2.revSurprise(stable);
+      ok('月營收：年增率高但一向這麼高→驚奇度在常態內', st && st.yoy > 0.2 && Math.abs(st.sur) < 2 && st.seen === '', st && `${st.yoy} ${st.sur}`);
+      ok('月營收：歷史不足 12 個月→不算驚奇度（不用太少的樣本亂算）', W2.revSurprise(rr.slice(-20)).sur === null && W2.revSurprise(rr.slice(-20)).n === 7);
+      ok('月營收：沒有去年同月→回 null（不硬算）', W2.revSurprise(rr.slice(-6)) === null && W2.revSurprise([]) === null);
+      const ep2 = h => Math.floor((NOW - h * H) / 1000);
+      IT.pttPush = `<div class="r-list-container"><div class="r-ent"><div class="nrec"><span class="hl f1">爆</span></div><div class="title"><a href="/bbs/Stock/M.${ep2(1)}.A.111.html">[標的] 2330 台積電 多</a></div></div>
+<div class="r-ent"><div class="nrec"><span class="hl f2">X3</span></div><div class="title"><a href="/bbs/Stock/M.${ep2(2)}.A.222.html">[標的] 2330 台積電 空</a></div></div>
+<div class="r-ent"><div class="nrec"></div><div class="title"><a href="/bbs/Stock/M.${ep2(3)}.A.333.html">[新聞] 台積電擴產</a></div></div>
+<div class="r-ent"><div class="nrec"><span class="hl f3">12</span></div><div class="title"><a href="/bbs/Stock/M.${ep2(4)}.A.444.html">[心得] 2330 抱牢</a></div></div></div>`;
+      const pp = W2.parsePTT(IT.pttPush, '2330', '台積電').items;
+      ok('PTT：推文淨值（爆＝100、X3＝噓多30以上、空白＝0、數字照讀）', pp.map(x => x.push).join() === '100,-30,0,12', pp.map(x => x.push).join());
+      ok('PTT：推文淨值帶給 AI（標明是反應熱度）', pp[0].detail === '推文淨值 +100（爆）' && pp[2].detail === '', pp[0].detail);
+    }
     IT.route = (u, gem) => {
+      if (/TaiwanStockMonthRevenue/.test(u)) return { json: { msg: 'success', status: 200, data: IT.revRows(IT.revSeen) } };
+      if (/news\.google\.com[^#]*hl=en-US/.test(u)) return { txt: IT.rssEn };
       if (/news\.google\.com/.test(u)) return { txt: IT.rss };
       if (/ptt\.cc/.test(u)) return { txt: IT.ptt };
       if (/t187ap04_L/.test(u)) return { json: IT.ann };
       if (/t187ap03_L/.test(u)) return { json: [
-        { 出表日期: '1150926', 公司代號: '2330', 公司名稱: '台灣積體電路製造股份有限公司', 公司簡稱: '台積電', 外國企業註冊地國: '－' },
-        { 出表日期: '1150926', 公司代號: '2317', 公司名稱: '鴻海精密工業股份有限公司', 公司簡稱: '鴻海', 外國企業註冊地國: '－' }] };
+        { 出表日期: '1150926', 公司代號: '2330', 公司名稱: '台灣積體電路製造股份有限公司', 英文簡稱: 'TSMC', 公司簡稱: '台積電', 外國企業註冊地國: '－' },   // 英文簡稱故意排在前面：抓「簡稱」不可抓到英文的
+        { 出表日期: '1150926', 公司代號: '2317', 公司名稱: '鴻海精密工業股份有限公司', 英文簡稱: 'HON HAI', 公司簡稱: '鴻海', 外國企業註冊地國: '－' }] };
       if (/0050\.TW/.test(u)) return { json: yc(240, 0.0003) };
       if (/finance\/chart\/2330\.TW/.test(u)) return { json: yc(240, 0.0006) };
       if (/generativelanguage/.test(u)) return gem;
@@ -1264,7 +1314,7 @@ async function backendTests() {
     const full = await W2.fetchIntel('2330', { GEMINI_KEY: 'k-test' });
     IT.full = full;
     ok('情報管線：取得中文名稱並用於新聞搜尋', full.name === '台積電');
-    ok('情報管線：三種來源都進條目且依時間新到舊', full.items.length === 9 && full.items.every((x, i, a) => !i || a[i - 1].t >= x.t), `${full.items.length}`);
+    ok('情報管線：各來源都進條目且依時間新到舊（v179 起多了國際新聞與月營收各 1）', full.items.length === 11 && full.items.every((x, i, a) => !i || a[i - 1].t >= x.t), `${full.items.length}`);
     ok('情報管線：AI 捏造事件被剔除', full.events.length === 2 && full.ai.dropped === 1, `${full.events.length}/${full.ai.dropped}`);
     ok('情報管線：事件附上事件研究結果', full.events.some(e => e.study && (e.study.status === 'ok' || e.study.status === 'pending')), JSON.stringify(full.events.map(e => e.study && e.study.status)));
     ok('情報管線：傾向計算排除走勢報導', full.tilt && full.tilt.n === 1 && full.tilt.tilt === 1, JSON.stringify(full.tilt));
@@ -1282,7 +1332,7 @@ async function backendTests() {
     // AI 服務出錯：錯誤要講出來，其餘照常
     fetchImpl = async u => asResp(IT.route(u, { status: 429, txt: 'quota exceeded' }));
     const aiErr = await W2.fetchIntel('2330', { GEMINI_KEY: 'k' });
-    ok('AI 出錯時明講原因，其他來源照常', aiErr.ai.status === 'error' && /429/.test(aiErr.ai.why) && aiErr.items.length === 9, aiErr.ai.why);
+    ok('AI 出錯時明講原因，其他來源照常', aiErr.ai.status === 'error' && /429/.test(aiErr.ai.why) && aiErr.items.length === 11, aiErr.ai.why);
 
     // 單一來源失敗：列進 srcErrors
     fetchImpl = async u => /ptt\.cc/.test(u) ? asResp({ txt: '<html>blocked</html>' }) : asResp(IT.route(u, IT.gem));
@@ -1299,7 +1349,7 @@ async function backendTests() {
     IT.fmResp = u => { const d = new URL(u).searchParams.get('start_date');
       return { msg: 'success', status: 200, data: [0, 1].map(k => ({ date: `${d} 0${2 + k}:00:00`, stock_id: '2330', link: `https://fm/${d}/${k}`, source: '經濟日報', title: `台積電先進製程消息${d}-${k} - 經濟日報` })) }; };
     const fmSeen = []; let fmAuth = null;
-    fetchImpl = async (u, o) => { if (/finmindtrade/.test(u)) { fmSeen.push(new URL(u).searchParams.get('start_date')); fmAuth = o && o.headers && o.headers.Authorization; return asResp({ json: IT.fmResp(u) }); } return asResp(IT.route(u, IT.gem)); };
+    fetchImpl = async (u, o) => { if (/TaiwanStockNews/.test(u)) { fmSeen.push(new URL(u).searchParams.get('start_date')); fmAuth = o && o.headers && o.headers.Authorization; return asResp({ json: IT.fmResp(u) }); } return asResp(IT.route(u, IT.gem)); };
     const fmI = await W2.fetchIntel('2330', {}, 'tok-1');
     const nowD = new Date().toISOString().slice(0, 10);
     ok('FinMind：抓 8 個 UTC 日（涵蓋台北 7×24 小時）', fmSeen.length === 8 && new Set(fmSeen).size === 8 && fmSeen.includes(nowD), fmSeen.join(','));
@@ -1324,6 +1374,12 @@ async function backendTests() {
        Google 新聞只擋 Cloudflare、STOCK_DAY_ALL 沒有中文名稱、櫃買中心擋雲端主機、
        Yahoo rss?s= 不是個股參數、「股市爆料同學會」是網友發文不是新聞 */
     ok('名稱：取自上市公司基本資料的「公司簡稱」而非全名', full.name === '台積電', full.name);
+    const intlI = full.items.filter(x => x.kind === 'intl');
+    ok('國際新聞：用英文簡稱查，只收標題含公司英文名的（TSMCX、無關的台灣出口新聞不收）', intlI.length === 1 && /TSMC lifts/.test(intlI[0].title) && full.attention.intl === 1, JSON.stringify(intlI.map(x => x.title)));
+    ok('國際新聞：不計入新聞熱度', !!full.attention.news && full.attention.news.n === full.items.filter(x => x.kind === 'news').length, JSON.stringify(full.attention.news || null).slice(0, 80));
+    const revI = full.items.filter(x => x.kind === 'rev');
+    ok('月營收：7日內公布→當成官方條目交給 AI，時間視為入庫日收盤後', revI.length === 1 && /8月營收年增 \+60\.0%/.test(revI[0].title) && revI[0].t === Date.parse(IT.revSeen + 'T14:00:00+08:00'), JSON.stringify(revI));
+    ok('月營收：輸出驚奇度與公布後的市場反應（事件研究）', full.revenue && full.revenue.sur > 2 && full.revenue.study && /ok|pending/.test(full.revenue.study.status), JSON.stringify(full.revenue && full.revenue.study));
     ok('新聞：Google 直連成功時回報來源', full.newsVia === 'Google新聞', full.newsVia);
 
     // 社群發文分類（實測 60 則裡約 35 則是 CMoney 網友發文）
@@ -1347,7 +1403,7 @@ ${Array.from({ length: 40 }, (_, i) => `<item><title>2330 台積電 - 【美股�
 ${Array.from({ length: 8 }, (_, i) => `<item><title>2330 台積電 - 台積電傳明年漲價第${i}波 - 股市爆料同學會</title><link>https://n/r${i}</link><pubDate>${pub(NOW - (i + 1) * 0.6 * H)}</pubDate><source url="https://cmoney.tw">CMoney</source></item>`).join('\n')}
 ${Array.from({ length: 3 }, (_, i) => `<item><title>台積電法說重點第${i}則 - 經濟日報</title><link>https://n/n${i}</link><pubDate>${pub(NOW - (i + 30) * H)}</pubDate><source url="https://udn.com">經濟日報</source></item>`).join('\n')}
 </channel></rss>`;
-    fetchImpl = async u => { if (/news\.google\.com/.test(u)) { gq = decodeURIComponent(u); return asResp({ txt: flood }); } return asResp(IT.route(u, IT.gem)); };
+    fetchImpl = async u => { if (/news\.google\.com/.test(u) && /hl=zh-TW/.test(u)) { gq = decodeURIComponent(u); return asResp({ txt: flood }); } return asResp(IT.route(u, IT.gem)); };
     const fl = await W2.fetchIntel('2330', {});
     const byKind = k => fl.items.filter(x => x.kind === k);
     ok('社群洗版：查詢排除 CMoney（把名額留給真新聞）', /-site:cmoney\.tw/.test(gq), gq);
@@ -1494,6 +1550,9 @@ ${Array.from({ length: 3 }, (_, i) => `<item><title>台積電法說重點第${i}
     const aiIn = { summary: 'x[0] y[9]', events: [{ title: 'a', type: '法說', dir: '多', mag: 9, horizon: '中', conf: 2, ids: [0, 2, 9] }, { title: 'b', type: '?', dir: '?', mag: 0, horizon: '?', conf: -3, ids: [5] }] };
     cmp('AI輸出驗證', W2.validateAI(aiIn, its), G.validateAI(aiIn, its));
     const Q = IT.dm, wdm = W2.dayMoves(Q.ser, Q.mkt, Q.its, Q.now);
+    cmp('PTT 推文淨值', W2.parsePTT(IT.pttPush, '2330', '台積電'), G.parsePTT(IT.pttPush, '2330', '台積電'));
+    cmp('月營收驚奇度', W2.revSurprise(IT.revRows('2026-09-09')), G.revSurprise(IT.revRows('2026-09-09')));
+    cmp('月營收（歷史不足）', W2.revSurprise(IT.revRows('').slice(-20)), G.revSurprise(IT.revRows('').slice(-20)));
     cmp('逐日拆解', wdm, G.dayMoves(Q.ser, Q.mkt, Q.its, Q.now));
     cmp('逐日歸因合併', W2.mergeDays(JSON.parse(JSON.stringify(wdm)), Q.aiDays), G.mergeDays(JSON.parse(JSON.stringify(wdm)), Q.aiDays));
     cmp('AI prompt（含逐日拆解）', W2.intelPrompt('2330', '台積電', Q.its, wdm), G.intelPrompt('2330', '台積電', Q.its, wdm));
