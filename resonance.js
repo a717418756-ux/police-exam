@@ -20,7 +20,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['resonance.js'] = 163; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['resonance.js'] = 183; } catch (e) {}
 
 /* ══ 個股動能/反轉持續性檢定（Lag-1 自相關係數）═══════════════════════
    統計基礎：日報酬率序列的一階自相關 r₁ = Corr(R_t, R_{t-1})
@@ -86,14 +86,15 @@ function computeResonance(ctx) {
     const structUp = ctx.structure.trend === 'up';
     const structDown = ctx.structure.trend === 'down';
     if (vwapUp && structUp) { sd = 1; sNote = 'VWAP上+上升結構'; }
-    else if (!vwapUp && structDown) { sd = -1; sNote = 'VWAP下+下降結構'; }
+    // v183：多方要「VWAP 上方 2% 以上」，空方原本只要「不在上方」——貼近 VWAP（±2%）時只會投空票不會投多票，整體偏空
+    else if (ctx.vwap.signal === 'sell' && structDown) { sd = -1; sNote = 'VWAP下+下降結構'; }
     else { sd = 0; sNote = '結構與VWAP分歧'; }
     dims.push({ name: '結構', dir: sd, score: sd === 1 ? 75 : sd === -1 ? 25 : 50, note: sNote });
   }
 
   // ⑤ 情緒維度（過熱反指標 — 反向）
   if (ctx.overheat) {
-    // 過熱=反向偏空（dir=-1），恐慌=反向偏多
+    // 過熱=反向偏空（dir=-1）。恐慌端沒有實作反向偏多票（未驗證，不加）——這一維只會投空票或不投
     let ed = 0, eNote = ctx.overheat.advice.slice(0, 14);
     if (ctx.overheat.level === 'high') { ed = -1; } // 過熱反指標偏空
     dims.push({ name: '情緒', dir: ed, score: 100 - ctx.overheat.heat,
@@ -109,7 +110,7 @@ function computeResonance(ctx) {
   // ⑥ 相對強弱維度（RS）
   if (ctx.rsRating != null) {
     dims.push({ name: '相對強弱', dir: ctx.rsRating >= 70 ? 1 : ctx.rsRating <= 40 ? -1 : 0,
-      score: ctx.rsRating, note: `RS ${ctx.rsRating}（強過${ctx.rsRating}%）` });
+      score: ctx.rsRating, note: `RS ${ctx.rsRating}（相對大盤的超額報酬換算，不是百分位）` });   // v183：RS 卡自己註明不是百分位，這裡原本寫「強過X%」
   }
 
   // 統計共振

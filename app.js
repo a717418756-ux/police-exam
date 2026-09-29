@@ -1,6 +1,6 @@
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['app.js'] = 181; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['app.js'] = 183; } catch (e) {}
 
 // ══════════════════════════════════════════════════════════════════════
 // 短線雷達 Pro — 風險優先分層決策系統
@@ -322,7 +322,8 @@ function analyzeRisk(D,atr){
   let bSource = '保守預設1:1（未取得此股實測風報比）';
   try {
     if (typeof computeRealisticTargets === 'function' && stopPct > 0) {
-      const rt = computeRealisticTargets(D, -1, stopPct);
+      // v183：風險卡是做多的配置（停損在現價下方、停利在上方），可達幅度要看上漲方向；原本傳 -1 量的是下跌幅度
+      const rt = computeRealisticTargets(D, 1, stopPct);
       const row5 = rt && rt.rows ? rt.rows.find(r => r.days === 5) : null;
       if (row5 && row5.rr > 0) { b = row5.rr; bSource = `此股實測（5日中位可達 ${row5.medPct.toFixed(1)}% ÷ 停損 ${stopPct.toFixed(1)}%）`; }
     }
@@ -346,7 +347,7 @@ function analyzeRisk(D,atr){
   let fixSuggestion = null;
   try {
     if (typeof computeRealisticTargets === 'function' && stopPct > 0) {
-      const rt2 = computeRealisticTargets(D, -1, stopPct);
+      const rt2 = computeRealisticTargets(D, 1, stopPct);
       const r5 = rt2 && rt2.rows ? rt2.rows.find(r => r.days === 5) : null;
       if (r5 && breakevenWR > 0.6) {
         const bNeed = (1 - 0.55) / 0.55;              // 目標：55%勝率即可獲利
@@ -436,7 +437,9 @@ function analyzeSignals(D,atr,trend){
 
   // 成交量異常（核心）
   const vr=v.length>=6?v[v.length-1]/(v.slice(-6,-1).reduce((a,b)=>a+b,0)/5):1;
-  const vUp=price>open&&vr>1.5,vDn=price<open&&vr>1.5;
+  // v183：盤中已去掉今天未完成的K棒，最後一根量是「昨天」的——K棒紅黑也要用昨天那根，原本拿今天盤中價配昨天的量
+  const kC=D._intraday?c[c.length-1]:price, kO=D._intraday&&D.opens?D.opens[D.opens.length-1]:open;
+  const vUp=kC>kO&&vr>1.5,vDn=kC<kO&&vr>1.5;
   add('成交量異常放大 ⭐','核心',`${vr.toFixed(2)}x`,vr,0,3,
     vUp?'buy':vDn?'sell':'hold',
     vUp?`放量收紅 ${vr.toFixed(1)}x，資金流入，動能確認`:vDn?`放量收黑 ${vr.toFixed(1)}x，資金流出`:vr>2?`爆量${vr.toFixed(1)}x但方向未定`:`量能 ${vr.toFixed(1)}x 正常`);
@@ -668,7 +671,7 @@ async function go(){
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('支撐壓力',err); }
     try{ renderVolPriceRadar(computeVolPriceRadar(D)); }
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('量價雷達',err); }
-    try{ renderProbability(computeProbability(D)); }
+    try{ renderProbability(computeProbability(D), D); }
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('機率預測',err); }
 
     // 回測動態權重 → 專屬分數 → 韭菜反指標
@@ -712,6 +715,9 @@ async function go(){
     try{ if(typeof renderOOS==='function') renderOOS(D); }
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('樣本外驗證',err); }
 
+    /* v183：先登記本次的 D，再啟動非同步卡片——主力縱深命中快取時會「立刻」補繪擁擠度／紀律門／橫幅，
+       原本那時 _lastD 還是上一次查詢的物件、_gateCtx/_bannerArgs 也是上一次的，會用舊資料畫一輪 */
+    window._lastD=D; window._lastFormulas=formulas; window._gateCtx=null; window._bannerArgs=null;
     // 基本面體檢（台股，非同步不擋主流程）
     try{ if(typeof loadFundamentalCard==='function') loadFundamentalCard(D); }
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('基本面',err); }
@@ -720,7 +726,6 @@ async function go(){
     try{ if(typeof loadDeepChipCard==='function') loadDeepChipCard(D); }
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('主力縱深',err); }
 
-    window._lastD=D; window._lastFormulas=formulas;  // 供補繪反明牌/紀律門/主力縱深/基本面（_activeCode 已於函式開頭登記）
     // 散戶擁擠度反指標（反AI散戶引擎）
     try{ if(typeof renderCrowding==='function') renderCrowding(D, formulas); }
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('擁擠度',err); }
@@ -738,8 +743,7 @@ async function go(){
       if(window._activeCode && window._activeCode!==D.code) return;  // 已換股，丟棄遲到基準，避免用舊D重畫決策層
       let rsRating=null;
       try{
-        const benchRet = bench && bench.length>252 ? (bench[bench.length-1]-bench[bench.length-253])/bench[bench.length-253] : null;
-        const rs=computeRSRating(D, benchRet);
+        const rs=computeRSRating(D, bench);
         rsRating=rs.rating;
         renderRSRating(rs);
       }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('RS評級',err); }
@@ -1020,6 +1024,7 @@ async function saveSettings(){
     await dbSetSetting('capital',$('in-capital').value);
     await dbSetSetting('risk',$('in-risk').value);
     await dbSetSetting('winrate',$('in-winrate').value);
+    if(typeof refreshRiskBudget==='function') await refreshRiskBudget();   // v183：資金改了，6% 預算（與紀律門）要跟著重算
   }catch(e){}
 }
 // 輸入時自動存

@@ -65,10 +65,13 @@ self.addEventListener('fetch', e => {
     e.respondWith(
       // v149：強制向伺服器驗證（no-cache），否則「網路優先」仍可能被瀏覽器HTTP快取擋下而拿到舊檔
       // try：部分瀏覽器不允許從 navigate 請求重建 Request，失敗就退回原請求
+      /* v183：頁面導覽一律以不含查詢字串的網址存取快取——安裝後的 App 用 index.html?src=pwa 開啟、強制更新用 ?fresh=時間，
+         原本各自存成不同項目，離線開 App 時對不到預先快取的 index.html（直接網路錯誤），?fresh= 也每次多存一份垃圾 */
       fetch(reval(e.request)).then(res => {
-        if (res && res.ok && res.type === 'basic') { const cp = res.clone(); caches.open(CACHE).then(c => c.put(e.request, cp)).catch(() => {}); }
+        const key = e.request.mode === 'navigate' ? u.split('?')[0] : e.request;
+        if (res && res.ok && res.type === 'basic') { const cp = res.clone(); caches.open(CACHE).then(c => c.put(key, cp)).catch(() => {}); }
         return res;
-      }).catch(() => caches.match(e.request))
+      }).catch(() => caches.match(e.request, { ignoreSearch: e.request.mode === 'navigate' }))
     );
     return;
   }

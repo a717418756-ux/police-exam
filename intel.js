@@ -12,7 +12,7 @@
 
    ⚠️ EVIDENCE tier U：未經回測，只顯示不計分。任何分數或紀律門都不讀這裡的結果。
    ══════════════════════════════════════════════════════════════════════ */
-try { (window.SR_FV = window.SR_FV || {})['intel.js'] = 181; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['intel.js'] = 182; } catch (e) {}
 
 /* 條目標題來自新聞與PTT（任何人都能發文），一律完整跳脫再進 innerHTML。
    不用 layout.js 的 esc：那支是「刪掉」特殊字元，會把「台積電 & 蘋果」弄成「台積電  蘋果」。 */
@@ -37,7 +37,8 @@ function intelVerdict(j, D) {
     : st.status !== 'ok' ? '歷史資料不足，無法做事件研究'
     : `CAR ${pctI(st.car)}（${st.L}日，SCAR ${st.scar.toFixed(1)}，${sig ? '統計顯著' : '不顯著'}）`;
   const ch = D && D.chip;
-  const inst = ch && (ch.n5 == null || ch.n5 >= 3) && (ch.foreign5 != null || ch.trust5 != null) ? (ch.foreign5 || 0) + (ch.trust5 || 0) : null;
+  // v182：用全站同一個「籌碼可用」標準；外資、投信兩個都要有值才加總（缺一個不可當 0）
+  const inst = chipUsable(ch) && (ch.n5 == null || ch.n5 >= 3) && ch.foreign5 != null && ch.trust5 != null ? ch.foreign5 + ch.trust5 : null;
   const instS = inst == null ? 0 : Math.sign(inst);
 
   if (ok && Math.abs(st.preScar) >= SIG) notes.push(`⚠️ 消息公布前5日已有顯著異常報酬 ${pctI(st.pre)}——消息可能早已被交易，公布後的反應會被低估`);
@@ -127,7 +128,7 @@ function renderIntel(j, D) {
   const src = j.items.map((it, i) => { const u = safeUrl(it.url);
     return `<div style="font-size:10.5px;line-height:1.6;padding:3px 0;color:var(--muted)"><span style="color:var(--muted2)">[${i + 1}] ${tpI(it.t)}・${escI(it.src)}</span><br>${u ? `<a href="${u}" target="_blank" rel="noopener noreferrer" style="color:var(--txt);text-decoration:none">${escI(it.title)}</a>` : escI(it.title)}</div>`; }).join('');
   const status = [
-    `資料時間 ${tpI(j.asOf)}${j.lastBar ? `・事件研究用到 ${j.lastBar.slice(4, 6)}/${j.lastBar.slice(6, 8)} 收盤` : ''}${j.newsVia ? `・新聞來源 ${escI(j.newsVia)}` : ''}${j.engine ? `・由 ${escI(j.engine)} 處理` : ''}`,
+    `資料時間 ${tpI(j.asOf)}${j.lastBar ? `・事件研究用到 ${j.lastBar.slice(4, 6)}/${j.lastBar.slice(6, 8)} 收盤` : ''}${j.newsVia ? `・新聞來源 ${escI(j.newsVia)}` : ''}${j.engine ? `・由 ${escI(j.engine)} 處理` : ''}${j.cached ? '・取自後端 10 分鐘快取' : j.timing ? `・耗時：抓資料 ${Math.round(j.timing.fetch / 1000)} 秒、AI ${Math.round(j.timing.ai / 1000)} 秒` : ''}`,
     j.ai.status === 'ok' ? `AI：${escI(j.ai.model)}（${escI(j.ai.prompt)}）${j.ai.dropped ? `・剔除 ${j.ai.dropped} 個無有效引用的事件` : ''}` : '',
     { saved: '今日快照已存（供日後回測）', 'no-kv': '未存快照（後端未綁 KV）' }[j.snapshot] || (j.snapshot ? `快照：${escI(j.snapshot)}` : ''),
   ].filter(Boolean).join('　');
@@ -204,14 +205,14 @@ function intelFlight(code) {
 /* v176 進度顯示：後端是一次請求，途中回報不了進度——能確定的只有「已經等了幾秒」。
    秒數持續跳動＝頁面活著、仍在等後端；階段文字依一般耗時推估（標明「預估」）；
    到上限就明講逾時並給重試，不會無限轉圈。 */
-let INTEL_WAIT = 60000;
+let INTEL_WAIT = 90000;   // v182：60→90 秒（Worker 等 GAS 80 秒）；GAS 算完的結果保留 10 分鐘，逾時後重試通常直接拿到
 const INTEL_STAGES = [[0, '連線後端'], [3, '抓取新聞、PTT、公告與K線'], [12, 'AI 歸納事件、計算事件研究'], [35, '比平常久，仍在等待後端']];
 let _intelTimer = 0;
 function intelProgress(box, code, t0) {
   clearInterval(_intelTimer);   // 同一檔連點兩次時，停掉前一個計時，否則它會在結果出來後繼續蓋上「已等 N 秒」
   const paint = () => {
     const s = Math.floor((Date.now() - t0) / 1000), st = INTEL_STAGES.filter(x => s >= x[0]).pop()[1], max = INTEL_WAIT / 1000;
-    box.innerHTML = `<div style="font-size:12px;color:var(--muted);line-height:1.6">${st}（預估）… 已等 <b>${s}</b> 秒<span style="color:var(--muted2)">　通常 10～25 秒，最多等 ${max} 秒</span></div>
+    box.innerHTML = `<div style="font-size:12px;color:var(--muted);line-height:1.6">${st}（預估）… 已等 <b>${s}</b> 秒<span style="color:var(--muted2)">　最多等 ${max} 秒</span></div>
       <div style="height:3px;background:var(--bd);border-radius:2px;margin-top:6px;overflow:hidden" title="已等待時間／等待上限（不是完成度）"><div style="height:100%;width:${Math.min(100, s / max * 100)}%;background:var(--acc);transition:width 1s linear"></div></div>`;
   };
   paint();   // 第一次一定要畫：否則畫面會停留在上一檔股票的情報（換股時最危險）
@@ -243,7 +244,7 @@ async function loadIntelCard(D) {
     clearInterval(_intelTimer);
     const msg = String(e && e.message || e), slow = /超時/.test(msg);
     box.innerHTML = `<div style="font-size:12px;color:var(--warn);line-height:1.6">⚠️ ${slow
-      ? `等了 ${INTEL_WAIT / 1000} 秒後端都沒有回應——多半是 GAS 執行太久或某個資料來源卡住，不是頁面當機`
+      ? `等了 ${INTEL_WAIT / 1000} 秒後端都沒有回應（不是頁面當機）——GAS 仍會在背景算完並保留結果 10 分鐘，稍後按重試通常可直接取得`
       : `情報面取得失敗：${escI(msg)}`}
       <button onclick="loadIntelCard(window._intelD)" style="margin-left:6px;font-size:11px;padding:3px 10px;border-radius:5px;border:1px solid var(--bd2);background:transparent;color:var(--acc);cursor:pointer">重試</button></div>`;
     if (aiBox) aiBox.innerHTML = '<div style="font-size:12px;color:var(--warn)">⚠️ 情報面資料沒拿到，無法逐日歸因——錯誤原因與重試按鈕在上方情報卡</div>';

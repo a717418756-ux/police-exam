@@ -37,7 +37,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['mainforce.js'] = 177; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['mainforce.js'] = 183; } catch (e) {}
 
 /* ══ A. OBV 能量潮 ════════════════════════════════════════════════════
    收漲日加量、收跌日減量的累積線。價與 OBV 背離 = 主力偷跑：
@@ -96,7 +96,7 @@ function computeMainForce(D, formulas) {
   // ── 籌碼與價格背離 ──
   const chip = D.chip;
   const chg5 = n >= 6 ? (price - c[n-6]) / c[n-6] * 100 : 0;
-  if (chip) {
+  if (chipUsable(chip)) {   // v182：資料不完整／落後的籌碼不投票
     const instBuy = chip.foreign5 + chip.trust5;
     if (instBuy > 0 && chg5 < -1) add('吸籌', 20, `法人5日買超但股價下跌（法人低接吸籌）`);
     if (instBuy < 0 && chg5 > 1) { add('出貨', 20, `法人5日賣超但股價上漲（散戶推升、法人趁機出）`); add('誘多', 10, `價漲籌碼卻轉弱`); }
@@ -221,7 +221,7 @@ function computeIntentAnalysis(D, formulas, mainForce) {
   const psyV = (formulas && formulas.psy) ? formulas.psy.value : 50;
   const obvSlope = mainForce ? mainForce.obvSlope : 0;
   const kbar = mainForce ? mainForce.kbar : null;
-  const instNet = D.chip ? ((D.chip.foreign5||0)+(D.chip.trust5||0)) : null;
+  const instNet = chipUsable(D.chip) ? D.chip.foreign5 + D.chip.trust5 : null;   // v182：不可用＝沒有法人票（不是 0）
 
   // 下影線/實體收位（近5日）：跌時有沒有人接
   let lowerShadow = 0, closeStrong = 0;
@@ -542,23 +542,30 @@ async function loadMarginCard(D) {
 
   const c = D.closes, n = c.length;
   const chg5 = n >= 6 ? (D.price - c[n-6]) / c[n-6] * 100 : 0;
-  const mc = m.marginChg5 || 0, span = m.chg5N != null ? m.chg5N : 5;   // v177：照後端回報的實際跨距標示
+  const mc = m.marginChg5, span = m.chg5N != null ? m.chg5N : 5;   // v177：照後端回報的實際跨距標示
+  const q = marginQuadrant(m, D);   // v183：與紀律門／橫幅／行為鏈同一套判讀
 
   // 散戶 vs 主力 四象限判讀
   let verdict, vCol, vDesc;
-  if (!marginSpanOK(m)) {
+  if (mc == null) {
+    verdict = '➖ 融資基期為 0'; vCol = 'var(--muted)';
+    vDesc = '5 日前融資餘額為 0（多半不是融資標的），算不出變化率，不判讀';
+  } else if (!marginSpanOK(m)) {
     verdict = '➖ 融資資料天數不足'; vCol = 'var(--muted)';
     vDesc = `這次只取得 ${span} 個交易日的融資變化（至少需 4 日），不判讀散戶槓桿方向——多半是 TWSE 限流，稍後重查`;
-  } else if (mc > 4 && chg5 < -1) {
+  } else if (!q) {
+    verdict = '➖ 融資資料不是最新'; vCol = 'var(--muted)';
+    vDesc = '最新幾天的融資沒抓到或資料落後（見下方紅字），不判讀散戶槓桿方向——稍後重查';
+  } else if (q === 'knife') {
     verdict = '🚨 散戶接刀'; vCol = 'var(--sell)';
     vDesc = `融資5日+${mc.toFixed(1)}%但股價跌${chg5.toFixed(1)}%——散戶用槓桿逢低接、大戶倒貨給散戶。這是「散戶賠大戶賺」最典型的型態，極危險`;
-  } else if (mc > 4 && chg5 > 1) {
+  } else if (q === 'chase') {
     verdict = '⚠️ 散戶追價'; vCol = 'var(--warn)';
     vDesc = `融資+${mc.toFixed(1)}%且價漲——散戶槓桿追多。若在高檔，這批融資就是主力未來的出貨對象與助跌燃料`;
-  } else if (mc < -4 && chg5 > 1) {
+  } else if (q === 'healthy') {
     verdict = '💪 主力行情'; vCol = 'var(--buy)';
     vDesc = `融資-${Math.abs(mc).toFixed(1)}%但價漲——散戶下車、主力推升，籌碼乾淨。這是最健康的上漲結構`;
-  } else if (mc < -4 && chg5 < -1) {
+  } else if (q === 'flush') {
     verdict = '🧹 籌碼清洗'; vCol = 'var(--warn)';
     vDesc = `融資-${Math.abs(mc).toFixed(1)}%且價跌——散戶停損斷頭中。浮額洗清是打底的必經過程，但別急著接，等止穩`;
   } else {
@@ -571,19 +578,19 @@ async function loadMarginCard(D) {
     <div style="font-size:11px;color:var(--muted);line-height:1.6">${vDesc}</div>
   </div>
   <div class="risk-grid">
-    <div class="risk-box"><div class="rb-label">💳 融資餘額</div><div class="rb-value">${fmtV(Math.round(m.marginBal))} 張</div><div class="rb-sub">${span}日變化 ${mc>=0?'+':''}${mc.toFixed(1)}%（散戶槓桿指標）</div></div>
-    <div class="risk-box"><div class="rb-label">📉 融券餘額${m.dataDate?`（${String(m.dataDate).slice(4,6)}/${String(m.dataDate).slice(6,8)}）`:''}</div><div class="rb-value">${fmtV(Math.round(m.shortBal))} 張</div><div class="rb-sub">券資比 ${m.shortRatio.toFixed(1)}%</div></div>
+    <div class="risk-box"><div class="rb-label">💳 融資餘額</div><div class="rb-value">${fmtV(Math.round(m.marginBal))} 張</div><div class="rb-sub">${mc == null ? '變化率：—' : `${span}日變化 ${mc>=0?'+':''}${mc.toFixed(1)}%`}（散戶槓桿指標）</div></div>
+    <div class="risk-box"><div class="rb-label">📉 融券餘額${m.dataDate?`（${String(m.dataDate).slice(4,6)}/${String(m.dataDate).slice(6,8)}）`:''}</div><div class="rb-value">${fmtV(Math.round(m.shortBal))} 張</div><div class="rb-sub">券資比 ${m.shortRatio == null ? '—（無融資餘額）' : m.shortRatio.toFixed(1) + '%'}</div></div>
     ${m.headMiss > 0 ? `<div style="grid-column:1/-1;font-size:10px;color:var(--sell);margin-top:4px">⚠️ 融資融券抓取不完整：最近5個交易日有 ${m.headMiss} 天沒取到（TWSE限流/逾時）——顯示的日期可能不是最新，建議重查</div>` : ''}
     ${(() => { try { const fr = (typeof checkDataFreshness === 'function' && m.dataDate) ? checkDataFreshness(m.dataDate, 0) : null; return (fr && fr.stale) ? `<div style="grid-column:1/-1;font-size:10px;color:var(--sell);margin-top:4px">⚠️ 融資融券資料落後約${fr.gapDays}個交易日（顯示${String(m.dataDate).slice(4,6)}/${String(m.dataDate).slice(6,8)}，預期${fr.expected.slice(4,6)}/${fr.expected.slice(6,8)}）——請暫緩採信，稍後重查</div>` : ''; } catch (e) { return ''; } })()}
   </div>`;
 
   // 軋空偵測（對空方交易者最重要）
-  if (m.shortRatio >= 30) {
+  if (m.shortRatio >= SHORT_RATIO_SQUEEZE) {
     html += `<div style="margin-top:10px;padding:10px 12px;background:var(--sell-d);border:1px solid var(--sell);border-radius:8px">
       <div style="font-size:12px;font-weight:700;color:var(--sell)">⚡ 軋空警報：券資比 ${m.shortRatio.toFixed(0)}%</div>
       <div style="font-size:11px;color:var(--muted);line-height:1.6;margin-top:2px">融券佔融資比例過高，空單擁擠。任何利多或強拉都可能觸發空單回補潮（軋空），<b>持有空單者務必嚴設停損</b>；已有空單且開始逆勢上漲時，優先減碼</div>
     </div>`;
-  } else if (m.shortRatio >= 18) {
+  } else if (m.shortRatio >= SHORT_RATIO_HOT) {
     html += `<div style="margin-top:10px;font-size:11px;color:var(--warn)">⚠️ 券資比 ${m.shortRatio.toFixed(0)}% 偏高，空單留意軋空風險</div>`;
   }
   document.getElementById('margin-content').innerHTML = html;
@@ -779,8 +786,8 @@ function computeCrowding(D, formulas) {
   const mc = _marginCache[D.code];
   if (mc && mc.d) {
     // v177：跨距不足4日的「5日變化」不可加分（同 v159 紀律門）
-    if (crowdDir === 1 && marginSpanOK(mc.d) && mc.d.marginChg5 > 4) { crowding += 20; marginNote = `融資5日+${mc.d.marginChg5.toFixed(1)}%——散戶不只看到明牌，還真的用槓桿進場了`; }
-    if (crowdDir === -1 && mc.d.shortRatio >= 20) { crowding += 15; marginNote = `券資比 ${mc.d.shortRatio.toFixed(0)}%——散戶空單也擁擠，殺跌明牌+軋空燃料並存`; }
+    if (crowdDir === 1 && marginUsable(mc.d) && mc.d.marginChg5 > 4) { crowding += 20; marginNote = `融資5日+${mc.d.marginChg5.toFixed(1)}%——散戶不只看到明牌，還真的用槓桿進場了`; }
+    if (crowdDir === -1 && marginFresh(mc.d) && mc.d.shortRatio >= SHORT_RATIO_HOT) { crowding += 15; marginNote = `券資比 ${mc.d.shortRatio.toFixed(0)}%——散戶空單也擁擠，殺跌明牌+軋空燃料並存`; }
   }
   // 當沖比重（v80聯動：deepchip的直接散戶投機量測，非同步到達後由補繪刷新本卡）
   let dayTradeNote = null;
@@ -797,7 +804,7 @@ function computeCrowding(D, formulas) {
   let trap = null;
   try {
     const { oSlope } = computeOBV(D);
-    const instNet = D.chip ? (D.chip.foreign5 + D.chip.trust5) : null;
+    const instNet = chipUsable(D.chip) ? D.chip.foreign5 + D.chip.trust5 : null;
     if (crowdDir === 1 && crowding >= 55 && (oSlope < -0.25 || (instNet != null && instNet < 0))) {
       trap = { type: 'bull', text: `明牌多頭陷阱風險：教科書訊號全亮多（${buyVotes}條）、散戶看得到也追得進，但${oSlope < -0.25 ? 'OBV量能潮下降（主力邊拉邊出）' : '法人站賣方'}——散戶照AI教科書買，主力照單全收` };
     } else if (crowdDir === -1 && crowding >= 55 && (oSlope > 0.25 || (instNet != null && instNet > 0))) {
@@ -905,23 +912,24 @@ async function loadDeepChipCard(D) {
   // 對齊18%（原本此處用15%，與融券卡的18%不一致，會出現「這裡說擁擠、融券卡
   // 卻說正常」的內部矛盾——v98校準）
   if (dc.lend) {
-    const L = dc.lend;
+    const L = dc.lend, span = L.chg5N != null ? L.chg5N : 5, lendOK = L.chg5 != null && marginSpanOK(L);   // v182：照實際跨距標示；跨距不足或基期為0不判讀
     const m = _marginCache[D.code] ? _marginCache[D.code].d : null;
     let verdict, vCol;
     const instShortUp = L.chg5 >= 8, instShortDown = L.chg5 <= -8;
     const instShortMild = L.chg5 >= 3 && L.chg5 < 8;   // 中間帶：有增加但未達顯著
-    const retailShortUp = m && m.shortRatio >= 18;      // 與融券卡的18%警戒線對齊
-    if (instShortUp && !retailShortUp) { verdict = '🎯 借券賣出餘額明顯增（≥8%）、散戶融券未擁擠——偏空的多為機構部位且不擁擠，你的空單方向有機構同行、被軋風險低（部位優勢偏你這邊）'; vCol = 'var(--sell)'; }
+    const retailShortUp = marginFresh(m) && m.shortRatio >= SHORT_RATIO_HOT;      // 與融券卡同一條警戒線
+    if (!lendOK) { verdict = L.chg5 == null ? '➖ 借券賣出餘額基期為 0，算不出變化率' : `➖ 借券資料只跨 ${span} 個交易日（至少需 4 日），不判讀機構空方動向`; vCol = 'var(--muted)'; }
+    else if (instShortUp && !retailShortUp) { verdict = '🎯 借券賣出餘額明顯增（≥8%）、散戶融券未擁擠——偏空的多為機構部位且不擁擠，你的空單方向有機構同行、被軋風險低（部位優勢偏你這邊）'; vCol = 'var(--sell)'; }
     else if (!instShortUp && retailShortUp) { verdict = '⚡ 散戶融券擁擠（券資比≥18%）但借券餘額未增——散戶獨自看空=軋空燃料。此時進空單=跟散戶擠同邊，反而站到機構對面'; vCol = 'var(--warn)'; }
     else if (instShortUp && retailShortUp) { verdict = '⚠️ 借券與散戶融券同步增——方向或許偏空，但空單全面擁擠，任何利多都可能連環軋空，部位務必縮小'; vCol = 'var(--warn)'; }
     else if (instShortDown) { verdict = '📈 借券賣出餘額回補中（5日降逾8%）——偏空部位撤退，空單方向的機構支撐轉弱，考慮跟著獲利了結'; vCol = 'var(--buy)'; }
-    else if (instShortMild) { verdict = `➕ 借券賣出餘額5日增 ${L.chg5}%，屬小幅變化（未達「明顯」的8%門檻）——偏空力道還不強，可續觀察是否加速`; vCol = 'var(--muted)'; }
-    else if (L.chg5 <= -3) { verdict = `➖ 借券賣出餘額5日減 ${Math.abs(L.chg5)}%，屬小幅回補（未達顯著8%）——偏空力道略減，觀察中`; vCol = 'var(--muted)'; }
-    else { verdict = `➖ 借券賣出餘額5日變化 ${L.chg5 >= 0 ? '+' : ''}${L.chg5}%，接近持平——無明顯異動`; vCol = 'var(--muted)'; }
+    else if (instShortMild) { verdict = `➕ 借券賣出餘額${span}日增 ${L.chg5}%，屬小幅變化（未達「明顯」的8%門檻）——偏空力道還不強，可續觀察是否加速`; vCol = 'var(--muted)'; }
+    else if (L.chg5 <= -3) { verdict = `➖ 借券賣出餘額${span}日減 ${Math.abs(L.chg5)}%，屬小幅回補（未達顯著8%）——偏空力道略減，觀察中`; vCol = 'var(--muted)'; }
+    else { verdict = `➖ 借券賣出餘額${span}日變化 ${L.chg5 >= 0 ? '+' : ''}${L.chg5}%，接近持平——無明顯異動`; vCol = 'var(--muted)'; }
     // 數字顏色與結論一致：達門檻才用紅/綠，中間帶用中性色（避免「紅字卻說沒事」的矛盾）
     const numCol = L.chg5 >= 8 ? 'var(--sell)' : L.chg5 <= -8 ? 'var(--buy)' : 'var(--muted2)';
     html += `<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">⚔️ 部位背離（聰明錢 vs 笨錢空單）</div>
-    <div class="risk-box" style="margin-bottom:8px"><div class="rb-label">借券賣出餘額（每交易日更新）</div><div class="rb-value">${fmtV(L.bal)} 張</div><div class="rb-sub" style="color:${numCol}">5日 ${L.chg5>=0?'+':''}${L.chg5}%（＝vs 5交易日前餘額；借券賣出多為機構空方，含少量避險）</div></div>
+    <div class="risk-box" style="margin-bottom:8px"><div class="rb-label">借券賣出餘額（每交易日更新）</div><div class="rb-value">${fmtV(L.bal)} 張</div><div class="rb-sub" style="color:${numCol}">${L.chg5 == null ? '變化率：—' : `${span}日 ${L.chg5>=0?'+':''}${L.chg5}%`}（＝vs ${span}交易日前餘額；借券賣出多為機構空方，含少量避險）</div></div>
     <div style="padding:9px 12px;background:${vCol}10;border:1px solid ${vCol}50;border-radius:8px;font-size:11px;color:var(--muted);line-height:1.6;margin-bottom:12px">${verdict}</div>`;
   }
 
@@ -969,6 +977,9 @@ async function loadDeepChipCard(D) {
     </div>`;
   }
 
+  // v183：拿不到或不可信的區塊明講原因（例如持股分級需 Backer 方案、當沖量單位對不上），不是默默少一塊
+  const miss = [dc.bigErr && `千張大戶：${dc.bigErr}`, dc.lendErr, dc.dayTradeErr && `當沖比重：${dc.dayTradeErr}`].filter(Boolean);
+  if (miss.length) html += `<div style="font-size:10px;color:var(--warn);margin-top:8px;line-height:1.6">⚠️ ${miss.map(escI).join('；')}</div>`;
   html += `<div style="font-size:10px;color:var(--muted2);margin-top:10px;line-height:1.6">💡 部位背離是「統計優勢」不是無風險套利（零售層級不存在套利）。持股分級為週資料。資料來源：FinMind。</div>`;
   document.getElementById('deepchip-content').innerHTML = html;
   // 補繪前校驗代碼一致（防 async 競爭）

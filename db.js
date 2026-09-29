@@ -20,7 +20,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['db.js'] = 181; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['db.js'] = 183; } catch (e) {}
 
 const DB_NAME = 'stockRadarDB';
 // DB schema 版本獨立管理（schema 沒變就不用動；這裡固定 1）
@@ -75,10 +75,14 @@ async function dbAddTrade(trade) {
   });
 }
 /* v177 刪除留「墓碑」：雲端載入是合併（put），不留記錄的話，雲端或另一台裝置上的舊副本
-   會把刪掉的交易救回來，重新算進勝率與 6% 風險預算。墓碑隨備份上傳，載入時與本機聯集。 */
+   會把刪掉的交易救回來，重新算進勝率與 6% 風險預算。墓碑隨備份上傳，載入時與本機聯集。
+   v183 墓碑帶刪除時間 {id, t}：從備份檔還原的交易帶 restoredAt，「還原比刪除晚」就保留——
+   原本還原後一按雲端儲存，雲端的舊墓碑又把它刪掉（誤刪救不回）。舊格式（純 id）視為 t=0。 */
 async function dbDeleteTrade(id) {
-  const gone = (await dbGetSetting('deletedIds')) || [];
-  if (gone.indexOf(id) < 0) await dbSetSetting('deletedIds', gone.concat(id));
+  await mergeTombstones([{ id, t: Date.now() }]);
+  return dbRemoveTrade(id);
+}
+async function dbRemoveTrade(id) {   // 只刪資料、不留墓碑（套用別處墓碑時用，避免把刪除時間改成現在）
   const db = await openDB();
   return new Promise((res, rej) => {
     const tx = db.transaction('trades', 'readwrite');
@@ -136,13 +140,18 @@ function computeStats(trades) {
 
   const wins   = trades.filter(t => t.result === 'win');
   const losses = trades.filter(t => t.result === 'loss');
-  const sumWin  = wins.reduce((a, t) => a + Math.abs(t.pnl || 0), 0);
-  const sumLoss = losses.reduce((a, t) => a + Math.abs(t.pnl || 0), 0);
-  const avgWin  = wins.length ? sumWin / wins.length : 0;
-  const avgLoss = losses.length ? sumLoss / losses.length : 0;
+  /* v183：金額只算「有填股數」的單（沒股數的舊單存的是盈虧%×100，不是金額）；盈虧比改用 %（不受有沒有填股數影響） */
+  const amtOf = t => pnlAmt(t);
+  const amt = trades.filter(t => amtOf(t) != null), amtW = amt.filter(t => t.result === 'win'), amtL = amt.filter(t => t.result === 'loss');
+  const avgWin  = amtW.length ? amtW.reduce((a, t) => a + Math.abs(amtOf(t)), 0) / amtW.length : 0;
+  const avgLoss = amtL.length ? amtL.reduce((a, t) => a + Math.abs(amtOf(t)), 0) / amtL.length : 0;
   const winRate = trades.length ? wins.length / trades.length : 0;        // 帳面勝率
-  const payoff  = avgLoss > 0 ? avgWin / avgLoss : 0;
-  const expectancy = winRate * avgWin - (1 - winRate) * avgLoss;
+  const pctW = wins.filter(t => t.pnlPct != null), pctL = losses.filter(t => t.pnlPct != null);
+  const avgWinPct = pctW.length ? pctW.reduce((a, t) => a + Math.abs(t.pnlPct), 0) / pctW.length : 0;
+  const avgLossPct = pctL.length ? pctL.reduce((a, t) => a + Math.abs(t.pnlPct), 0) / pctL.length : 0;
+  const payoff  = avgLossPct > 0 ? avgWinPct / avgLossPct : 0;
+  const amtWR = amt.length ? amtW.length / amt.length : 0;
+  const expectancy = amtWR * avgWin - (1 - amtWR) * avgLoss;
 
   // ── 真實勝率：扣掉「判斷錯誤」的假贏單（凹單僥倖回本）──
   // 判斷正確且賺錢 = 真贏；判斷錯誤即使帳面賺 = 不算真贏
@@ -162,7 +171,7 @@ function computeStats(trades) {
   const trueCi95 = wilsonCI(trueWins, trades.length);
 
   return { count: trades.length, wins: wins.length, losses: losses.length, winRate, avgWin, avgLoss, payoff, expectancy,
-    totalPnl: trades.reduce((a, t) => a + (t.pnl || 0), 0),
+    totalPnl: amt.reduce((a, t) => a + amtOf(t), 0), amtN: amt.length, noAmt: trades.length - amt.length,
     trueWinRate, trueWins, misjudged,
     avgPnlPct, netAvgPnlPct, netWinRate, costPct: cost,
     ci95, trueCi95, expTest };
@@ -181,7 +190,7 @@ function computeAdvancedStats(trades) {
   for (const t of sorted) {
     if (t.result==='win') { curWin++; curLoss=0; } else { curLoss++; curWin=0; }
     maxWin=Math.max(maxWin,curWin); maxLoss=Math.max(maxLoss,curLoss);
-    cumPnl += (t.pnl||0);
+    cumPnl += pnlAmt(t) || 0;   // 金額未知的單不計入金額回撤
     peak = Math.max(peak, cumPnl);
     maxDD = Math.min(maxDD, cumPnl-peak); // 最大回撤（負值）
     if (t.holdDays!=null) { holdSum+=t.holdDays; holdCount++; }
@@ -236,13 +245,34 @@ async function exportBackup(includeSecrets) {
   };
 }
 
-/* 套用刪除墓碑：與本機聯集、刪掉本機仍留著的那些交易；keep＝這次明確要保留的交易 id（從備份檔還原時用） */
-async function applyTombstones(ids, keep) {
-  const gone = new Set([...((await dbGetSetting('deletedIds')) || []), ...(Array.isArray(ids) ? ids : [])]);
-  for (const id of keep || []) gone.delete(id);
-  await dbSetSetting('deletedIds', [...gone]);
-  for (const t of await dbGetAllTrades()) if (gone.has(t.id)) await dbDeleteTrade(t.id);   // 別台裝置刪掉的，這台也刪
+/* 墓碑聯集（同一筆取最晚的刪除時間）→ Map(id → t) */
+async function mergeTombstones(list) {
+  const m = new Map();
+  for (const x of [...((await dbGetSetting('deletedIds')) || []), ...(Array.isArray(list) ? list : [])]) {
+    const tb = typeof x === 'string' ? { id: x, t: 0 } : x;
+    if (tb && tb.id != null && !(m.has(tb.id) && m.get(tb.id) >= (tb.t || 0))) m.set(tb.id, tb.t || 0);
+  }
+  await dbSetSetting('deletedIds', [...m].map(([id, t]) => ({ id, t })));
+  return m;
+}
+const tombstoned = (gone, t) => gone.has(t.id) && !((t.restoredAt || 0) > gone.get(t.id));   // 刪除比還原晚＝該刪
+/* 套用墓碑：聯集後刪掉本機仍留著、而且沒有在刪除之後被還原的交易 */
+async function applyTombstones(list) {
+  const gone = await mergeTombstones(list);
+  for (const t of await dbGetAllTrades()) if (tombstoned(gone, t)) await dbRemoveTrade(t.id);   // 別台裝置刪掉的，這台也刪
   return gone;
+}
+/* 合併交易：沒被刪的加進來；同一筆兩邊都有時，保留「還原時間較晚」的那份（帶著 restoredAt 才不會被舊墓碑再刪掉） */
+async function mergeTrades(trades, gone) {
+  const local = new Map((await dbGetAllTrades()).map(t => [t.id, t]));
+  let n = 0;
+  for (const t of trades) {
+    if (tombstoned(gone, t)) continue;
+    const l = local.get(t.id);
+    if (l && (l.restoredAt || 0) >= (t.restoredAt || 0)) continue;
+    await dbAddTrade(t); n++;
+  }
+  return n;
 }
 /* restore＝使用者自己挑的備份檔：檔案裡的交易就是要救回來的，即使之前刪過（否則誤刪後永遠救不回）。
    雲端載入不是 restore：墓碑優先，別台刪掉的不會被舊副本救回。 */
@@ -258,10 +288,9 @@ async function importBackup(obj, restore) {
     if (obj.settings.finmindToken) { await dbSetSetting('finmindToken', obj.settings.finmindToken); try { FINMIND_TOKEN = obj.settings.finmindToken; } catch (e) {} }
   }
   const trades = Array.isArray(obj.trades) ? obj.trades : [];
-  const gone = await applyTombstones(restore ? [] : obj.deletedIds, restore ? trades.map(t => t.id) : []);
-  let n = 0;
-  for (const t of trades) if (!gone.has(t.id)) { await dbAddTrade(t); n++; }
-  return n;
+  const now = Date.now();
+  const gone = await applyTombstones(restore ? [] : obj.deletedIds);
+  return mergeTrades(restore ? trades.map(t => ({ ...t, restoredAt: now })) : trades, gone);   // 還原＝這些交易的還原時間是現在
 }
 
 /* ══════════════════════════════════════════════════════════════════════
@@ -273,11 +302,14 @@ async function cloudSave() {
   if (!backupUrl || backupUrl.indexOf('http') !== 0) throw new Error('尚未設定備份網址（請填查詢網址或雲端備份網址）');
   /* v181 先讀雲端現有的刪除墓碑併進本機再存：否則一台沒載入過的舊裝置一存，雲端的墓碑就被整份覆蓋掉，
      別台刪掉的交易又回到雲端、之後新裝置載入就會救回來（重新算進勝率與 6% 預算） */
-  const cur = await (await fetch(`${backupUrl}?action=sync_get`)).json();
-  if (!cur.ok) throw new Error('讀不到雲端現況，未儲存（避免蓋掉其他裝置的刪除紀錄）：' + (cur.error || ''));
-  await applyTombstones(cur.data && cur.data.deletedIds);
+  const cur = await (await fetchT(`${backupUrl}?action=sync_get`)).json();
+  if (!cur.ok) throw new Error('讀不到雲端現況，未儲存（避免蓋掉其他裝置的紀錄）：' + (cur.error || ''));
+  /* v183：也要先把雲端「別台新增的交易」併進本機——原本只併墓碑，交易清單整份覆蓋，
+     B 機新增並上傳的交易，A 機（沒載入過）一存就從雲端消失 */
+  const gone = await applyTombstones(cur.data && cur.data.deletedIds);
+  await mergeTrades(Array.isArray(cur.data && cur.data.trades) ? cur.data.trades : [], gone);
   const backup = await exportBackup();   // 完整備份內容（含 trades + settings + 版本 + 時間）
-  const r = await fetch(`${backupUrl}?action=sync_save`, {
+  const r = await fetchT(`${backupUrl}?action=sync_save`, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // 避免 CORS preflight
     body: JSON.stringify(backup)
@@ -290,7 +322,7 @@ async function cloudSave() {
 async function cloudLoad() {
   const backupUrl = (typeof SYNC_URL !== 'undefined' && SYNC_URL) ? SYNC_URL : GAS_URL;
   if (!backupUrl || backupUrl.indexOf('http') !== 0) throw new Error('尚未設定備份網址');
-  const r = await fetch(`${backupUrl}?action=sync_get`);
+  const r = await fetchT(`${backupUrl}?action=sync_get`);
   const j = await r.json();
   if (!j.ok) throw new Error(j.error || '雲端讀取失敗');
   const data = j.data || {}, trades = Array.isArray(data.trades) ? data.trades : [];
@@ -309,19 +341,22 @@ async function cloudLoad() {
    本函式只統計「真實單」（sim=false），模擬單不佔用風險預算。
    ⚠️ 只讀不寫：不自動改任何參數，只回報狀態供紀律門判斷（人決策原則）
    ════════════════════════════════════════════════════════════════════ */
+/* v183 交易金額：有填股數才有金額。舊版沒股數時存的是「盈虧%×100」冒充金額，一律當成未知 */
+function pnlAmt(t) { return t && t.shares != null && t.pnl != null ? t.pnl : null; }
 function computeRiskBudget(trades, capital) {
   try {
     if (!capital || capital <= 0) return null;
-    const now = new Date();
-    const ym = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+    const now = new Date(Date.now() + 8 * 3600e3);   // v183：台北月份
+    const ym = now.getUTCFullYear() + '-' + String(now.getUTCMonth() + 1).padStart(2, '0');
     const real = (trades || []).filter(t => !t.sim && t.date && String(t.date).slice(0, 7) === ym);
-    const lossSum = real.filter(t => (t.pnl || 0) < 0).reduce((a, t) => a + Math.abs(t.pnl), 0);
-    const winSum = real.filter(t => (t.pnl || 0) > 0).reduce((a, t) => a + t.pnl, 0);
+    const known = real.filter(t => pnlAmt(t) != null);
+    const lossSum = known.filter(t => t.pnl < 0).reduce((a, t) => a + Math.abs(t.pnl), 0);
+    const winSum = known.filter(t => t.pnl > 0).reduce((a, t) => a + t.pnl, 0);
     const netPnl = winSum - lossSum;
     // 6%原則採「淨虧損」計算（獲利可回補預算，符合Elder原意：保護的是帳戶淨值）
     const usedPct = netPnl < 0 ? Math.abs(netPnl) / capital * 100 : 0;
     return {
-      ym, trades: real.length, lossSum, winSum, netPnl,
+      ym, trades: real.length, noAmt: real.length - known.length, lossSum, winSum, netPnl,
       usedPct: Math.round(usedPct * 100) / 100,
       remainPct: Math.round(Math.max(0, 6 - usedPct) * 100) / 100,
       blocked: usedPct >= 6,

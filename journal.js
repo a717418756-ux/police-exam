@@ -21,7 +21,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['journal.js'] = 181; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['journal.js'] = 183; } catch (e) {}
 
 /* ── 開啟 / 關閉面板 ─────────────────────────────────────────────────── */
 /* ── 分批進場 / 加碼工具 ──────────────────────────────────────────────
@@ -69,8 +69,11 @@ function calcBatch() {
   const sorted = [...batches].sort((a,b)=>a.date<b.date?-1:1);
   document.getElementById('tr-entryprice').value = Math.round(avgCost*100)/100;
   document.getElementById('tr-entry').value = sorted[0].date;
-  if (totalQty > 0 && batches.every(b=>b.qty)) document.getElementById('tr-shares').value = totalQty;
-  res.textContent = `✅ ${batches.length}批 平均成本 ${(Math.round(avgCost*100)/100)}　總${totalQty}張（已填回上方）`;
+  /* v183：批次填的是「張」，上方欄位是「股數」——台股 1 張＝1000 股，原本直接填張數，金額小了 1000 倍（6% 預算形同失效）。
+     美股沒有「張」，填的就是股數 */
+  const tw = !/^[A-Z]/.test(($('tr-code').value || '').trim().toUpperCase()), mul = tw ? 1000 : 1;
+  if (totalQty > 0 && batches.every(b=>b.qty)) document.getElementById('tr-shares').value = totalQty * mul;
+  res.textContent = `✅ ${batches.length}批 平均成本 ${(Math.round(avgCost*100)/100)}　總${totalQty}${tw ? `張（＝${totalQty * 1000}股）` : '股'}（已填回上方）`;
 }
 
 /* ── 分批出場 / 停利工具（對稱於分批進場）──────────────────────────── */
@@ -123,7 +126,7 @@ function calcExit() {
 function openJournal() {
   $('journal-overlay').style.display = 'block';
   switchModalTab('journal');
-  const today = new Date().toISOString().slice(0, 10);
+  const today = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);   // v183：台北日期（toISOString 是 UTC，台北 0～8 點會變成昨天，月初的虧損被算進上個月的 6% 預算）
   if (!$('tr-entry').value) $('tr-entry').value = today;
   if (!$('tr-exit').value)  $('tr-exit').value = today;
   refreshJournal();
@@ -156,13 +159,16 @@ async function addTradeFromForm() {
     msg.textContent = '請填進場日、出場日、代碼、進場價、出場價'; msg.style.color = 'var(--sell)'; return;
   }
 
-  const holdDays = Math.max(0, Math.round((new Date(exitDate) - new Date(entryDate)) / 86400000));
+  if (exitDate < entryDate) { msg.textContent = '出場日早於進場日，請檢查日期'; msg.style.color = 'var(--sell)'; return; }   // v183
+  const holdDays = Math.round((new Date(exitDate) - new Date(entryDate)) / 86400000);
   const isLong = dir === 'long';
 
   // ── 盈虧% ──（做多：漲賺；做空：跌賺）
   const pnlPct = isLong ? (exitPrice - entryPrice) / entryPrice * 100
                         : (entryPrice - exitPrice) / entryPrice * 100;
-  const pnl = !isNaN(shares) ? Math.round((isLong ? exitPrice - entryPrice : entryPrice - exitPrice) * shares) : Math.round(pnlPct * 100);
+  /* v183：沒填股數就算不出金額——原本用「盈虧%×100」冒充金額（虧 5% 存成虧 500 元），6% 預算與總盈虧都被低估。
+     沒股數＝金額未知（null），統計與 6% 預算會明講有幾筆沒算進去 */
+  const pnl = !isNaN(shares) ? Math.round((isLong ? exitPrice - entryPrice : entryPrice - exitPrice) * shares) : null;
   const result = pnlPct >= 0 ? 'win' : 'loss';
 
   // ── 自動抓區間K線算 MAE / MFE ──
@@ -170,7 +176,7 @@ async function addTradeFromForm() {
   let mae = null, mfe = null, autoNote = '';
   try {
     if (GAS_URL && GAS_URL.indexOf('http') === 0) {
-      const r = await fetch(`${GAS_URL}?action=range&code=${encodeURIComponent(code)}&from=${entryDate}&to=${exitDate}`);
+      const r = await fetchT(`${GAS_URL}?action=range&code=${encodeURIComponent(code)}&from=${entryDate}&to=${exitDate}`);
       const j = await r.json();
       if (j.ok) {
         // 做多：最大不利＝區間最低 vs 進場價（虧多少）；最大有利＝區間最高
@@ -197,8 +203,9 @@ async function addTradeFromForm() {
   // ── 自動判定凹單 & 判斷對錯 ──
   // MAE 為負值，取絕對值與停損比；超過停損還沒在那出場 = 凹單
   let holdOn = 'no', judgment = 'correct', reasons = [];
-  const maeAbs = mae != null ? Math.abs(mae) : null;
-  if (!isNaN(plannedStop) && maeAbs != null && maeAbs > plannedStop) {
+  // v183：MAE 是「最不利的幅度」，正值＝從沒被套過；停損%不論填正負都當距離
+  const maeAbs = mae != null ? Math.max(0, -mae) : null;
+  if (!isNaN(plannedStop) && maeAbs != null && maeAbs > Math.abs(plannedStop)) {
     holdOn = 'yes'; judgment = 'wrong';
     reasons.push(`MAE(-${maeAbs}%)超過原停損(${plannedStop}%)，凹單`);
   }
@@ -210,7 +217,7 @@ async function addTradeFromForm() {
   let entryFormulas = null;
   try {
     if (GAS_URL && GAS_URL.indexOf('http') === 0 && typeof computeFormulas === 'function') {
-      const hr = await fetch(`${GAS_URL}?action=histuntil&code=${encodeURIComponent(code)}&until=${entryDate}`);
+      const hr = await fetchT(`${GAS_URL}?action=histuntil&code=${encodeURIComponent(code)}&until=${entryDate}`);
       const hj = await hr.json();
       if (hj.ok && hj.closes) {
         // 機率校正迴路：進場當下的貝氏預測（之後對照真實結果檢驗校準度）
@@ -261,7 +268,7 @@ async function addTradeFromForm() {
       let bf = null;
       try {
         if (GAS_URL && GAS_URL.indexOf('http') === 0 && typeof computeFormulas === 'function') {
-          const r = await fetch(`${GAS_URL}?action=histuntil&code=${encodeURIComponent(code)}&until=${b.date}`);
+          const r = await fetchT(`${GAS_URL}?action=histuntil&code=${encodeURIComponent(code)}&until=${b.date}`);
           const j = await r.json();
           if (j.ok && j.closes) {
             const f = computeFormulas(j);
@@ -355,7 +362,7 @@ async function refreshJournal() {
     box('真實勝率', (s.trueWinRate * 100).toFixed(0) + '%', 'var(--buy)') +
     box('判斷錯誤', s.misjudged + ' 筆', s.misjudged > 0 ? 'var(--sell)' : 'var(--muted)') +
     box('盈虧比', s.payoff.toFixed(2), 'var(--acc)') +
-    box('總盈虧', (s.totalPnl >= 0 ? '+' : '') + fmtV(Math.round(s.totalPnl)), s.totalPnl >= 0 ? 'var(--buy)' : 'var(--sell)') +
+    box('總盈虧' + (s.noAmt ? `（${s.noAmt}筆沒填股數未計）` : ''), s.amtN ? (s.totalPnl >= 0 ? '+' : '') + fmtV(Math.round(s.totalPnl)) : '—', s.totalPnl >= 0 ? 'var(--buy)' : 'var(--sell)') +
     `</div>`;
 
   if (trades.length === 0) {
@@ -366,7 +373,7 @@ async function refreshJournal() {
     const win = t.result === 'win';
     const hold = t.holdDays != null ? `${t.holdDays}天` : '';
     const wrongTag = t.judgment === 'wrong'
-      ? `<span style="font-size:9px;background:var(--sell-d);color:var(--sell);padding:1px 5px;border-radius:4px;margin-left:4px" title="${t.judgmentReason||''}">凹單</span>` : '';
+      ? `<span style="font-size:9px;background:var(--sell-d);color:var(--sell);padding:1px 5px;border-radius:4px;margin-left:4px" title="${escI(t.judgmentReason||'')}">凹單</span>` : '';
     const simTag = t.sim
       ? `<span style="font-size:9px;background:#A855F725;color:var(--purple);padding:1px 5px;border-radius:4px;margin-left:4px">模擬</span>` : '';
     // MAE/MFE 小字（自動算出的）
@@ -376,11 +383,11 @@ async function refreshJournal() {
     return `<div style="background:var(--bg);border:1px solid ${t.judgment==='wrong'?'var(--sell)':'var(--bd)'};border-radius:8px;padding:8px 12px;margin-bottom:6px">
       <div style="display:flex;align-items:center;gap:8px">
         <span style="font-family:var(--mono);font-size:11px;color:var(--muted);width:72px">${t.exitDate || t.date}</span>
-        <span style="font-family:var(--mono);font-size:12px;width:44px">${t.code || '—'}</span>
+        <span style="font-family:var(--mono);font-size:12px;width:44px">${escI(t.code || '—')}</span>
         <span style="font-size:10px;color:var(--muted);width:20px">${t.direction === 'long' ? '多' : '空'}</span>
         <span style="font-size:9px;color:var(--muted2);width:32px">${hold}</span>
         <span style="font-family:var(--mono);font-size:13px;font-weight:600;color:${win ? 'var(--buy)' : 'var(--sell)'};flex:1;text-align:right">${pnlShow}${simTag}${wrongTag}</span>
-        <button onclick="delTrade('${t.id}')" style="background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:14px">🗑️</button>
+        <button onclick="delTrade(${escI(JSON.stringify(t.id))})" style="background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:14px">🗑️</button>
       </div>
       ${maeMfe}
     </div>`;
@@ -403,6 +410,7 @@ async function refreshRiskBudget() {
     const capital = parseFloat(document.getElementById('in-capital')?.value) || 1000000;
     const trades = await dbGetAllTrades();
     window._riskBudget = (typeof computeRiskBudget === 'function') ? computeRiskBudget(trades, capital) : null;
+    if (typeof renderTradeGate === 'function' && window._gateCtx) renderTradeGate(window._gateCtx);   // v183：預算變了紀律門要跟著更新（原本要等下一次查詢）
   } catch (e) { window._riskBudget = null; }
 }
 
@@ -465,7 +473,7 @@ async function testGasConnection() {
   if (!GAS_URL || GAS_URL.indexOf('http') !== 0) { msg.textContent = '❌ 請先填入並儲存 GAS 網址'; msg.style.color = 'var(--sell)'; return; }
   msg.textContent = '測試連線中...'; msg.style.color = 'var(--muted)';
   try {
-    const r = await fetch(`${GAS_URL}?code=2330`);
+    const r = await fetchT(`${GAS_URL}?code=2330`);
     const j = await r.json();
     if (j.ok) { msg.textContent = `✅ 連線成功！抓到 ${j.name || '2330'}，現價 ${j.price}`; msg.style.color = 'var(--buy)'; }
     else { msg.textContent = `⚠️ 連線成功但回傳：${j.error}`; msg.style.color = 'var(--warn)'; }
@@ -521,7 +529,7 @@ async function exportMarkdown() {
     md += `| 平均報酬/筆（毛） | ${s.avgPnlPct>=0?'+':''}${s.avgPnlPct.toFixed(2)}% |\n`;
     md += `| **成本後報酬/筆** | **${s.netAvgPnlPct>=0?'+':''}${s.netAvgPnlPct.toFixed(2)}%**（扣來回成本 ${s.costPct}%） |\n`;
     md += `| 成本後勝率 | ${(s.netWinRate*100).toFixed(1)}%（賺贏成本才算贏） |\n`;
-    md += `| 總盈虧 | ${cur(s.totalPnl)} |\n`;
+    md += `| 總盈虧 | ${cur(s.totalPnl)}${s.noAmt ? `（另有 ${s.noAmt} 筆沒填股數、金額未計）` : ''} |\n`;
     md += `| 平均獲利 | ${cur(s.avgWin)} |\n`;
     md += `| 平均虧損 | ${cur(s.avgLoss)} |\n`;
     md += `| 最大連勝 | ${s.maxWinStreak} 筆 |\n`;
@@ -529,30 +537,11 @@ async function exportMarkdown() {
     md += `| 平均抱倉天數 | ${s.avgHoldDays.toFixed(1)} 天 |\n`;
     md += `| 最大回撤 | ${cur(s.maxDrawdown)} |\n\n`;
 
-    // 期望值盲測對照（隨機進出場基準，證明系統是否為真Alpha）
-    const holdArr = trades.filter(t => t.holdDays != null && t.pnlPct != null);
-    if (holdArr.length >= 5) {
-      // 用你自己的「盈虧%分布」重新隨機配對，模擬「隨機挑時間點進出」的基準
-      // （不連網、不重抓K線；用已知的盈虧%集合隨機重排，等同蒙地卡羅重抽樣）
-      const pool = holdArr.map(t => t.pnlPct);
-      let sumRand = 0, winRand = 0, N = 1000;
-      for (let i = 0; i < N; i++) {
-        const pick = pool[Math.floor(Math.random() * pool.length)];
-        sumRand += pick; if (pick > 0) winRand++;
-      }
-      const randAvg = sumRand / N, randWinRate = winRand / N * 100;
-      const yourAvg = s.avgPnlPct, yourWinRate = s.winRate * 100;
-      const beatRandom = yourAvg > randAvg && yourWinRate > randWinRate;
-      md += `## 一之二、期望值盲測對照（隨機重抽樣 vs 你的系統）\\n\\n`;
-      md += `| 對照組 | 平均報酬/筆 | 勝率 |\\n|------|------|------|\\n`;
-      md += `| 🎲 隨機重抽樣（1000次基準） | ${randAvg>=0?'+':''}${randAvg.toFixed(2)}% | ${randWinRate.toFixed(0)}% |\\n`;
-      md += `| 📈 你的系統 | ${yourAvg>=0?'+':''}${yourAvg.toFixed(2)}% | ${yourWinRate.toFixed(0)}% |\\n\\n`;
-      md += `> ${beatRandom ? '✅ 你的系統顯著優於隨機重抽樣基準——初步證據支持系統判斷帶來真實優勢（而非單純運氣或多頭Beta）。' : '⚠️ 你的系統尚未明顯優於隨機重抽樣——樣本數少時常見，需更多交易數據才能下結論，也可能代表目前訊號未帶來額外優勢。'}此對照為簡化版重抽樣，非完整蒙地卡羅路徑模擬，僅供方向性參考。\\n\\n`;
-    }
-
+    /* v183：拿掉「期望值盲測對照」——它是從你自己的盈虧%裡隨機重抽，拿來跟你自己比，
+       等於自己跟自己比（還因為寫成 \\n 讓表格變成一行亂碼），結論沒有意義 */
     // 處分效應偵測（Shefrin & Statman 1985；Odean 1998 實證：散戶傾向太早賣出賺錢部位、太久抱住虧損部位）
-    const winsHold = trades.filter(t => t.holdDays != null && (t.pnl || 0) > 0).map(t => t.holdDays);
-    const lossHold = trades.filter(t => t.holdDays != null && (t.pnl || 0) < 0).map(t => t.holdDays);
+    const winsHold = trades.filter(t => t.holdDays != null && t.result === 'win').map(t => t.holdDays);   // v183：用輸贏判斷（沒填股數的單金額未知）
+    const lossHold = trades.filter(t => t.holdDays != null && t.result === 'loss').map(t => t.holdDays);
     if (winsHold.length >= 3 && lossHold.length >= 3) {
       const avgW = winsHold.reduce((a, b) => a + b, 0) / winsHold.length;
       const avgL = lossHold.reduce((a, b) => a + b, 0) / lossHold.length;
@@ -758,6 +747,7 @@ async function doCloudSave() {
   try {
     await saveSettings();
     const j = await cloudSave();   // v174：GAS 會回報已用空間（上限約 600 筆交易），接近時提醒
+    await refreshJournal(); await syncWinRateToMain(); await refreshRiskBudget();   // v183：儲存前會併入雲端的新增與刪除，清單要跟著更新
     msg.textContent = '✅ 已存到雲端' + (j && j.usedPct != null ? `（已用 ${j.usedPct}%${j.usedPct >= 70 ? '，接近上限，請定期下載備份檔' : ''}）` : '');
     msg.style.color = j && j.usedPct >= 70 ? 'var(--warn)' : 'var(--buy)';
   }
@@ -775,7 +765,7 @@ async function refreshErrorLog() {
   const box = $('error-log-list');
   if (!list.length) { box.innerHTML = '<div style="font-size:11px;color:var(--muted);text-align:center;padding:10px">目前沒有錯誤紀錄 👍</div>'; return; }
   box.innerHTML = list.map(e =>
-    `<div class="err-log-item"><div class="err-log-time">${e.time}</div><div class="err-log-where">📍 ${e.where}</div><div class="err-log-msg">${e.msg}</div></div>`
+    `<div class="err-log-item"><div class="err-log-time">${e.time}</div><div class="err-log-where">📍 ${escI(e.where)}</div><div class="err-log-msg">${escI(e.msg)}</div></div>`
   ).join('');
 }
 async function clearErrorLog() {

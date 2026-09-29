@@ -33,7 +33,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['advanced.js'] = 177; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['advanced.js'] = 183; } catch (e) {}
 
 /* ── 大盤基準快取（避免每檔都重抓）─────────────────────────────────── */
 let _benchCache = {};   // key → { c: closes, t }（v177：台美各自計時，原本共用一個時間戳，查一檔美股會讓台股基準「看起來」仍新鮮）
@@ -47,8 +47,11 @@ async function fetchBenchmark(isTW) {
     const r = await fetchT(`${GAS_URL}?action=benchmark&market=${key}`);
     const j = await r.json();
     if (j.ok && j.closes) {
-      _benchCache[key] = { c: j.closes, t: Date.now() };
-      return j.closes;
+      /* v183：個股在盤中會去掉今天未完成的K棒（trimIntradayBar），大盤原本沒去——兩條序列從尾端對齊時
+         差了一天，盤中的 Beta/Alpha 全部錯位（實測 2330 的 Beta 0.65 變 0.06）。用同一個規則去掉 */
+      const c = trimIntradayBar({ closes: j.closes.slice(), lastDate: j.lastDate }).closes;
+      _benchCache[key] = { c, t: Date.now() };
+      return c;
     }
   } catch (e) {
     if (typeof ErrorLog !== 'undefined') ErrorLog.push('fetchBenchmark', e);
@@ -61,17 +64,17 @@ async function fetchBenchmark(isTW) {
    用 tanh 壓縮映射至 1~99。⚠️ 非 IBD 官方跨全市場百分位排名，是單股相對強弱的近似分數
    需大盤資料（從 market 帶入 benchmark 報酬）
    ════════════════════════════════════════════════════════════════════ */
-function computeRSRating(D, benchReturn) {
+function computeRSRating(D, bench) {
   const c = D.closes;
   const n = c.length;
-  // 個股報酬（加權近期：近63日權重高）
-  const ret = (period) => {
-    if (n <= period) return (c[n-1] - c[0]) / c[0];
-    return (c[n-1] - c[n-1-period]) / c[n-1-period];
-  };
+  // 報酬（區間不超過個股實際的K棒數，大盤用同一個區間）
+  const ret = (a, period) => { const m = a.length, k = Math.min(period, n - 1, m - 1); return (a[m-1] - a[m-1-k]) / a[m-1-k]; };
   // O'Neil 加權：近一季 ×2 + 近半年 + 近一年
-  const r63 = ret(63), r126 = ret(126), r252 = ret(252);
+  const r63 = ret(c, 63), r126 = ret(c, 126), r252 = ret(c, 252);
   const weighted = (r63 * 2 + r126 + r252) / 4;
+  /* v183：大盤也要用同樣的加權。原本拿「個股加權報酬」減「大盤一年報酬」——兩個不同的量，
+     多頭年大盤一年漲很多時，連大盤自己（0050 對 0050）都只得 2 分 */
+  const benchReturn = bench && bench.length > 63 ? (ret(bench, 63) * 2 + ret(bench, 126) + ret(bench, 252)) / 4 : null;
 
   // 若有大盤基準，算相對強弱；否則用絕對報酬映射
   let rsRaw;
@@ -193,14 +196,15 @@ function computeProbLogLoss(D, horizon) {
       if (tot < 20) continue;
       const p = Math.min(0.99, Math.max(0.01, up / tot));
       const actualUp = (c[i + H] - c[i]) / c[i] > 0;
-      preds.push({ p, y: bull ? (actualUp ? 1 : 0) : (actualUp ? 0 : 1) });
+      preds.push({ p, bull, y: bull ? (actualUp ? 1 : 0) : (actualUp ? 0 : 1) });
     }
     if (preds.length < 50) return null;
     let bUp = 0, bTot = 0;
     for (let k = 60; k < split - H; k++) { bTot++; if ((c[k + H] - c[k]) / c[k] > 0) bUp++; }
     const base = Math.min(0.99, Math.max(0.01, bUp / bTot));
     const ll = (fn) => -preds.reduce((acc, x) => acc + (x.y * Math.log(fn(x)) + (1 - x.y) * Math.log(1 - fn(x))), 0) / preds.length;
-    const modelLL = ll(x => x.p), baseLL = ll(() => base);
+    // v183：看空的預測 y=1 代表「跌了」，基準也要用「跌的機率」1−base；原本一律拿「漲的機率」比，看空預測的基準是錯的
+    const modelLL = ll(x => x.p), baseLL = ll(x => x.bull ? base : 1 - base);
     return { modelLL, baseLL, samples: preds.length, informative: modelLL < baseLL, skill: (baseLL - modelLL) / baseLL * 100 };
   } catch (e) { return null; }
 }
@@ -215,6 +219,8 @@ function computeProbability(D) {
   const curBuysN = curSigOnce ? Object.values(curSigOnce).filter(s=>s==='buy').length : 0;
   const curSellsN = curSigOnce ? Object.values(curSigOnce).filter(s=>s==='sell').length : 0;
   const curBull = curBuysN > curSellsN;
+  // v183：多空訊號數相同時沒有方向可比——原本會當成「偏空」去算，卡片卻標「盤整機率」
+  if (curSigOnce && curBuysN === curSellsN) return { results: periods.map(horizon => ({ horizon, prob: null, samples: 0 })), direction: 'neutral' };
   for (const horizon of periods) {
     let upCount = 0, total = 0;
     if (!curSigOnce) { results.push({ horizon, prob: null, samples: 0 }); continue; }
@@ -241,8 +247,14 @@ function computeProbability(D) {
   return { results, direction: cb > cs ? 'up' : cb < cs ? 'down' : 'neutral' };
 }
 
-function renderProbability(p) {
+function renderProbability(p, D) {
   const card = document.getElementById('prob-card');
+  if (p && p.direction === 'neutral') {
+    card.style.display = 'block';
+    document.getElementById('prob-dir').textContent = '當前多空訊號數相同，沒有方向可比，不計算機率';
+    document.getElementById('prob-rows').innerHTML = '';
+    return;
+  }
   if (!p || p.results.every(r => r.prob === null)) { card.style.display = 'none'; return; }
   card.style.display = 'block';
   const dirText = p.direction === 'up' ? '上漲' : p.direction === 'down' ? '下跌' : '盤整';
@@ -261,7 +273,8 @@ function renderProbability(p) {
      劣於「永遠猜基準率」（LogLoss 0.7065 vs 0.6847），此時必須明說不可用。 */
   let qualityHtml = '';
   try {
-    const q = (typeof computeProbLogLoss === 'function' && window._lastD) ? computeProbLogLoss(window._lastD, 5) : null;
+    // v183：原本讀 window._lastD——這時它還是「上一檔」（app.js 稍後才更新），品質檢驗驗的是別的股票
+    const q = typeof computeProbLogLoss === 'function' ? computeProbLogLoss(D, 5) : null;
     if (q) {
       const col = q.informative ? 'var(--buy)' : 'var(--sell)';
       qualityHtml = `<div style="margin-top:10px;padding:8px 10px;background:${col}10;border:1px solid ${col}50;border-radius:8px;font-size:10px;color:var(--muted);line-height:1.6">
@@ -400,7 +413,8 @@ function computeVolPriceRadar(D) {
   if (v.length < 6) return alerts;
 
   const vr = v[v.length-1] / (v.slice(-6,-1).reduce((a,b)=>a+b,0)/5);
-  const chgPct = (price - prevClose) / prevClose * 100;
+  // v183：盤中最後一根量是昨天的（今天未完成的K棒已去掉），漲跌也要用昨天那根，量與價才是同一天
+  const chgPct = D._intraday && c.length >= 2 ? (c[c.length-1] - c[c.length-2]) / c[c.length-2] * 100 : (price - prevClose) / prevClose * 100;
 
   // 量增價未漲 → 出貨疑慮
   if (vr > 2.5 && Math.abs(chgPct) < 1.5) {
@@ -571,6 +585,7 @@ async function loadFundamentalCard(D) {
   const box = (label, val, sub) => `<div class="risk-box"><div class="rb-label">${label}</div><div class="rb-value">${val}</div><div class="rb-sub">${sub}</div></div>`;
   let html = `<div class="risk-grid">
     ${box('📈 月營收 YoY', f.revYoY != null ? (f.revYoY >= 0 ? '+' : '') + f.revYoY.toFixed(1) + '%' : '—', f.revMonth ? '資料月份 ' + f.revMonth : '去年同月比')}
+    ${f.valErr ? `<div style="grid-column:1/-1;font-size:10px;color:var(--warn);margin-top:2px">⚠️ 估值抓不到：${escI(f.valErr)}</div>` : ''}
     ${f.valDate ? `<div style="grid-column:1/-1;font-size:9px;color:var(--muted2);margin-top:2px">估值(PE/PB/殖利率)資料日：${String(f.valDate).slice(4,6)}/${String(f.valDate).slice(6,8)}${(() => { try { const fr = (typeof checkDataFreshness === 'function') ? checkDataFreshness(f.valDate, 0) : null; return (fr && fr.stale) ? ` <span style="color:var(--sell)">⚠️ 落後約${fr.gapDays}個交易日</span>` : ''; } catch (e) { return ''; } })()}</div>` : ''}
     ${box('📊 月營收 MoM', f.revMoM != null ? (f.revMoM >= 0 ? '+' : '') + f.revMoM.toFixed(1) + '%' : '—', '上月比較')}
     ${box('💰 本益比', f.pe != null && f.pe > 0 ? f.pe.toFixed(1) : (f.pe === 0 ? '虧損' : '—'), 'PE')}
@@ -650,13 +665,15 @@ function computeChartPatterns(D) {
     const ad = Math.abs(d);
     return ad < tol * 100 ? `⚡現價正在線上（${d >= 0 ? '+' : ''}${d.toFixed(1)}%）` : d > 0 ? `線在下方 ${ad.toFixed(1)}%（支撐性質）` : `線在上方 ${ad.toFixed(1)}%（壓力性質）`;
   };
+  // v183：觸碰數含兩個定線的轉折點本身（一定各算一次），原本「2次觸碰確認」其實就是只有兩點連線
+  const conf = t => t > 2 ? `另有${t - 2}次觸碰確認` : '只由兩個轉折點連成、尚未經第三次觸碰確認';
   if (upLine) {
     const v = lineVal(upLine.a, upLine.b, n - 1);
-    if (v > 0 && v < price * 1.3) out.push({ kind: '上升趨勢線', level: v, note: `${upLine.t}次觸碰確認，${nearTxt(v)}。跌破此線=結構轉弱訊號，也是多單停損參考位（注意：人人看得到的線，破線常先掃停損再反轉）` });
+    if (v > 0 && v < price * 1.3) out.push({ kind: '上升趨勢線', level: v, note: `${conf(upLine.t)}，${nearTxt(v)}。跌破此線=結構轉弱訊號，也是多單停損參考位（注意：人人看得到的線，破線常先掃停損再反轉）` });
   }
   if (dnLine) {
     const v = lineVal(dnLine.a, dnLine.b, n - 1);
-    if (v > 0 && v > price * 0.7) out.push({ kind: '下降趨勢線', level: v, note: `${dnLine.t}次觸碰確認，${nearTxt(v)}。帶量站上此線=結構轉強訊號（突破需量能配合，無量突破多為假突破）` });
+    if (v > 0 && v > price * 0.7) out.push({ kind: '下降趨勢線', level: v, note: `${conf(dnLine.t)}，${nearTxt(v)}。帶量站上此線=結構轉強訊號（突破需量能配合，無量突破多為假突破）` });
   }
   // ── 通道：趨勢線+對側平行線 ──
   if (upLine) {

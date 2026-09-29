@@ -44,7 +44,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['enhance.js'] = 163; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['enhance.js'] = 183; } catch (e) {}
 
 /* ══ 區塊 H：ADX 市場狀態過濾器 ════════════════════════════════════════
    機構73%使用：ADX 不告訴方向，而是告訴你「該用哪種策略」
@@ -102,6 +102,11 @@ function renderRegime(r) {
   document.getElementById('regime-advice').textContent = r.advice;
 }
 
+/* v182 籌碼可不可用（全站同一個標準）：最新幾天沒抓到、資料落後、或 T86 欄名配不到——
+   都不可投票或計分。原本只有籌碼卡與共振維度檢查，主力行為、明牌陷阱、健康度、情報判讀直接讀原始數字 */
+function chipUsable(chip) {
+  return !!chip && !(chip.headMiss > 0) && !chip.fieldMiss && !(chip.expected && String(chip.dataDate || '') < String(chip.expected));
+}
 function computeChipHealth(chip, D) {
   let score = 50;
   const signals = [], warnings = [];
@@ -120,7 +125,7 @@ function computeChipHealth(chip, D) {
       /* v159：不論原因，只要 20 日累計其實不足 20 天就必須明講。
          以前這個數字照樣叫「20日累計」，使用者無從得知它只用了幾天。 */
       if (chip.n20 != null && chip.n20 < 20) {
-        warnings.push(`⚠️ 「20日累計」實際只用了 ${chip.n20} 個交易日的資料（其餘未取得）——請把它當成 ${chip.n20} 日累計讀，別跟完整20日的門檻直接比較`);
+        warnings.push(`⚠️ 「20日累計」實際只用了 ${chip.n20} 個交易日的資料（抓取期間逢連假、或部分日子沒抓到）——請把它當成 ${chip.n20} 日累計讀，別跟完整20日的門檻直接比較`);
       }
       if (chip.n5 != null && chip.n5 < 5) {
         warnings.push(`⚠️ 「5日累計」實際只用了 ${chip.n5} 個交易日——樣本不足，本卡的法人方向判斷請降權看待`);
@@ -159,8 +164,9 @@ function computeChipHealth(chip, D) {
   if (chip.foreign5 > 0 && chip.trust5 > 0) { score += 8; signals.push('外資投信同步買超，法人有共識（強訊號）'); }
   if (chip.foreign5 < 0 && chip.trust5 < 0) { score -= 10; warnings.push('外資投信同步賣超，法人一致看淡'); }
 
-  const avg5 = chip.foreign5 / 5 + chip.trust5 / 5;
-  const avg20 = chip.foreign20 / 20 + chip.trust20 / 20;
+  // v182：除以實際天數（n5/n20）。原本固定除 5、除 20——只抓到 8 天時 20 日均被低估一半多，假性「5日>20日＝吸籌」
+  const avg5 = (chip.foreign5 + chip.trust5) / Math.max(1, chip.n5 != null ? chip.n5 : 5);
+  const avg20 = (chip.foreign20 + chip.trust20) / Math.max(1, chip.n20 != null ? chip.n20 : 20);
   let concentration = null;
   if (chip.foreign20 !== 0 || chip.trust20 !== 0) {
     if (avg5 > avg20 && avg5 > 0) { concentration = 'rising'; score += 8; signals.push('近期買超力道增強（5日>20日），主力積極吸籌'); }
@@ -182,7 +188,8 @@ function computeChipHealth(chip, D) {
   /* v141：資料不完整或落後時，籌碼分一律回中性50——
      否則「抓到哪幾天」會讓勢能分數、共振、紀律門在同一天之內忽多忽空，
      使用者看到的是決策跳動，而不是市場真的變了。 */
-  const unreliable = (chip.headMiss > 0) || (chip.expected && String(chip.dataDate || '') < String(chip.expected));
+  const unreliable = !chipUsable(chip);
+  if (chip.fieldMiss) warnings.push(`⚠️ 證交所法人資料的欄名變了，程式配不到外資／投信欄（實際欄名：${String(chip.fieldMiss).slice(0, 60)}…）——這幾天的籌碼不可用，請回報以便更新`);
   if (unreliable) {
     score = 50;
     if (!chip.missDates || !chip.missDates.length) warnings.push('⚠️ 籌碼資料不是最新，本卡籌碼分已改為中性50、不參與方向判斷，請重新查詢一次');
@@ -444,9 +451,10 @@ function renderPlaybook(D, atr) {
 /* ══ 區塊 F：風險強化（最大回撤 + 波動率排名）════════════════════════ */
 function computeRiskMetrics(D) {
   const c = D.closes;
-  // 最大回撤（過去一年）
-  let peak = c[0], maxDD = 0;
-  for (const p of c) { peak = Math.max(peak, p); maxDD = Math.min(maxDD, (p - peak) / peak); }
+  // 最大回撤（過去一年＝最近 252 根；v183：原本用了全部約兩年的K棒，卻標「近一年」，回撤被放大、健康分被壓低）
+  const c1 = c.slice(-252);
+  let peak = c1[0], maxDD = 0;
+  for (const p of c1) { peak = Math.max(peak, p); maxDD = Math.min(maxDD, (p - peak) / peak); }
   // 年化波動率（日報酬標準差 × √252）
   const rets = [];
   for (let i = 1; i < c.length; i++) rets.push((c[i] - c[i - 1]) / c[i - 1]);
@@ -498,7 +506,7 @@ function renderHealthReport(ctx) {
   items.push({ name: '風險', grade: grade(riskScore) });
   // 籌碼
   let chipScore = 50;
-  if (ctx.chip) {
+  if (chipUsable(ctx.chip)) {   // v182：不可用的籌碼不給等級（原本照樣評分）
     if (ctx.chip.foreign5 > 0) chipScore += 15;
     if (ctx.chip.trust5 > 0) chipScore += 15;
     if (ctx.chip.foreignStreak >= 3) chipScore += 10;

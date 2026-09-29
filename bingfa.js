@@ -55,12 +55,31 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 163; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 183; } catch (e) {}
 
 /* v159：marginChg5 名為「5日變化」，但後端資料不足 6 筆時是拿現有最舊那筆當基準，
    實際可能只跨 2~3 天。2 天漲 4% 與 5 天漲 4% 意義完全不同，直接套同一個門檻
    會讓紀律門誤擋。chg5N 是後端回報的實際跨距；舊後端沒有此欄位時放行（不改行為）。 */
 function marginSpanOK(m) { return !!m && (m.chg5N == null || m.chg5N >= 4); }
+
+/* v183 融資的判讀全站同一套（審查發現）：
+   • 原本紀律門／橫幅／行為鏈的「融資增＋價跌」是「5日前任何一點點跌」，融資卡要跌超過 1%——
+     同一份資料，紀律門說「禁止做多（散戶接刀）」、融資卡卻說「融資平穩」
+   • 券資比門檻 18／20／25 散在五處：19% 時兩張卡說擁擠，紀律門卻給空單「非擁擠」通過
+   • 資料落後或最新幾天沒抓到（融資卡已標紅）的融資，照樣在紀律門擋單
+   門檻以融資卡為準（融資變化 ±4%、股價 ±1%；券資比 18% 偏高、30% 軋空警報）。 */
+const SHORT_RATIO_HOT = 18, SHORT_RATIO_SQUEEZE = 30;
+function marginFresh(m) {
+  if (!m || m.headMiss > 0) return false;
+  const fr = m.dataDate && typeof checkDataFreshness === 'function' ? checkDataFreshness(m.dataDate, 0) : null;
+  return !(fr && fr.stale);
+}
+function marginUsable(m) { return marginFresh(m) && marginSpanOK(m) && m.marginChg5 != null; }
+function marginQuadrant(m, D) {   // → 'knife' 散戶接刀｜'chase' 散戶追價｜'healthy' 主力行情｜'flush' 籌碼清洗｜'flat'｜null 不可判讀
+  if (!marginUsable(m) || D.closes.length < 6) return null;
+  const c = D.closes, n = c.length, chg5 = (D.price - c[n - 6]) / c[n - 6] * 100, mc = m.marginChg5;
+  return mc > 4 && chg5 < -1 ? 'knife' : mc > 4 && chg5 > 1 ? 'chase' : mc < -4 && chg5 > 1 ? 'healthy' : mc < -4 && chg5 < -1 ? 'flush' : 'flat';
+}
 
 /* ── 勢能分數（觀勢）────────────────────────────────────────────────
    趨勢40% + 籌碼30% + 成交量20% + 產業10%(用RS近似)
@@ -134,7 +153,8 @@ function computeShiPower(D, rsRating) {
 
   return {
     shi, shortShi, grade, shortGrade, gradeColor, gradeDesc,
-    breakdown: { trend: trendScore, chip: chipScore, vol: volScore, industry: industryScore },
+    // v182：沒資料時以中性 50 計，但畫面要講明，不能看起來像量到的 50
+    breakdown: { trend: trendScore, chip: chipScore, vol: volScore, industry: industryScore, chipNA: !chipUsable(D.chip), industryNA: rsRating == null },
     ma: { ma20, ma60, ma120 },
     maAligned: price > ma20 && ma20 > ma60 && ma60 > ma120
   };
@@ -199,9 +219,9 @@ function renderBingfa(D, shi, tradeScore, exit) {
     </div>`;
   document.getElementById('bf-breakdown').innerHTML =
     bar('趨勢（順勢而為）', shi.breakdown.trend, '40%', 'var(--acc)') +
-    bar('籌碼（觀勢）', shi.breakdown.chip, '30%', '#0EA5E9') +
+    bar('籌碼（觀勢）' + (shi.breakdown.chipNA ? '・無可用資料，以中性50計' : ''), shi.breakdown.chip, '30%', '#0EA5E9') +
     bar('成交量', shi.breakdown.vol, '20%', '#8B5CF6') +
-    bar('產業強弱（RS近似）', shi.breakdown.industry, '10%', '#F59E0B');
+    bar('產業強弱（RS近似）' + (shi.breakdown.industryNA ? '・無大盤基準，以中性50計' : ''), shi.breakdown.industry, '10%', '#F59E0B');
 
   // MA 排列狀態（順勢而為）
   const maOk = shi.maAligned;
@@ -264,7 +284,7 @@ function renderVerdictBanner(shi, tradeScore, formulas, marketScore, res, D, reg
   try { if (crowd && crowd.crowding >= 70) addW(4, '👥', `散戶擁擠度 ${crowd.crowding}/100：教科書訊號人人可見，停損密集區易被掃——與主力反向時是陷阱`); } catch (e) {}
   try {
     const mg = (typeof _marginCache !== 'undefined' && _marginCache[D.code]) ? _marginCache[D.code].d : null;
-    if (mg && marginSpanOK(mg) && D.closes.length >= 6 && mg.marginChg5 > 4 && D.price < D.closes[D.closes.length - 6]) addW(4, '💳', '融資增+價跌：散戶逆勢接刀象限（歷史最危險），下跌常未完，做多再等');
+    if (marginQuadrant(mg, D) === 'knife') addW(4, '💳', '融資增+價跌：散戶逆勢接刀象限（歷史最危險），下跌常未完，做多再等');
   } catch (e) {}
   try {
     const dp = (typeof _deepCache !== 'undefined' && _deepCache[D.code]) ? _deepCache[D.code].d : null;
@@ -322,7 +342,11 @@ function renderVerdictBanner(shi, tradeScore, formulas, marketScore, res, D, reg
   } else if (grade === 'A' || grade === 'B') {
     color = grade === 'A' ? 'var(--buy)' : '#10B981'; bg = 'var(--buy-d)';
     title = `🟢 ${grade}級標的，多方條件${grade === 'A' ? '完整' : '良好'}`;
-    summary = `勢能 ${shi.shi}分、交易評分 ${tradeScore.score}${syn ? `、行為結構 ${syn.score >= 0 ? '+' : ''}${syn.score}` : ''}。${warns.length ? '但有警示需先處理（見下方）' : '結構乾淨，依出手紀律門的執行計畫進場，嚴設停損分批停利'}`;
+    /* v183：橫幅原本只看勢能等級與自己的警示清單——MTF 反向、共振反向、大戶倒貨等紀律門的禁止條件都不在裡面，
+       會出現「橫幅：🟢結構乾淨，依紀律門進場」、紀律門：「🔴禁止出手」。紀律門禁止時以紀律門為準 */
+    let gL = null; try { const g = computeTradeGate({ D, regime, mtf, res, formulas, shi }); gL = g && g.long; } catch (e) {}
+    if (gL && gL.fail.length) { color = 'var(--warn)'; bg = 'var(--warn-d)'; title = `🟡 ${grade}級多方勢能，但紀律門禁止做多`; }
+    summary = `勢能 ${shi.shi}分、交易評分 ${tradeScore.score}${syn ? `、行為結構 ${syn.score >= 0 ? '+' : ''}${syn.score}` : ''}。${gL && gL.fail.length ? `出手紀律門禁止做多：${gL.fail[0]}——不進場` : warns.length ? '但有警示需先處理（見下方）' : '結構乾淨，依出手紀律門的執行計畫進場，嚴設停損分批停利'}`;
   } else if (grade === 'C') {
     color = 'var(--warn)'; bg = 'var(--warn-d)';
     title = '🟡 C級標的，勢能普通，謹慎';
@@ -389,14 +413,15 @@ function renderVerdictBanner(shi, tradeScore, formulas, marketScore, res, D, reg
       const items = [];   // {key, dir(-1/0/1), label}
       const push = (key, dir, label) => { const e = EV[key]; if (e && e.tier !== 'X') items.push({ key, dir, label, w: e.w, tier: e.tier }); };
 
-      if (ms && ms.maturity != null) push('moveStage', ms.maturity >= 75 ? 0 : ms.dir, `波段${ms.maturity.toFixed(0)}%`);
+      // v183：尾端與否以溫度計自己的判定為準（它用 70），原本這裡另訂 75——成熟度 70～74 時一邊說尾端、一邊還投方向票
+      if (ms && ms.maturity != null) push('moveStage', ms.stage === '尾端' ? 0 : ms.dir, `波段${ms.maturity.toFixed(0)}%`);
       if (syn) push('behavior', syn.score >= 20 ? 1 : syn.score <= -20 ? -1 : 0, `行為結構${syn.score >= 0 ? '+' : ''}${syn.score}`);
       try { const bsJ = (typeof computeBreakoutStats === 'function') ? computeBreakoutStats(D) : null;
         if (bsJ && bsJ.tier === 'high') push('breakout', 0, `突破成功率${bsJ.all.rate.toFixed(0)}%`); } catch (e) {}
       try { const amJ = (typeof computeAmihud === 'function') ? computeAmihud(D) : null;
         if (amJ) push('amihud', 0, `流動性${amJ.level}`); } catch (e) {}
-      try { const cwJ = (typeof computeCrowding === 'function') ? computeCrowding(D) : null;
-        if (cwJ && cwJ.score != null) push('crowding', 0, `擁擠度${cwJ.score}`); } catch (e) {}
+      // v183：原本讀 cwJ.score——computeCrowding 回傳的是 crowding，這項 A 級證據從來沒被採計（A級永遠湊不到3項）
+      if (crowd) push('crowding', 0, `擁擠度${crowd.crowding}`);
 
       if (items.length) {
         const dirW = items.reduce((a, x) => a + x.dir * x.w, 0);
@@ -415,7 +440,7 @@ function renderVerdictBanner(shi, tradeScore, formulas, marketScore, res, D, reg
           <div style="font-size:12px;font-weight:700;color:${col};margin-bottom:4px">🎯 綜合研判：${verdictTxt}（信心 ${conf}）</div>
           <div style="font-size:10px;color:var(--muted);line-height:1.6">
             採計 ${items.length} 項證據（其中 A 級可決策 ${aCount} 項）：${items.map(x => x.label).join('、')}<br>
-            <span style="color:var(--muted2)">已排除 ${excluded} 項未通過檢驗的指標（專屬分數α=-4.4、機率卡LogLoss劣於基準、貝氏極端區偏離、意圖方向α≈0）——它們仍顯示在各自卡片供參考，但不計入本結論。</span>
+            <span style="color:var(--muted2)">已排除 ${excluded} 項未通過檢驗的指標（環境順逆勢無期望值差異、專屬分數α=-4.4、機率卡LogLoss劣於基準、貝氏極端區偏離、意圖方向α≈0）——它們仍顯示在各自卡片供參考，但不計入本結論。</span>
             ${conflict ? '<br><span style="color:var(--warn)">⚠️ 偵測到方向證據互相衝突，信心已折半</span>' : ''}
             ${aCount < 3 ? '<br><span style="color:var(--warn)">⚠️ A級證據不足3項，信心已下調</span>' : ''}
           </div></div>`;
@@ -447,12 +472,11 @@ function renderVerdictBanner(shi, tradeScore, formulas, marketScore, res, D, reg
   if (narrEl) {
     try {
       const seg = [];
-      const dirTxt = regime && regime.regime === '多頭趨勢' ? '多' : '空';
       // ① 環境
       if (regime) seg.push({ k: '環境', v: regime.regime === '高波動危險' ? '高波動危險——19年實測此時放空每筆約虧1.4~1.8%，不進場' : `${regime.regime}——僅作背景：19年實測順勢、逆勢的期望值沒有差異` });
       // ② 走到哪（溫度計＋持續天數）
       if (ms && ms.maturity != null) {
-        seg.push({ k: '進程', v: `${ms.dirTxt}波段已走 ${ms.maturity.toFixed(0)}%${ms.maturity >= 75 ? '——接近尾端，此時追單是接最後一棒' : ms.maturity <= 30 ? '——仍在初期，空間相對完整' : '——中段，續走與反轉機率相當'}` });
+        seg.push({ k: '進程', v: `${ms.dirTxt}波段已走 ${ms.maturity.toFixed(0)}%${ms.stage === '尾端' ? '——已進尾端，此時追單是接最後一棒' : ms.stage === '初期' ? '——仍在初期，空間相對完整' : '——中段，續走與反轉機率相當'}` });
       }
       // ③ 誰在動（行為結構）
       if (syn) seg.push({ k: '參與者', v: `行為結構 ${syn.score >= 0 ? '+' : ''}${syn.score}${syn.conflict && syn.conflict.length ? `，但有 ${syn.conflict.length} 項證據互相衝突——分歧時勿重倉` : syn.score >= 20 ? '，多方證據集中' : syn.score <= -20 ? '，空方證據集中' : '，證據分散無主導方' }` });
@@ -460,13 +484,14 @@ function renderVerdictBanner(shi, tradeScore, formulas, marketScore, res, D, reg
       try {
         const atrN = calcATR(D.rawHighs || D.highs, D.rawLows || D.lows, D.rawCloses || D.closes, 14);
         const stopPctN = atrN * 2 / (D.price || 1) * 100;
-        const rtN = (typeof computeRealisticTargets === 'function') ? computeRealisticTargets(D, dirTxt === '空' ? -1 : 1, stopPctN) : null;
-        const r5N = rtN && rtN.rows ? rtN.rows.find(r => r.days === 5) : null;
-        if (r5N) seg.push({ k: '結構', v: `以2×ATR停損計，風報比 1:${r5N.rr.toFixed(2)}${r5N.rr < 1 ? `——即使方向做對也難獲利，需等回測關鍵位讓停損變近（見風險卡「出路」）` : '——結構可接受'}` });
+        /* v183：原本用「環境」（X級、已除權）決定算哪一邊，盤整／空頭時對多單也秀空方的風報比、而且沒寫是哪一邊。兩邊都列 */
+        const rr5 = d => { const rt = typeof computeRealisticTargets === 'function' ? computeRealisticTargets(D, d, stopPctN) : null; const r = rt && rt.rows ? rt.rows.find(x => x.days === 5) : null; return r ? r.rr : null; };
+        const rL = rr5(1), rS = rr5(-1), f = x => x == null ? '—' : '1:' + x.toFixed(2);
+        if (rL != null || rS != null) seg.push({ k: '結構', v: `以2×ATR停損計，風報比 做多 ${f(rL)}｜做空 ${f(rS)}${Math.max(rL || 0, rS || 0) < 1 ? '——兩邊都小於1：即使方向做對也難獲利，需等回測關鍵位讓停損變近（見風險卡「出路」）' : ''}` });
       } catch (e) {}
       // ⑤ 翻盤條件（最關鍵：事先寫下我錯了的證據）
       const inval = [];
-      if (ms && ms.maturity != null && ms.maturity < 75) inval.push(`波段成熟度突破75%（進入尾端）`);
+      if (ms && ms.maturity != null && ms.stage !== '尾端') inval.push('波段進入尾端（溫度計轉「尾端」）');
       if (syn) inval.push(`行為結構分數翻過 ${syn.score >= 0 ? '-20' : '+20'}`);
       if (inval.length) seg.push({ k: '翻盤條件', v: inval.join('｜') + ' —— 出現任一項即重新評估，不凹單' });
 
@@ -680,8 +705,8 @@ function computeTradeGate(ctx) {
       }
     } catch (e) {}
     if (dir === -1) {
-      if (margin && margin.shortRatio >= 30) fail.push(`券資比 ${margin.shortRatio.toFixed(0)}%：空單擁擠，軋空風險高`);
-      else if (margin && margin.shortRatio >= 20) warn.push(`券資比 ${margin.shortRatio.toFixed(0)}% 偏高，空單控制部位`);
+      if (marginFresh(margin) && margin.shortRatio >= SHORT_RATIO_SQUEEZE) fail.push(`券資比 ${margin.shortRatio.toFixed(0)}%：空單擁擠，軋空風險高`);
+      else if (marginFresh(margin) && margin.shortRatio >= SHORT_RATIO_HOT) warn.push(`券資比 ${margin.shortRatio.toFixed(0)}% 偏高，空單控制部位`);
       if (psy <= 25) warn.push(`PSY ${psy} 恐慌區：空單防技術性反彈（你 2313 的教訓）`);
       // 意圖研判：洗盤≠出貨。若研判為洗盤（洗散戶將漲），做空是站到主力對面，禁止
       if (typeof computeIntentAnalysis === 'function') {
@@ -692,7 +717,7 @@ function computeTradeGate(ctx) {
         } catch (e) {}
       }
     } else {
-      if (margin && marginSpanOK(margin) && margin.marginChg5 > 4 && D.closes.length >= 6 && D.price < D.closes[D.closes.length - 6]) fail.push('融資增+價跌（散戶接刀象限）：別跟散戶一起接');
+      if (marginQuadrant(margin, D) === 'knife') fail.push('融資增+價跌（散戶接刀象限）：別跟散戶一起接');
       if (psy >= 80) warn.push(`PSY ${psy} 貪婪區：多單防均值回歸`);
     }
 
@@ -902,7 +927,7 @@ function renderTradeGate(ctx) {
         // 6%原則熔斷：本月已虧6%，停止開新倉
         html += `<div style="border:2px solid var(--sell);border-radius:12px;padding:12px;margin-bottom:10px;background:var(--sell-d)">
           <div style="font-size:14px;font-weight:800;color:var(--sell);margin-bottom:6px">🛑 6%原則熔斷 — 本月停止開新倉</div>
-          <div style="font-size:11px;color:var(--muted);line-height:1.7">本月（${rb.ym}）真實單淨虧損已達 <b style="color:var(--sell)">${rb.usedPct}%</b>（${rb.trades}筆），觸及6%上限。<br>
+          <div style="font-size:11px;color:var(--muted);line-height:1.7">本月（${rb.ym}）真實單淨虧損已達 <b style="color:var(--sell)">${rb.usedPct}%</b>（${rb.trades}筆${rb.noAmt ? `，另有${rb.noAmt}筆沒填股數未計入` : ''}），觸及6%上限。<br>
           Elder鐵律：連續小虧（食人魚）滅絕的帳戶遠多於單次大虧。此時最該做的不是找下一筆翻本，是<b>停手到月底、檢討這${rb.trades}筆的共通點</b>。<br>
           既有部位照原計畫管理（停損不動、該停利就停利），但<b>不開新倉</b>。</div>
         </div>`;
@@ -970,7 +995,7 @@ function renderTradeGate(ctx) {
             } catch (e) { return `📏 目標：到價出50%、停損移至成本、剩餘移動停利<br>`; }
           })()}
           ${rule2Violate ? `<span style="color:var(--sell)">⚠️ 你設定的風險 ${riskPct}% 超過2%原則上限，已強制以2%計算。單筆風險>2%＝一次重傷就打亂全年節奏</span><br>` : `✓ 2%原則：單筆風險 ${effRiskPct}%（上限2%）`}<span onclick="showHelp('riskrules')" style="cursor:pointer;color:var(--muted2);margin-left:4px">ⓘ</span>
-          ${rb ? `<br>${rb.warn ? '⚠️' : '✓'} <b>6%原則</b>：本月已用 <b style="color:${rb.warn ? 'var(--warn)' : 'var(--muted)'}">${rb.usedPct}%</b> / 6%（尚餘${rb.remainPct}%、${rb.trades}筆真實單）${rb.warn ? '——逼近熔斷，此時應降低頻率與部位，而非加碼翻本' : ''}` : ''}
+          ${rb ? `<br>${rb.warn ? '⚠️' : '✓'} <b>6%原則</b>：本月已用 <b style="color:${rb.warn ? 'var(--warn)' : 'var(--muted)'}">${rb.usedPct}%</b> / 6%（尚餘${rb.remainPct}%、${rb.trades}筆真實單${rb.noAmt ? `；<span style="color:var(--warn)">其中${rb.noAmt}筆沒填股數、金額未計入——實際可能已用更多</span>` : ''}）${rb.warn ? '——逼近熔斷，此時應降低頻率與部位，而非加碼翻本' : ''}` : ''}
         </div>${stopLineWarn}
         <div style="font-size:10px;color:var(--muted);margin-top:8px">⏱️ 時間停損：3~5日未朝預期發展即全撤，不等價格停損。${(function(){
           try{
@@ -1087,13 +1112,14 @@ function computeBehaviorSynthesis(ctx) {
 
   // ── 行為④ 散戶槓桿行為（融資融券象限）──
   const margin = (typeof _marginCache !== 'undefined' && _marginCache[D.code]) ? _marginCache[D.code].d : null;
-  if (margin) {
-    const c = D.closes, n = c.length;
-    const priceDown5 = n >= 6 && D.price < c[n - 6];
+  if (marginFresh(margin)) {
+    const q = marginQuadrant(margin, D);
+    // 券資比已經算進上面的「散戶擁擠（空方）」票時不再重投（同一份證據不計兩次）
+    const crowdUsedShort = crowd && crowd.crowdDir === -1 && crowd.crowding >= 70 && margin.shortRatio >= SHORT_RATIO_HOT;
     let mDir = 0, mRead = '融資融券無明顯異常';
-    if (marginSpanOK(margin) && margin.marginChg5 > 4 && priceDown5) { mDir = -1; mRead = '融資增+價跌＝散戶逆勢接刀（歷史上最危險的象限），下跌常未完'; }
-    else if (marginSpanOK(margin) && margin.marginChg5 < -3 && !priceDown5) { mDir = 1; mRead = '融資減+價漲＝籌碼從散戶流向主力（最健康的上漲）'; }
-    else if (margin.shortRatio >= 25) { mDir = 1; mRead = `券資比${margin.shortRatio.toFixed(0)}%＝散戶空單擁擠，軋空燃料充足`; }
+    if (q === 'knife') { mDir = -1; mRead = '融資增+價跌＝散戶逆勢接刀（歷史上最危險的象限），下跌常未完'; }
+    else if (q === 'healthy') { mDir = 1; mRead = '融資減+價漲＝籌碼從散戶流向主力（最健康的上漲）'; }
+    else if (margin.shortRatio >= 25 && !crowdUsedShort) { mDir = 1; mRead = `券資比${margin.shortRatio.toFixed(0)}%＝散戶空單擁擠，軋空燃料充足`; }
     if (mDir !== 0) {
       behaviors.push({ name: '散戶槓桿行為', actor: '散戶', dir: mDir, strength: 60,
         basis: ['融資餘額5日變化', '融券餘額', '券資比', '價格方向'], read: mRead });

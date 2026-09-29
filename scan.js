@@ -15,7 +15,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['scan.js'] = 167; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['scan.js'] = 183; } catch (e) {}
 
 /* v115修：前端原送15檔/批，但 Code.gs（GAS後端）上限只取前10檔——
    使用GAS的人每批會默默遺失5檔（不成功也不算失敗，直接消失，總數對不上）。
@@ -178,17 +178,20 @@ async function fetchDynamicPool(n) {
   return j;
 }
 
-async function runScanAuto(dirStr) {
-  /* ⚠️ 兩顆按鈕必須「在抓池子之前」就鎖住。v166 把抓池子的網路請求放在鎖住之前，
-     那幾秒內再按一次就會同時跑兩輪掃描，兩輪共用 _poolNote 與同一個結果區，
-     先跑完的那輪會配到後跑那輪的池子說明——講錯池子比沒講更糟。 */
-  const btnS = document.getElementById('scan-short'), btnL = document.getElementById('scan-long');
-  if ((btnS && btnS.disabled) || (btnL && btnL.disabled)) return;   // 已經在跑了，忽略重複點擊
-  if (btnS) btnS.disabled = true;
-  if (btnL) btnL.disabled = true;
-  try { await runScanAutoInner(dirStr); }
-  finally { if (btnS) btnS.disabled = false; if (btnL) btnL.disabled = false; }
+/* ⚠️ 同一時間只能跑一輪掃描。v166 把抓池子的網路請求放在鎖住之前，那幾秒內再按一次就會同時跑兩輪，
+   兩輪共用 _poolNote 與同一個結果區，先跑完的會配到另一輪的池子說明。
+   v183：原本只鎖「找做空／找做多」，「用此清單掃描」沒鎖——自動池抓取中按它、或手動掃描中按找做多，
+   照樣兩輪同時跑。三顆按鈕共用同一把鎖 */
+let _scanBusy = false;
+async function scanLock(fn) {
+  if (_scanBusy) return;   // 已經在跑了，忽略重複點擊
+  _scanBusy = true;
+  const btns = ['scan-short', 'scan-long', 'scan-run'].map(id => document.getElementById(id)).filter(Boolean);
+  btns.forEach(b => { b.disabled = true; });
+  try { await fn(); } finally { _scanBusy = false; btns.forEach(b => { b.disabled = false; }); }
 }
+function runScanAuto(dirStr) { return scanLock(() => runScanAutoInner(dirStr)); }
+function runScan() { return scanLock(runScanInner); }
 
 async function runScanAutoInner(dirStr) {
   const ta = document.getElementById('scan-codes');
@@ -223,16 +226,16 @@ async function runScanAutoInner(dirStr) {
   }
   if (ta) ta.value = pool.join(' ');          // 填入這次實際使用的池子
   _autoPool = true;                           // 系統產生的清單不覆蓋使用者自訂清單
-  await runScan();
+  await runScanInner();
 }
 
-async function runScan() {
+async function runScanInner() {
   /* ⚠️ 旗標要在任何 return 之前就取走。放在後面的話，只要走到「超過上限」那種
      提前 return，_autoPool 會卡在 true，下一次手動掃描就會被當成自動池：
      不存檔、而且沿用上一輪的池子說明——等於畫面在講一個不是這次用的池子。 */
   const autoPool = _autoPool; _autoPool = false;
   const raw = document.getElementById('scan-codes').value || '';
-  let codes = raw.split(/[\s,，、]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
+  let codes = [...new Set(raw.split(/[\s,，、]+/).map(s => s.trim().toUpperCase()).filter(Boolean))];   // v183：去重（重複代碼會顯示兩次、查無K線也被算兩次）
   if (!codes.length) codes = TW_POOL.slice();   // v114：留空＝自動用內建熱門池（使用者不必準備清單）
   const dir = document.getElementById('scan-dir').value === 'short' ? -1 : 1;
   const box = document.getElementById('scan-result');
@@ -246,7 +249,6 @@ async function runScan() {
   else markAutoFilled();                               // 標記輸入框內容是系統產生的（關閉面板時不可存檔）
   const deadTrack = loadDead();   // v165：累計「查無K線」次數，滿2次才自動略過
   _scanAbort = false;
-  document.getElementById('scan-run').disabled = true;
   document.getElementById('scan-stop').style.display = 'inline-block';
   const rows = [];
   const t0 = Date.now();
@@ -283,6 +285,8 @@ async function runScan() {
           code: it.code, currency: /^\d{4,6}$/.test(it.code) ? 'TWD' : 'USD',
           closes: it.closes, highs: it.highs, lows: it.lows, volumes: it.volumes,
           opens: it.opens || undefined, price: it.price, lastDate: it.lastDate,
+          // v182：勢能分用「今天漲還是跌」判斷量價；原本沒給前一日收盤→ price > undefined 永遠 false，量增一律算成「量增價跌」
+          prevClose: it.closes[it.closes.length - (it._trimmed ? 1 : 2)],
           /* v152：原本把「還原價」直接當成 rawCloses 塞進去，於是掃描用還原價算
              ATR／20日高低，個股頁用原始價，同一檔兩邊結論可能不同。後端已補傳原始價；
              ||closes 是相容舊後端的退路（舊後端沒這欄位時至少不會壞掉）。 */
@@ -304,7 +308,6 @@ async function runScan() {
   for (const r of rows) if (r.err && /查無K線|查無此代碼/.test(r.errMsg || '')) deadTrack[r.code] = (deadTrack[r.code] || 0) + 1;
   saveDead(deadTrack);
 
-  document.getElementById('scan-run').disabled = false;
   document.getElementById('scan-stop').style.display = 'none';
   renderScanResult(rows, dir, ((Date.now() - t0) / 1000).toFixed(0), deadTrack);
 }
@@ -327,7 +330,7 @@ function renderScanResult(rows, dir, secs, deadTrack) {
       if (!errs.length) return '';
       const allFail = good.length === 0 && filt.length === 0;
       return `<div style="margin-top:6px;padding:8px 10px;background:var(--sell-d);border:1px solid var(--sell);border-radius:7px;font-size:10px;color:var(--muted);line-height:1.6">
-        <b style="color:var(--sell)">失敗原因</b>：${msgs.length ? msgs.map(m => `<div>・${m}</div>`).join('') : '<div>・後端未回報原因——你的後端尚未更新到 v152（舊版失敗時不會說明原因），請重新部署 worker.js 或 Code.gs</div>'}
+        <b style="color:var(--sell)">失敗原因</b>：${msgs.length ? msgs.map(m => `<div>・${escI(m)}</div>`).join('') : '<div>・後端未回報原因——你的後端尚未更新到 v152（舊版失敗時不會說明原因），請重新部署 worker.js 或 Code.gs</div>'}
         ${allFail ? `<div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--line)">
           <b>全部失敗且耗時 ${secs} 秒（極短）＝請求被立即拒絕</b>，最常見原因：<br>
           ① <b>後端尚未重新部署</b>：scan 是新端點，舊版 worker.js / Code.gs 不認得 action=scan，會直接回錯。單筆查詢正常不代表後端是新版（單筆走的是另一條路由）。<br>
