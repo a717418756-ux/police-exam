@@ -12,7 +12,7 @@
 
    ⚠️ EVIDENCE tier U：未經回測，只顯示不計分。任何分數或紀律門都不讀這裡的結果。
    ══════════════════════════════════════════════════════════════════════ */
-try { (window.SR_FV = window.SR_FV || {})['intel.js'] = 182; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['intel.js'] = 184; } catch (e) {}
 
 /* 條目標題來自新聞與PTT（任何人都能發文），一律完整跳脫再進 innerHTML。
    不用 layout.js 的 esc：那支是「刪掉」特殊字元，會把「台積電 & 蘋果」弄成「台積電  蘋果」。 */
@@ -258,4 +258,87 @@ async function loadIntelCard(D) {
     box.innerHTML = m; if (aiBox) aiBox.innerHTML = m;
     if (typeof ErrorLog !== 'undefined') ErrorLog.push('情報面顯示', e);
   }
+}
+
+/* ══ v184 資訊面回測：快照（Worker KV）× 之後 5 日報酬 × 交易日誌 ══════════════
+   目的只有一個：用累積的真實資料回答「資訊面的方向判讀，事後看有沒有用」。
+   • 方向以 AI 歸納的傾向為準（與卡片同一個門檻）；AI 沒成功的快照＝沒有方向，不當中性
+   • 報酬看「相對 0050 的超額報酬」：多頭時什麼都漲，看絕對漲跌會高估命中率
+   • 基準＝同一批樣本裡超額報酬為正的比例；命中率要顯著高於它才算有用
+   ⚠️ 快照只出現在你查過的股票上（不是隨機抽樣）；同一檔連續幾天的快照，之後 5 日報酬會重疊，
+      實際獨立樣本比筆數少，顯著性會偏樂觀 */
+const CALIB_MIN = 20, TRADE_MIN = 10;
+const snapDir = r => r.ai !== 'ok' ? null : r.tilt == null ? 0 : r.tilt >= TILT_MIN ? 1 : r.tilt <= -TILT_MIN ? -1 : 0;
+async function snapGet(code) {
+  if (!GAS_URL || GAS_URL.indexOf('http') !== 0) throw new Error('尚未設定後端網址');
+  const j = await (await fetchT(`${GAS_URL}?action=intelsnaps${code ? '&code=' + encodeURIComponent(code) : ''}`, {}, 60000)).json();
+  if (!j.ok) throw new Error(j.error || '讀取快照失敗');
+  return j;
+}
+const mdTable = (head, rows) => `| ${head.join(' | ')} |\n|${head.map(() => '---').join('|')}|\n` + rows.map(r => `| ${r.join(' | ')} |`).join('\n') + '\n';
+const pctS1 = x => x == null ? '—' : (x >= 0 ? '+' : '') + (x * 100).toFixed(1) + '%', pct1 = x => x == null ? '—' : (x * 100).toFixed(1) + '%';
+// 命中率相對基準的判定（單比例 z 檢定）
+function hitVerdict(n, hit, p0, min) {
+  if (n < min) return `樣本不足（需 ${min} 筆）`;
+  if (p0 == null || p0 <= 0 || p0 >= 1) return '無基準可比';
+  const z = (hit - p0) / Math.sqrt(p0 * (1 - p0) / n);
+  return Math.abs(z) < 1.96 ? `與基準無差異（z ${z.toFixed(1)}）` : z > 0 ? `顯著優於基準（z ${z.toFixed(1)}）` : `顯著劣於基準——反指標（z ${z.toFixed(1)}）`;
+}
+function calibStats(rows) {
+  const lab = rows.filter(r => r.fwd && r.fwd.ex5 != null);
+  const up = lab.length ? lab.filter(r => r.fwd.ex5 > 0).length / lab.length : null;
+  const grp = d => {
+    const g = lab.filter(r => snapDir(r) === d), n = g.length;
+    return { n, hit: n && d ? g.filter(r => Math.sign(r.fwd.ex5) === d).length / n : null,
+      mean: n ? g.reduce((a, r) => a + r.fwd.ex5, 0) / n : null, p0: d > 0 ? up : d < 0 && up != null ? 1 - up : null };
+  };
+  return { n: lab.length, up, bull: grp(1), bear: grp(-1), neutral: grp(0), noAI: lab.filter(r => snapDir(r) === null).length,
+    pending: rows.filter(r => r.fwd && r.fwd.why === 'pending').length, old: rows.filter(r => r.fwd && r.fwd.why === 'old').length,
+    codes: new Set(lab.map(r => r.code)).size, prompts: [...new Set(lab.map(r => r.prompt).filter(Boolean))] };
+}
+function calibMd(c) {
+  const row = (name, g, d) => [name, g.n, d ? pct1(g.hit) : '—', d ? pct1(g.p0) : '—', pctS1(g.mean), d ? hitVerdict(g.n, g.hit, g.p0, CALIB_MIN) : '（對照組）'];
+  let md = `共 ${c.n} 筆已滿 5 日的快照（${c.codes} 檔）${c.pending ? `，另 ${c.pending} 筆未滿 5 日` : ''}${c.old ? `、${c.old} 筆早於價格資料` : ''}${c.noAI ? `、${c.noAI} 筆 AI 未成功（沒有方向）` : ''}${c.noMeta ? `、${c.noMeta} 筆沒有摘要無法判讀` : ''}${c.errs && c.errs.length ? `；${c.errs.length} 檔抓價失敗（${c.errs.slice(0, 3).join('；')}）` : ''}。\n\n`;
+  if (!c.n) return md + '> 還沒有可檢驗的樣本——每查一次資訊面就多一筆，5 個交易日後可檢驗。\n\n';
+  md += mdTable(['資訊面方向', '筆數', '命中率', '基準', '平均5日超額報酬', '判定'],
+    [row('偏多', c.bull, 1), row('偏空', c.bear, -1), row('中性', c.neutral, 0)]);
+  md += `\n> 命中＝之後 5 個交易日相對 0050 的超額報酬與方向相同。基準＝全部樣本中超額報酬為正（偏空組則為負）的比例。${c.prompts.length > 1 ? `\n> ⚠️ 樣本橫跨不同的 AI 提示詞版本（${c.prompts.join('、')}），判讀標準不完全一致。` : ''}\n> ⚠️ 只含你查過的股票；同一檔連續幾天的快照報酬重疊，獨立樣本比筆數少。\n\n`;
+  return md;
+}
+async function intelCalibrate(onProg) {
+  const all = await snapGet('');
+  const codes = [...new Set(all.rows.map(r => r.code))], rows = [], errs = [];
+  for (let i = 0; i < codes.length; i += 3) {   // 一次 3 檔：Worker 每檔要抓兩年日K，同時太多會被 Yahoo 限流
+    await Promise.all(codes.slice(i, i + 3).map(c => snapGet(c).then(j => { rows.push(...j.rows); }).catch(e => { errs.push(`${c}：${e.message}`); })));
+    if (onProg) onProg(Math.min(i + 3, codes.length), codes.length);
+  }
+  return window._intelCalib = { ...calibStats(rows), noMeta: all.noMeta, errs };
+}
+async function runIntelCalib() {
+  const box = document.getElementById('intel-calib');
+  box.innerHTML = '<div style="color:var(--muted)">讀取快照中…</div>';
+  try {
+    const c = await intelCalibrate((k, n) => { box.innerHTML = `<div style="color:var(--muted)">抓取之後 5 日股價 ${k}/${n} 檔…</div>`; });
+    box.innerHTML = `<pre style="white-space:pre-wrap;font-size:10.5px;line-height:1.6;margin:0;font-family:inherit">${escI(calibMd(c))}</pre>`;
+  } catch (e) { box.innerHTML = `<div style="color:var(--sell)">❌ ${escI(e.message || e)}</div>`; }
+}
+// 交易日誌：每筆交易配上「進場日之前 7 天內最近一次」的資訊面快照（進場當天的不算——可能是收盤後才查的）
+function tradeSnap(t, rows) {
+  const code = String(t.code || '').toUpperCase().replace(/\.TWO?$/, ''), e = String(t.entryDate || '').replace(/-/g, '');
+  if (!/^\d{8}$/.test(e)) return null;
+  const lo = new Date(Date.parse(`${e.slice(0, 4)}-${e.slice(4, 6)}-${e.slice(6)}T00:00:00Z`) - 7 * 864e5).toISOString().slice(0, 10).replace(/-/g, '');
+  return rows.filter(r => r.code === code && r.d < e && r.d >= lo).sort((a, b) => a.d < b.d ? 1 : -1)[0] || null;
+}
+function intelTradeMd(trades, rows) {
+  const G = { 順: [], 逆: [], 中性: [], 無: [] };
+  trades.forEach(t => {
+    const s = tradeSnap(t, rows), d = s ? snapDir(s) : null, td = t.direction === 'short' ? -1 : 1;
+    G[d == null ? '無' : d === 0 ? '中性' : d === td ? '順' : '逆'].push(t);
+  });
+  const all = trades.length ? trades.filter(t => t.result === 'win').length / trades.length : null;
+  const row = (name, g, cmp) => { const n = g.length, w = n ? g.filter(t => t.result === 'win').length / n : null;
+    return [name, n, pct1(w), n ? (g.reduce((a, t) => a + (+t.pnlPct || 0), 0) / n).toFixed(2) + '%' : '—', cmp ? hitVerdict(n, w, all, TRADE_MIN) : '（對照組）']; };
+  let md = mdTable(['進場時的資訊面', '筆數', '勝率', '平均報酬', '與全部交易勝率比較'],
+    [row('順著資訊面', G.順, 1), row('逆著資訊面', G.逆, 1), row('資訊面中性', G.中性, 0), row('進場前 7 天沒查資訊面／AI 未成功', G.無, 0)]);
+  return md + `\n> 全部交易勝率 ${pct1(all)}。只採進場日之前的快照（當天的可能是收盤後才查的，算偷看）。\n\n`;
 }

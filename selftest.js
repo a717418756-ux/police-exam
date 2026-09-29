@@ -213,6 +213,7 @@ async function scanFlowTests() {
   const pg = await ctx.newPage();
   const errs = [];
   pg.on('pageerror', e => errs.push(e.message));
+  let snapResp = () => ({ ok: true, rows: [], noMeta: 0 });
   let poolDelay = 0, poolCalls = 0, poolCodes = ['2001', '2002', '2003'], intelDelay = 0; const intelCalls = {};
   const T0 = Date.now();
   let intelResp = { ok: true, code: '2330', name: '台積電', asOf: T0, board: '上市', lastBar: '20260926',
@@ -242,6 +243,7 @@ async function scanFlowTests() {
       return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, codes: poolCodes, dataDate: '20260921', universe: 999, cutoff: 1e8 }) }); }
     if (a === 'intel') { intelCalls[u.searchParams.get('code')] = (intelCalls[u.searchParams.get('code')] || 0) + 1; if (intelDelay) await new Promise(r => setTimeout(r, intelDelay));
       return route.fulfill({ contentType: 'application/json', body: JSON.stringify(intelResp) }); }
+    if (a === 'intelsnaps') return route.fulfill({ contentType: 'application/json', body: JSON.stringify(snapResp(u.searchParams.get('code'))) });
     if (a === 'scan') { const codes = u.searchParams.get('codes').split(',');
       return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, results: codes.map(code => { const k = bars(120);
         return { code, ok: true, closes: k.c, highs: k.h, lows: k.l, volumes: k.v, opens: k.c, rawCloses: k.c, rawHighs: k.h, rawLows: k.l, price: k.c[119], lastDate: '20260921' }; }) }) }); }
@@ -593,6 +595,17 @@ async function scanFlowTests() {
   ok('掃描：自動池抓取中，「用此清單掃描」也鎖住（不會兩輪同時跑）', lockAll.every(Boolean), JSON.stringify(lockAll));
   await pg.evaluate(() => closeScan());
 
+  // v184 資訊面校準面板
+  snapResp = code => code ? { ok: true, noMeta: 0, rows: [{ code, d: '20260901', asOf: 1, ai: 'ok', tilt: 0.6, prompt: 'v180', fwd: { entry: '20260901', r5: 0.03, ex5: 0.02 } }] }
+    : { ok: true, noMeta: 1, rows: [{ code: '2330', d: '20260901', asOf: 1, ai: 'ok', tilt: 0.6 }, { code: '2317', d: '20260902', asOf: 2, ai: 'ok', tilt: -0.6 }] };
+  await pg.evaluate(() => runIntelCalib());
+  const cal = await pg.evaluate(() => document.getElementById('intel-calib').innerText);
+  ok('資訊面校準：逐檔抓之後 5 日、列出方向組別與樣本不足', /共 2 筆已滿 5 日的快照（2 檔）/.test(cal) && /1 筆沒有摘要/.test(cal) && /偏多 \| 2 \|/.test(cal) && /樣本不足/.test(cal), cal.slice(0, 300));
+  snapResp = () => ({ ok: false, error: '這支 Worker 沒有綁定 KV（名稱須為 SYNC），沒有快照可讀' });
+  await pg.evaluate(() => runIntelCalib());
+  const calE = await pg.evaluate(() => document.getElementById('intel-calib').innerText);
+  ok('資訊面校準：後端讀不到快照時明講原因', /❌.*沒有綁定 KV/.test(calE), calE);
+
   ok('掃描流程全程無 JavaScript 錯誤', errs.length === 0, errs.slice(0, 2).join(' | '));
   await b.close(); srv.close();
 }
@@ -701,7 +714,7 @@ async function browserTests() {
    判讀規則寫錯的後果是「講反話」：市場不買單卻顯示共振。每一格都要釘住。 */
 function intelFrontTests() {
   const chipUsableSrc = (fs.readFileSync(path.join(ROOT, 'enhance.js'), 'utf8').match(/function chipUsable[\s\S]*?\n}/) || [''])[0];   // 頁面上由 enhance.js 提供
-  const F = new Function('window', chipUsableSrc + '\n' + fs.readFileSync(path.join(ROOT, 'intel.js'), 'utf8') + '\nreturn { intelVerdict, renderIntel };')({});
+  const F = new Function('window', chipUsableSrc + '\n' + fs.readFileSync(path.join(ROOT, 'intel.js'), 'utf8') + '\nreturn { intelVerdict, renderIntel, snapDir, calibStats, calibMd, tradeSnap, intelTradeMd, hitVerdict };')({});
   const NOW = Date.now();
   const st = (car, scar, extra = {}) => ({ status: 'ok', car, scar, L: 3, pre: 0, preScar: 0, t0: '20260926', ...extra });
   const J = (tilt, study, o = {}) => ({
@@ -710,6 +723,27 @@ function intelFrontTests() {
     items: [{ kind: 'news', title: 'x', src: 's', url: 'https://a.b', t: NOW - 3600e3 }], attention: o.att || {}, srcErrors: [], notes: [] });
   const chip = (f, t, n5 = 5) => ({ chip: { foreign5: f, trust5: t, n5 } });
   const V = (j, d) => F.intelVerdict(j, d);
+
+  // ── v184 資訊面回測 ──
+  ok('快照方向：AI 沒成功＝沒有方向（不可當中性）；沒有事件＝中性；門檻同卡片',
+    JSON.stringify([{ ai: 'error', tilt: 0.9 }, { ai: 'ok', tilt: null }, { ai: 'ok', tilt: 0.3 }, { ai: 'ok', tilt: -0.3 }, { ai: 'ok', tilt: 0.2 }].map(F.snapDir)) === '[null,0,1,-1,0]');
+  { const R = (tilt, ex5, ai = 'ok') => ({ code: '2330', d: '20260901', ai, tilt, prompt: 'v180', fwd: { ex5, r5: ex5 } });
+    const rows = [].concat(Array.from({ length: 30 }, (_, i) => R(0.5, i < 24 ? 0.02 : -0.01)), Array.from({ length: 10 }, (_, i) => R(-0.5, i < 2 ? 0.01 : -0.02)),
+      Array.from({ length: 10 }, () => R(0.1, 0.01)), [R(0.9, 0.05, 'error'), { code: '2330', d: '20260928', ai: 'ok', tilt: 0.5, fwd: { why: 'pending' } }]);
+    const c = F.calibStats(rows), md = F.calibMd({ ...c, noMeta: 0, errs: [] });
+    // 超額報酬為正：偏多 24 + 偏空 2 + 中性 10 + AI失敗 1 = 37 / 51
+    ok('校準：命中率與基準（超額報酬為正的比例）算對；AI 失敗與未滿 5 日分開列', c.n === 51 && Math.abs(c.up - 37 / 51) < 1e-9 && c.bull.n === 30 && Math.abs(c.bull.hit - 0.8) < 1e-9
+      && c.bear.n === 10 && Math.abs(c.bear.p0 - 14 / 51) < 1e-9 && c.noAI === 1 && c.pending === 1, JSON.stringify(c).slice(0, 200));
+    ok('校準：未達 20 筆明講樣本不足，不下結論', /偏空 \| 10 \|[^\n]*樣本不足/.test(md) && /偏多 \| 30 \|/.test(md), md.slice(0, 400));
+    ok('校準：沒有樣本時明講，不給空表格', /還沒有可檢驗的樣本/.test(F.calibMd({ ...F.calibStats([]), noMeta: 0, errs: [] })));
+    ok('校準：z 檢定方向正確（高於基準＝優、低於＝反指標）', /顯著優於/.test(F.hitVerdict(100, 0.7, 0.5, 20)) && /反指標/.test(F.hitVerdict(100, 0.3, 0.5, 20)) && /無差異/.test(F.hitVerdict(100, 0.55, 0.5, 20))); }
+  { const S = (d, tilt) => ({ code: '2330', d, ai: 'ok', tilt });
+    const rows = [S('20260910', -0.5), S('20260908', 0.5), S('20260911', 0.9), S('20260901', 0.9), { ...S('20260909', 0.9), code: '2317' }];
+    const t = { code: '2330', entryDate: '2026-09-11', direction: 'long', result: 'win', pnlPct: 3 };
+    ok('交易對照：用進場日「之前」最近的快照（當天的可能是收盤後才查的）；超過 7 天不算', (F.tradeSnap(t, rows) || {}).d === '20260910'
+      && F.tradeSnap({ ...t, entryDate: '2026-09-20' }, rows) === null && (F.tradeSnap({ ...t, code: '2330.TW' }, rows) || {}).d === '20260910');
+    const md = F.intelTradeMd([t, { ...t, direction: 'short', result: 'loss', pnlPct: -2 }, { ...t, entryDate: '2026-09-30' }], rows);
+    ok('交易對照：做多遇偏空快照＝逆、做空遇偏空＝順、沒快照另列', /順著資訊面 \| 1 \| 0\.0%/.test(md) && /逆著資訊面 \| 1 \| 100\.0%/.test(md) && /沒查資訊面[^|]*\| 1 \|/.test(md), md); }
 
   let v = V(J(0.8, st(0.05, 3)), chip(1000, 200));
   ok('情報判讀：偏多＋CAR顯著正＋法人買→共振', v.tone === 'bull' && /共振/.test(v.head) && /法人同向/.test(v.head), v.head);
@@ -786,7 +820,7 @@ async function backendTests() {
   let fetchImpl = async () => { throw new Error('未設定'); };
   global.fetch = (...a) => fetchImpl(...a);
   const W = {};
-  new Function('module', src + '\nmodule.yahooChart=yahooChart;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTaifexFutures=fetchTaifexFutures;module.fetchTaifexPCR=fetchTaifexPCR;module.fetchMargin=fetchMargin;module.fetchTopPool=fetchTopPool;module.rocToYmd=rocToYmd;module.eventStudy=eventStudy;module.infoTilt=infoTilt;module.validateAI=validateAI;module.parseRSS=parseRSS;module.parsePTT=parsePTT;module.parseAnnounce=parseAnnounce;module.fetchIntel=fetchIntel;module.dropIntraday=dropIntraday;module.fetchNews=fetchNews;module.fetchIntelRouted=fetchIntelRouted;module.dedupKey=dedupKey;module.heat=heat;module.parseFinMindNews=parseFinMindNews;module.dayMoves=dayMoves;module.mergeDays=mergeDays;module.intelPrompt=intelPrompt;module.revSurprise=revSurprise;module.fetchNewsEn=fetchNewsEn;module.normCite=normCite;module.yahooQuote=yahooQuote;module.numN=numN;module.peN=peN;module.fetchDeepChip=fetchDeepChip;module.fetchMarket=fetchMarket;module.fetchFundamental=fetchFundamental;')(W);
+  new Function('module', src + '\nmodule.yahooChart=yahooChart;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTaifexFutures=fetchTaifexFutures;module.fetchTaifexPCR=fetchTaifexPCR;module.fetchMargin=fetchMargin;module.fetchTopPool=fetchTopPool;module.rocToYmd=rocToYmd;module.eventStudy=eventStudy;module.infoTilt=infoTilt;module.validateAI=validateAI;module.parseRSS=parseRSS;module.parsePTT=parsePTT;module.parseAnnounce=parseAnnounce;module.fetchIntel=fetchIntel;module.dropIntraday=dropIntraday;module.fetchNews=fetchNews;module.fetchIntelRouted=fetchIntelRouted;module.dedupKey=dedupKey;module.heat=heat;module.parseFinMindNews=parseFinMindNews;module.dayMoves=dayMoves;module.mergeDays=mergeDays;module.intelPrompt=intelPrompt;module.revSurprise=revSurprise;module.fetchNewsEn=fetchNewsEn;module.normCite=normCite;module.yahooQuote=yahooQuote;module.numN=numN;module.peN=peN;module.fetchDeepChip=fetchDeepChip;module.fetchMarket=fetchMarket;module.fetchFundamental=fetchFundamental;module.saveIntelSnap=saveIntelSnap;module.listIntelSnaps=listIntelSnaps;module.snapFwd=snapFwd;')(W);
   const W2 = W;
 
   // Code.gs：補上 GAS 全域物件
@@ -1633,6 +1667,29 @@ async function backendTests() {
     const kv = {}; fetchImpl = async u => asResp(IT.route(u, IT.gem));
     const ks = await W2.fetchIntel('2330', { SYNC: { put: async (k, v) => { kv[k] = v; } } });
     ok('有綁 KV 時每日存快照（供日後回測）', ks.snapshot === 'saved' && Object.keys(kv).some(k => /^intel:2330:\d{8}$/.test(k)), Object.keys(kv).join());
+    // v184 快照瘦身＋摘要放 metadata
+    { let put = null; await W2.saveIntelSnap({ SYNC: { put: async (k, v, o) => { put = { v, o }; } } }, '2330', Date.now(), IT.full);
+      const sv = put && JSON.parse(put.v), meta = put && put.o && put.o.metadata, full = JSON.stringify(IT.full).length;
+      ok('快照瘦身：不存新聞網址、逐日拆解、耗時，保留判讀與 AI 提示詞版本', !!sv && !/"url"/.test(put.v) && sv.moves === undefined && sv.timing === undefined
+        && sv.items.length === IT.full.items.length && sv.events.length === IT.full.events.length && sv.ai.prompt === IT.full.ai.prompt && sv.tilt.tilt === IT.full.tilt.tilt && Array.isArray(sv.srcErrors),
+        put ? `${put.v.length}/${full}` : '沒寫入');
+      console.log(`    （快照大小：測試資料 ${full} → ${put ? put.v.length : '?'} 字元）`);
+      ok('快照摘要放 KV metadata（列表一次拿全部；上限 1024 bytes）', !!meta && meta.ai === 'ok' && meta.tilt === 1 && meta.prompt === IT.full.ai.prompt && meta.asOf > 0
+        && Buffer.byteLength(JSON.stringify(meta)) < 1024, JSON.stringify(meta)); }
+    { const ser = { dates: ['20260901', '20260902', '20260903', '20260904', '20260907', '20260908', '20260909', '20260910', '20260911', '20260914', '20260915'], closes: [100, 101, 102, 103, 104, 105, 106, 107, 110, 111, 112] };
+      const mkt = { dates: ser.dates, closes: ser.closes.map(() => 50).map((x, i) => i === 7 ? 51 : x) };
+      const at = (d, hm) => Date.parse(`${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6)}T${hm}:00+08:00`);
+      const a = W2.snapFwd(ser, mkt, at('20260902', '10:00')), b = W2.snapFwd(ser, mkt, at('20260902', '14:00')), c = W2.snapFwd(ser, mkt, at('20260906', '12:00'));
+      ok('之後5日報酬：13:30 前查＝當天收盤進場、之後查＝下一個交易日、假日查＝下一個交易日', a.entry === '20260902' && b.entry === '20260903' && c.entry === '20260907', JSON.stringify([a, b, c]));
+      ok('之後5日報酬：超額＝個股 − 0050 同期', Math.abs(a.r5 - (106 / 101 - 1)) < 1e-12 && Math.abs(a.ex5 - a.r5) < 1e-12 && Math.abs(b.ex5 - ((107 / 102 - 1) - (51 / 50 - 1))) < 1e-12, JSON.stringify(b));
+      ok('之後5日報酬：還沒滿 5 日／早於價格資料 分開標，不給數字', W2.snapFwd(ser, mkt, at('20260910', '10:00')).why === 'pending' && W2.snapFwd(ser, mkt, at('20250101', '10:00')).why === 'old'); }
+    { const keys = [{ name: 'intel:2330:20260901', metadata: { asOf: 1, ai: 'ok', tilt: 0.5 } }, { name: 'intel:2330:20260902' }, { name: 'intel:2317:20260903', metadata: { asOf: 2, ai: 'error', tilt: null } }];
+      const seen = []; const env = { SYNC: { list: async o => { seen.push(o); return o.cursor ? { keys: keys.slice(2), list_complete: true } : { keys: keys.slice(0, 2), list_complete: false, cursor: 'c1' }; } } };
+      const L = await W2.listIntelSnaps(env, '');
+      ok('快照清單：分頁讀完、沒有摘要的明講筆數', L.rows.length === 2 && L.noMeta === 1 && L.rows[1].code === '2317' && L.rows[0].d === '20260901' && seen.length === 2 && seen[1].cursor === 'c1', JSON.stringify(L));
+      let kvErr = ''; try { await W2.listIntelSnaps({}, ''); } catch (e) { kvErr = e.message; }
+      ok('快照清單：沒綁 KV 丟出原因（不回空清單假裝沒資料）', /沒有綁定 KV/.test(kvErr), kvErr); }
+    ok('GAS：intelsnaps 明講快照只在 Worker（端點對等，不回空清單）', /action === 'intelsnaps'\) return[^\n]*ok: false[^\n]*Worker/.test(fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8')));
 
     // ── v175 FinMind 管線：8 個 UTC 日、熱度只用 FinMind、token、部分失敗 ──
     IT.fmRows = fmRows;

@@ -617,6 +617,14 @@ try {
         <input id="import-file" type="file" accept=".json" style="display:none" onchange="importLocalFile(this)">
       </div>
 
+      <!-- 資訊面校準 -->
+      <div style="background:var(--bg);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:14px">
+        <div style="font-size:11px;color:var(--acc);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">🔬 資訊面校準（快照 vs 之後 5 日）</div>
+        <div style="font-size:10px;color:var(--muted);margin-bottom:8px">每次查資訊面，Worker 會存一份當天的判讀。這裡拿全部快照對照之後 5 個交易日相對 0050 的表現，檢驗資訊面的方向到底準不準。需要 Worker 綁定 KV（SYNC）。</div>
+        <button onclick="runIntelCalib()" class="btn-block" style="background:var(--bg);border:1px solid var(--acc);color:var(--acc)">🔬 資訊面校準</button>
+        <div id="intel-calib" style="font-size:11px;margin-top:8px"></div>
+      </div>
+
       <!-- 雲端備份 -->
       <div style="background:var(--bg);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:14px">
         <div style="font-size:11px;color:var(--purple);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">☁️ 雲端備份（存到你的後端）</div>
