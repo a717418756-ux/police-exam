@@ -33,7 +33,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['advanced.js'] = 183; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['advanced.js'] = 185; } catch (e) {}
 
 /* ── 大盤基準快取（避免每檔都重抓）─────────────────────────────────── */
 let _benchCache = {};   // key → { c: closes, t }（v177：台美各自計時，原本共用一個時間戳，查一檔美股會讓台股基準「看起來」仍新鮮）
@@ -68,7 +68,8 @@ function computeRSRating(D, bench) {
   const c = D.closes;
   const n = c.length;
   // 報酬（區間不超過個股實際的K棒數，大盤用同一個區間）
-  const ret = (a, period) => { const m = a.length, k = Math.min(period, n - 1, m - 1); return (a[m-1] - a[m-1-k]) / a[m-1-k]; };
+  const L = bench && bench.length > 63 ? Math.min(n, bench.length) : n;   // v184 兩條序列取較短者，區間才真的一樣
+  const ret = (a, period) => { const m = a.length, k = Math.min(period, L - 1); return (a[m-1] - a[m-1-k]) / a[m-1-k]; };
   // O'Neil 加權：近一季 ×2 + 近半年 + 近一年
   const r63 = ret(c, 63), r126 = ret(c, 126), r252 = ret(c, 252);
   const weighted = (r63 * 2 + r126 + r252) / 4;
@@ -219,11 +220,11 @@ function computeProbability(D) {
   const curBuysN = curSigOnce ? Object.values(curSigOnce).filter(s=>s==='buy').length : 0;
   const curSellsN = curSigOnce ? Object.values(curSigOnce).filter(s=>s==='sell').length : 0;
   const curBull = curBuysN > curSellsN;
+  if (!curSigOnce) return null;   // v184：K棒不足算不出當前訊號（原本落到下面被標成「多空訊號數相同」）
   // v183：多空訊號數相同時沒有方向可比——原本會當成「偏空」去算，卡片卻標「盤整機率」
-  if (curSigOnce && curBuysN === curSellsN) return { results: periods.map(horizon => ({ horizon, prob: null, samples: 0 })), direction: 'neutral' };
+  if (curBuysN === curSellsN) return { results: periods.map(horizon => ({ horizon, prob: null, samples: 0 })), direction: 'neutral' };
   for (const horizon of periods) {
     let upCount = 0, total = 0;
-    if (!curSigOnce) { results.push({ horizon, prob: null, samples: 0 }); continue; }
     for (let i = 60; i < n - horizon; i++) {
       const sig = signalsAtIndex(c, h, l, v, i);
       if (!sig) continue;
@@ -241,10 +242,7 @@ function computeProbability(D) {
     results.push({ horizon, prob, samples: total });
   }
   // 當前方向
-  const curSig = signalsAtIndex(c, h, l, v, n-1);
-  const cb = curSig ? Object.values(curSig).filter(s=>s==='buy').length : 0;
-  const cs = curSig ? Object.values(curSig).filter(s=>s==='sell').length : 0;
-  return { results, direction: cb > cs ? 'up' : cb < cs ? 'down' : 'neutral' };
+  return { results, direction: curBull ? 'up' : 'down' };
 }
 
 function renderProbability(p, D) {
@@ -408,13 +406,12 @@ function renderSupportResistance(sr, D) {
 /* ══ E. 量價異常雷達 ══════════════════════════════════════════════════ */
 function computeVolPriceRadar(D) {
   const c = D.closes, v = D.volumes, h = D.highs;
-  const price = D.price, prevClose = D.prevClose;
   const alerts = [];
   if (v.length < 6) return alerts;
 
   const vr = v[v.length-1] / (v.slice(-6,-1).reduce((a,b)=>a+b,0)/5);
   // v183：盤中最後一根量是昨天的（今天未完成的K棒已去掉），漲跌也要用昨天那根，量與價才是同一天
-  const chgPct = D._intraday && c.length >= 2 ? (c[c.length-1] - c[c.length-2]) / c[c.length-2] * 100 : (price - prevClose) / prevClose * 100;
+  const chgPct = (barPx(D) - barPrev(D)) / barPrev(D) * 100;
 
   // 量增價未漲 → 出貨疑慮
   if (vr > 2.5 && Math.abs(chgPct) < 1.5) {
@@ -423,7 +420,7 @@ function computeVolPriceRadar(D) {
   }
   // 量縮創高 → 上攻動能不足
   const recentHigh = Math.max(...h.slice(-20, -1));
-  if (price > recentHigh && vr < 0.8) {
+  if (barPx(D) > recentHigh && vr < 0.8) {   // v184 創高與量縮看同一根K棒
     alerts.push({ type:'warn', icon:'⚠️', title:'量縮創新高',
       desc:'價格創高但量能萎縮，買盤接手意願低，上攻動能不足，留意假突破' });
   }
@@ -633,11 +630,14 @@ function computeChartPatterns(D) {
   if (pivH.length < 2 && pivL.length < 2) return null;
   const out = [];
   const lineVal = (a, b, x) => a.p + (b.p - a.p) / (b.i - a.i) * (x - a.i);
-  const touches = (a, b, arr, isLow) => {
-    let t = 0;
-    for (let i = a.i; i < n; i++) {
-      const v = lineVal(a, b, i), ref = isLow ? l[i] : h[i];
-      if (Math.abs(ref - v) / v < tol) t++;
+  /* v184：數「另外幾次」回到線上——連續貼線的K棒算同一次，含兩個定線轉折點的那兩次不算。
+     原本逐根計數：轉折點本身＋旁邊幾根幾乎一定貼線，實測 840 條上升線有 833 條顯示「另有N次觸碰確認」，其中 327 條其實一次都沒有 */
+  const touches = (a, b, isLow) => {
+    let t = 0, run = false, pivot = false;
+    for (let i = a.i; i <= n; i++) {
+      const hit = i < n && Math.abs((isLow ? l[i] : h[i]) - lineVal(a, b, i)) / lineVal(a, b, i) < tol;
+      if (hit) { run = true; if (i === a.i || i === b.i) pivot = true; }
+      else if (run) { if (!pivot) t++; run = false; pivot = false; }
     }
     return t;
   };
@@ -647,16 +647,14 @@ function computeChartPatterns(D) {
   for (let k = pivL.length - 1; k >= 1 && !upLine; k--) {
     for (let j = k - 1; j >= 0; j--) {
       if (pivL[j].p < pivL[k].p && pivL[k].i - pivL[j].i >= 8) {
-        const t = touches(pivL[j], pivL[k], l, true);
-        if (t >= 2) { upLine = { a: pivL[j], b: pivL[k], t }; break; }
+        upLine = { a: pivL[j], b: pivL[k], t: touches(pivL[j], pivL[k], true) }; break;
       }
     }
   }
   for (let k = pivH.length - 1; k >= 1 && !dnLine; k--) {
     for (let j = k - 1; j >= 0; j--) {
       if (pivH[j].p > pivH[k].p && pivH[k].i - pivH[j].i >= 8) {
-        const t = touches(pivH[j], pivH[k], h, false);
-        if (t >= 2) { dnLine = { a: pivH[j], b: pivH[k], t }; break; }
+        dnLine = { a: pivH[j], b: pivH[k], t: touches(pivH[j], pivH[k], false) }; break;
       }
     }
   }
@@ -665,8 +663,7 @@ function computeChartPatterns(D) {
     const ad = Math.abs(d);
     return ad < tol * 100 ? `⚡現價正在線上（${d >= 0 ? '+' : ''}${d.toFixed(1)}%）` : d > 0 ? `線在下方 ${ad.toFixed(1)}%（支撐性質）` : `線在上方 ${ad.toFixed(1)}%（壓力性質）`;
   };
-  // v183：觸碰數含兩個定線的轉折點本身（一定各算一次），原本「2次觸碰確認」其實就是只有兩點連線
-  const conf = t => t > 2 ? `另有${t - 2}次觸碰確認` : '只由兩個轉折點連成、尚未經第三次觸碰確認';
+  const conf = t => t ? `另有${t}次回到線上確認` : '只由兩個轉折點連成、尚未經第三次觸碰確認';
   if (upLine) {
     const v = lineVal(upLine.a, upLine.b, n - 1);
     if (v > 0 && v < price * 1.3) out.push({ kind: '上升趨勢線', level: v, note: `${conf(upLine.t)}，${nearTxt(v)}。跌破此線=結構轉弱訊號，也是多單停損參考位（注意：人人看得到的線，破線常先掃停損再反轉）` });

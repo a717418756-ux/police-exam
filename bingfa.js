@@ -55,7 +55,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 183; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 185; } catch (e) {}
 
 /* v159：marginChg5 名為「5日變化」，但後端資料不足 6 筆時是拿現有最舊那筆當基準，
    實際可能只跨 2~3 天。2 天漲 4% 與 5 天漲 4% 意義完全不同，直接套同一個門檻
@@ -77,7 +77,7 @@ function marginFresh(m) {
 function marginUsable(m) { return marginFresh(m) && marginSpanOK(m) && m.marginChg5 != null; }
 function marginQuadrant(m, D) {   // → 'knife' 散戶接刀｜'chase' 散戶追價｜'healthy' 主力行情｜'flush' 籌碼清洗｜'flat'｜null 不可判讀
   if (!marginUsable(m) || D.closes.length < 6) return null;
-  const c = D.closes, n = c.length, chg5 = (D.price - c[n - 6]) / c[n - 6] * 100, mc = m.marginChg5;
+  const c = D.closes, n = c.length, chg5 = (barPx(D) - c[n - 6]) / c[n - 6] * 100, mc = m.marginChg5;   // v184 融資是昨天的，股價也看到昨天
   return mc > 4 && chg5 < -1 ? 'knife' : mc > 4 && chg5 > 1 ? 'chase' : mc < -4 && chg5 > 1 ? 'healthy' : mc < -4 && chg5 < -1 ? 'flush' : 'flat';
 }
 
@@ -126,7 +126,7 @@ function computeShiPower(D, rsRating) {
   let volScore = 50;
   if (v.length >= 6) {
     const vr = v[v.length-1] / (v.slice(-6,-1).reduce((a,b)=>a+b,0)/5);
-    const priceUp = price > D.prevClose;
+    const priceUp = barPx(D) > barPrev(D);   // v184 量是最後一根K棒的，漲跌也要同一根
     if (priceUp && vr > 1.5) volScore = 90;         // 量增價漲
     else if (priceUp && vr > 1) volScore = 70;
     else if (!priceUp && vr > 1.5) volScore = 25;   // 量增價跌（出貨）
@@ -277,7 +277,8 @@ function renderVerdictBanner(shi, tradeScore, formulas, marketScore, res, D, reg
   try { if (typeof computeCrowding === 'function') crowd = computeCrowding(D, formulas); } catch (e) {}
 
   try { if (D && D._intraday) addW(1, '⏱', '盤中：今日K棒尚未收完，本頁所有判斷一律以「前一交易日收盤」計算，當天之內不會因為盤中跳動而改變；上方現價仍為即時價，供下單參考。收盤後資料定案，判斷才會更新'); } catch (e) {}
-  try { const cp = D && D.chip; if (cp && (cp.headMiss > 0 || (cp.expected && String(cp.dataDate || '') < String(cp.expected)))) addW(1, '📉', `籌碼資料不完整${cp.missDates && cp.missDates.length ? `（缺 ${cp.missDates.map(x => String(x).slice(4, 6) + '/' + String(x).slice(6, 8)).join('、')}）` : ''}：籌碼分已改中性、不參與方向判斷——請重新查詢一次，抓齊再看籌碼結論`); } catch (e) {}
+  // v184 用全站同一個「籌碼可用」標準（原本漏了欄位對不上 fieldMiss：籌碼分已改中性，橫幅卻不警告）
+  try { const cp = D && D.chip; if (cp && !chipUsable(cp)) addW(1, '📉', `籌碼資料不完整${cp.fieldMiss ? '（證交所欄位對不上）' : ''}${cp.missDates && cp.missDates.length ? `（缺 ${cp.missDates.map(x => String(x).slice(4, 6) + '/' + String(x).slice(6, 8)).join('、')}）` : ''}：籌碼分已改中性、不參與方向判斷——請重新查詢一次，抓齊再看籌碼結論`); } catch (e) {}
   try { if (regime && regime.regime === '高波動危險') addW(1, '🌪', '環境「高波動危險」：所有訊號可靠度大降，部位至少減半或觀望'); } catch (e) {}
   try { if (ms && ms.stage === '尾端') addW(2, '🌡', `行情「${ms.dirTxt}·尾端」（成熟度${ms.maturity}）：本段已走完此股歷史${ms.magPctl}%波段——順向追單風報比差，等回檔/反彈找位`); } catch (e) {}
   try { if (syn && syn.conflict && syn.conflict.length) addW(3, '⚡', `行為衝突：${syn.conflict[0]}`); } catch (e) {}
@@ -1119,7 +1120,8 @@ function computeBehaviorSynthesis(ctx) {
     let mDir = 0, mRead = '融資融券無明顯異常';
     if (q === 'knife') { mDir = -1; mRead = '融資增+價跌＝散戶逆勢接刀（歷史上最危險的象限），下跌常未完'; }
     else if (q === 'healthy') { mDir = 1; mRead = '融資減+價漲＝籌碼從散戶流向主力（最健康的上漲）'; }
-    else if (margin.shortRatio >= 25 && !crowdUsedShort) { mDir = 1; mRead = `券資比${margin.shortRatio.toFixed(0)}%＝散戶空單擁擠，軋空燃料充足`; }
+    // v184：券資比門檻與融資卡「軋空警報」同一條線（原本寫死 25）
+    else if (margin.shortRatio >= SHORT_RATIO_SQUEEZE && !crowdUsedShort) { mDir = 1; mRead = `券資比${margin.shortRatio.toFixed(0)}%＝散戶空單擁擠，軋空燃料充足`; }
     if (mDir !== 0) {
       behaviors.push({ name: '散戶槓桿行為', actor: '散戶', dir: mDir, strength: 60,
         basis: ['融資餘額5日變化', '融券餘額', '券資比', '價格方向'], read: mRead });

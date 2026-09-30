@@ -21,7 +21,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['journal.js'] = 184; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['journal.js'] = 185; } catch (e) {}
 
 /* ── 開啟 / 關閉面板 ─────────────────────────────────────────────────── */
 /* ── 分批進場 / 加碼工具 ──────────────────────────────────────────────
@@ -55,7 +55,7 @@ function getBatchData() {
     const date = document.getElementById('batch-date-' + id).value;
     const price = parseFloat(document.getElementById('batch-price-' + id).value);
     const qty = parseFloat(document.getElementById('batch-qty-' + id).value);
-    if (date && !isNaN(price)) batches.push({ date, price, qty: isNaN(qty) ? 1 : qty });
+    if (date && !isNaN(price)) batches.push({ date, price, qty: isNaN(qty) ? 1 : qty, qtyGiven: !isNaN(qty) });   // 沒填張數＝均價用等權，但不可冒充股數
   });
   return batches;
 }
@@ -71,9 +71,13 @@ function calcBatch() {
   document.getElementById('tr-entry').value = sorted[0].date;
   /* v183：批次填的是「張」，上方欄位是「股數」——台股 1 張＝1000 股，原本直接填張數，金額小了 1000 倍（6% 預算形同失效）。
      美股沒有「張」，填的就是股數 */
-  const tw = !/^[A-Z]/.test(($('tr-code').value || '').trim().toUpperCase()), mul = tw ? 1000 : 1;
-  if (totalQty > 0 && batches.every(b=>b.qty)) document.getElementById('tr-shares').value = totalQty * mul;
-  res.textContent = `✅ ${batches.length}批 平均成本 ${(Math.round(avgCost*100)/100)}　總${totalQty}${tw ? `張（＝${totalQty * 1000}股）` : '股'}（已填回上方）`;
+  /* v184：①有一批沒填張數就不填股數（原本空白當 1 張，冒出一個你沒輸入過的股數，金額與 6% 預算都被它帶歪）
+     ②還沒填代碼時分不出台股美股，不猜 */
+  const code = ($('tr-code').value || '').trim().toUpperCase(), tw = !/^[A-Z]/.test(code), mul = tw ? 1000 : 1;
+  const qtyOK = batches.every(b => b.qtyGiven) && totalQty > 0;
+  if (qtyOK && code) document.getElementById('tr-shares').value = totalQty * mul;
+  res.textContent = `✅ ${batches.length}批 平均成本 ${(Math.round(avgCost*100)/100)}` + (!qtyOK ? '（有批次沒填張數：均價以等權計，股數請自行填寫）'
+    : !code ? `　總${totalQty}（請先填代碼，才分得出是張還是股）` : `　總${totalQty}${tw ? `張（＝${totalQty * 1000}股）` : '股'}（已填回上方）`);
 }
 
 /* ── 分批出場 / 停利工具（對稱於分批進場）──────────────────────────── */
@@ -410,8 +414,10 @@ async function refreshRiskBudget() {
     const capital = parseFloat(document.getElementById('in-capital')?.value) || 1000000;
     const trades = await dbGetAllTrades();
     window._riskBudget = (typeof computeRiskBudget === 'function') ? computeRiskBudget(trades, capital) : null;
-    if (typeof renderTradeGate === 'function' && window._gateCtx) renderTradeGate(window._gateCtx);   // v183：預算變了紀律門要跟著更新（原本要等下一次查詢）
-  } catch (e) { window._riskBudget = null; }
+  } catch (e) { window._riskBudget = null; if (typeof ErrorLog !== 'undefined') ErrorLog.push('風險預算', e); }
+  // v183：預算變了紀律門要跟著更新；v184 分開接錯——重繪出錯不可把算好的預算清掉（6% 煞車會無聲消失）
+  try { if (typeof renderTradeGate === 'function' && window._gateCtx) renderTradeGate(window._gateCtx); }
+  catch (e) { if (typeof ErrorLog !== 'undefined') ErrorLog.push('紀律門重繪', e); }
 }
 
 async function syncWinRateToMain() {
@@ -492,6 +498,7 @@ async function exportMarkdown() {
     if (!trades.length) { msg.textContent = '⚠️ 尚無交易紀錄可匯出'; msg.style.color = 'var(--warn)'; return; }
     const s = computeAdvancedStats(trades);
     const cur = n => (n>=0?'+':'') + Math.round(n).toLocaleString();
+    const curA = (st, n) => st.amtN ? cur(n) : '—';   // v184：一筆有股數的都沒有＝金額未知，不可印成 +0
 
     let md = `# 短線雷達 交易回測分析資料\n\n`;
     md += `匯出時間：${new Date().toLocaleString('zh-TW')}　|　程式版本：v${APP_VERSION}\n\n`;
@@ -505,8 +512,8 @@ async function exportMarkdown() {
       md += `> 若模擬單勝率 > 真實單，代表你的臨場操作扣分，應更信任系統；反之則系統需優化。\n\n`;
       const rs = computeStats(realTrades), ss = computeStats(simTrades);
       md += `| 類型 | 筆數 | 帳面勝率 | 真實勝率 | 總盈虧 |\n|------|------|----------|----------|--------|\n`;
-      md += `| 真實單 | ${rs.count} | ${(rs.winRate*100).toFixed(1)}% | ${(rs.trueWinRate*100).toFixed(1)}% | ${cur(rs.totalPnl)} |\n`;
-      md += `| 🧪模擬單 | ${ss.count} | ${(ss.winRate*100).toFixed(1)}% | ${(ss.trueWinRate*100).toFixed(1)}% | ${cur(ss.totalPnl)} |\n\n`;
+      md += `| 真實單 | ${rs.count} | ${(rs.winRate*100).toFixed(1)}% | ${(rs.trueWinRate*100).toFixed(1)}% | ${curA(rs, rs.totalPnl)} |\n`;
+      md += `| 🧪模擬單 | ${ss.count} | ${(ss.winRate*100).toFixed(1)}% | ${(ss.trueWinRate*100).toFixed(1)}% | ${curA(ss, ss.totalPnl)} |\n\n`;
     }
 
     // 一、整體統計
@@ -525,17 +532,17 @@ async function exportMarkdown() {
     md += `| **真實勝率**（扣除判斷錯誤） | ${(s.trueWinRate*100).toFixed(1)}%${s.trueCi95?` （95% CI: ${(s.trueCi95.low*100).toFixed(0)}~${(s.trueCi95.high*100).toFixed(0)}%）`:''} |\n`;
     md += `| 判斷錯誤筆數（凹單/MAE超停損） | ${s.misjudged} |\n`;
     md += `| 盈虧比（平均賺/平均賠） | ${s.payoff.toFixed(2)} |\n`;
-    md += `| 期望值/筆 | ${cur(s.expectancy)} |\n`;
+    md += `| 期望值/筆 | ${curA(s, s.expectancy)} |\n`;
     md += `| 平均報酬/筆（毛） | ${s.avgPnlPct>=0?'+':''}${s.avgPnlPct.toFixed(2)}% |\n`;
     md += `| **成本後報酬/筆** | **${s.netAvgPnlPct>=0?'+':''}${s.netAvgPnlPct.toFixed(2)}%**（扣來回成本 ${s.costPct}%） |\n`;
     md += `| 成本後勝率 | ${(s.netWinRate*100).toFixed(1)}%（賺贏成本才算贏） |\n`;
-    md += `| 總盈虧 | ${cur(s.totalPnl)}${s.noAmt ? `（另有 ${s.noAmt} 筆沒填股數、金額未計）` : ''} |\n`;
-    md += `| 平均獲利 | ${cur(s.avgWin)} |\n`;
-    md += `| 平均虧損 | ${cur(s.avgLoss)} |\n`;
+    md += `| 總盈虧 | ${curA(s, s.totalPnl)}${s.noAmt ? `（另有 ${s.noAmt} 筆沒填股數、金額未計）` : ''} |\n`;
+    md += `| 平均獲利 | ${curA(s, s.avgWin)} |\n`;
+    md += `| 平均虧損 | ${curA(s, s.avgLoss)} |\n`;
     md += `| 最大連勝 | ${s.maxWinStreak} 筆 |\n`;
     md += `| 最大連敗 | ${s.maxLossStreak} 筆 |\n`;
     md += `| 平均抱倉天數 | ${s.avgHoldDays.toFixed(1)} 天 |\n`;
-    md += `| 最大回撤 | ${cur(s.maxDrawdown)} |\n\n`;
+    md += `| 最大回撤 | ${curA(s, s.maxDrawdown)} |\n\n`;
 
     /* v183：拿掉「期望值盲測對照」——它是從你自己的盈虧%裡隨機重抽，拿來跟你自己比，
        等於自己跟自己比（還因為寫成 \\n 讓表格變成一行亂碼），結論沒有意義 */
@@ -567,7 +574,7 @@ async function exportMarkdown() {
     md += `| 方向 | 筆數 | 勝率 | 盈虧比 | 期望值 |\n|------|------|------|--------|--------|\n`;
     for (const dir of ['long','short']) {
       const d = s.byDirection[dir];
-      if (d) md += `| ${dir==='long'?'做多':'做空'} | ${d.count} | ${(d.winRate*100).toFixed(1)}% | ${d.payoff.toFixed(2)} | ${cur(d.expectancy)} |\n`;
+      if (d) md += `| ${dir==='long'?'做多':'做空'} | ${d.count} | ${(d.winRate*100).toFixed(1)}% | ${d.payoff.toFixed(2)} | ${curA(d, d.expectancy)} |\n`;
     }
     md += `\n`;
 
@@ -576,7 +583,7 @@ async function exportMarkdown() {
     md += `| 代碼 | 筆數 | 勝率 | 總盈虧 |\n|------|------|------|--------|\n`;
     for (const code in s.byCode) {
       const d = s.byCode[code];
-      md += `| ${code} | ${d.count} | ${(d.winRate*100).toFixed(1)}% | ${cur(d.totalPnl)} |\n`;
+      md += `| ${code} | ${d.count} | ${(d.winRate*100).toFixed(1)}% | ${curA(d, d.totalPnl)} |\n`;
     }
     md += `\n`;
 
@@ -587,7 +594,7 @@ async function exportMarkdown() {
     const sorted = [...trades].sort((a,b)=>(a.exitDate||a.date)<(b.exitDate||b.date)?1:-1);
     for (const t of sorted) {
       const judge = t.judgment === 'wrong' ? '❌錯誤' : '✅正確';
-      const pnlShow = t.pnlPct != null ? (t.pnlPct>=0?'+':'')+t.pnlPct+'%' : cur(t.pnl);
+      const pnlShow = t.pnlPct != null ? (t.pnlPct>=0?'+':'')+t.pnlPct+'%' : t.pnl != null ? cur(t.pnl) : '—';
       md += `| ${t.entryDate||'—'} | ${t.exitDate||t.date} | ${t.holdDays!=null?t.holdDays:'—'} | ${t.code||'—'} | ${t.direction==='long'?'多':'空'} | ${pnlShow} | ${judge} | ${t.mae!=null?t.mae:'—'} | ${t.mfe!=null?'+'+t.mfe:'—'} | ${t.holdOn==='yes'?'是':'否'} |\n`;
     }
     md += `\n`;
@@ -738,8 +745,11 @@ async function importLocalFile(input) {
   try {
     const text = await file.text();
     const obj = JSON.parse(text);
+    // v184 還原會把「之前刪過、檔案裡還有」的交易一併救回（包括在別台刻意刪掉的），要講明是哪些
+    const tomb = new Set(((await dbGetSetting('deletedIds')) || []).map(x => typeof x === 'string' ? x : x.id));
+    const revived = (Array.isArray(obj.trades) ? obj.trades : []).filter(t => tomb.has(t.id)).map(t => t.code || t.id);
     const n = await importBackup(obj, true);   // 使用者自己挑的檔案＝要還原的，之前刪過的也救回
-    msg.textContent = `✅ 已匯入 ${n} 筆交易紀錄`; msg.style.color = 'var(--buy)';
+    msg.textContent = `✅ 已匯入 ${n} 筆交易紀錄${revived.length ? `（其中 ${revived.length} 筆先前已刪除，一併恢復：${revived.slice(0, 5).join('、')}${revived.length > 5 ? '…' : ''}）` : ''}`; msg.style.color = 'var(--buy)';
     await loadSettings(); await refreshJournal(); await syncWinRateToMain(); await refreshRiskBudget();   // v177：載入的交易要算進本月 6% 預算
   } catch (e) {
     msg.textContent = '❌ 匯入失敗：' + e.message; msg.style.color = 'var(--sell)';

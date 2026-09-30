@@ -1,6 +1,6 @@
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['app.js'] = 183; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['app.js'] = 185; } catch (e) {}
 
 // ══════════════════════════════════════════════════════════════════════
 // 短線雷達 Pro — 風險優先分層決策系統
@@ -438,7 +438,7 @@ function analyzeSignals(D,atr,trend){
   // 成交量異常（核心）
   const vr=v.length>=6?v[v.length-1]/(v.slice(-6,-1).reduce((a,b)=>a+b,0)/5):1;
   // v183：盤中已去掉今天未完成的K棒，最後一根量是「昨天」的——K棒紅黑也要用昨天那根，原本拿今天盤中價配昨天的量
-  const kC=D._intraday?c[c.length-1]:price, kO=D._intraday&&D.opens?D.opens[D.opens.length-1]:open;
+  const kC=barPx(D), kO=D._intraday?(D.opens?D.opens[D.opens.length-1]:barPrev(D)):open;   // v184 沒有開盤價時以前一日收盤代替（不可拿今天的開盤配昨天的收盤）
   const vUp=kC>kO&&vr>1.5,vDn=kC<kO&&vr>1.5;
   add('成交量異常放大 ⭐','核心',`${vr.toFixed(2)}x`,vr,0,3,
     vUp?'buy':vDn?'sell':'hold',

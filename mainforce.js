@@ -37,7 +37,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['mainforce.js'] = 183; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['mainforce.js'] = 185; } catch (e) {}
 
 /* ══ A. OBV 能量潮 ════════════════════════════════════════════════════
    收漲日加量、收跌日減量的累積線。價與 OBV 背離 = 主力偷跑：
@@ -78,7 +78,6 @@ function computeMFI(D, n = 14) {
    ════════════════════════════════════════════════════════════════════ */
 function computeMainForce(D, formulas) {
   const c = D.closes, h = D.highs, l = D.lows, v = D.volumes, n = c.length;
-  const price = D.price;
   const scores = { 吸籌: 0, 洗盤: 0, 出貨: 0, 誘多: 0, 誘空: 0, 恐慌殺盤: 0 };
   const evidence = { 吸籌: [], 洗盤: [], 出貨: [], 誘多: [], 誘空: [], 恐慌殺盤: [] };
   const add = (k, s, e) => { scores[k] += s; evidence[k].push(e); };
@@ -95,7 +94,7 @@ function computeMainForce(D, formulas) {
 
   // ── 籌碼與價格背離 ──
   const chip = D.chip;
-  const chg5 = n >= 6 ? (price - c[n-6]) / c[n-6] * 100 : 0;
+  const chg5 = n >= 6 ? (barPx(D) - c[n-6]) / c[n-6] * 100 : 0;   // v184 與法人5日（至昨天）同一段
   if (chipUsable(chip)) {   // v182：資料不完整／落後的籌碼不投票
     const instBuy = chip.foreign5 + chip.trust5;
     if (instBuy > 0 && chg5 < -1) add('吸籌', 20, `法人5日買超但股價下跌（法人低接吸籌）`);
@@ -104,7 +103,7 @@ function computeMainForce(D, formulas) {
 
   // ── 量價異常 ──
   const vr = n >= 6 ? v[n-1] / (v.slice(-6, -1).reduce((a, b) => a + b, 0) / 5) : 1;
-  const chg1 = (price - D.prevClose) / D.prevClose * 100;
+  const chg1 = (barPx(D) - barPrev(D)) / barPrev(D) * 100;   // v184 與 vr 同一根K棒
   let downStreak = 0;
   for (let i = n - 1; i > 0; i--) { if (c[i] < c[i-1]) downStreak++; else break; }
   if (vr > 1.8 && chg1 < -2) {
@@ -584,14 +583,15 @@ async function loadMarginCard(D) {
     ${(() => { try { const fr = (typeof checkDataFreshness === 'function' && m.dataDate) ? checkDataFreshness(m.dataDate, 0) : null; return (fr && fr.stale) ? `<div style="grid-column:1/-1;font-size:10px;color:var(--sell);margin-top:4px">⚠️ 融資融券資料落後約${fr.gapDays}個交易日（顯示${String(m.dataDate).slice(4,6)}/${String(m.dataDate).slice(6,8)}，預期${fr.expected.slice(4,6)}/${fr.expected.slice(6,8)}）——請暫緩採信，稍後重查</div>` : ''; } catch (e) { return ''; } })()}
   </div>`;
 
-  // 軋空偵測（對空方交易者最重要）
-  if (m.shortRatio >= SHORT_RATIO_SQUEEZE) {
+  // 軋空偵測（對空方交易者最重要）；v184 資料不是最新就不判讀（上方已標紅，與紀律門、擁擠度同標準）
+  const sr = marginFresh(m) ? m.shortRatio : null;
+  if (sr >= SHORT_RATIO_SQUEEZE) {
     html += `<div style="margin-top:10px;padding:10px 12px;background:var(--sell-d);border:1px solid var(--sell);border-radius:8px">
-      <div style="font-size:12px;font-weight:700;color:var(--sell)">⚡ 軋空警報：券資比 ${m.shortRatio.toFixed(0)}%</div>
+      <div style="font-size:12px;font-weight:700;color:var(--sell)">⚡ 軋空警報：券資比 ${sr.toFixed(0)}%</div>
       <div style="font-size:11px;color:var(--muted);line-height:1.6;margin-top:2px">融券佔融資比例過高，空單擁擠。任何利多或強拉都可能觸發空單回補潮（軋空），<b>持有空單者務必嚴設停損</b>；已有空單且開始逆勢上漲時，優先減碼</div>
     </div>`;
-  } else if (m.shortRatio >= SHORT_RATIO_HOT) {
-    html += `<div style="margin-top:10px;font-size:11px;color:var(--warn)">⚠️ 券資比 ${m.shortRatio.toFixed(0)}% 偏高，空單留意軋空風險</div>`;
+  } else if (sr >= SHORT_RATIO_HOT) {
+    html += `<div style="margin-top:10px;font-size:11px;color:var(--warn)">⚠️ 券資比 ${sr.toFixed(0)}% 偏高，空單留意軋空風險</div>`;
   }
   document.getElementById('margin-content').innerHTML = html;
   // 補繪前校驗：確認使用者還在看同一檔（防快速換股的 async 競爭導致張冠李戴）
@@ -978,7 +978,7 @@ async function loadDeepChipCard(D) {
   }
 
   // v183：拿不到或不可信的區塊明講原因（例如持股分級需 Backer 方案、當沖量單位對不上），不是默默少一塊
-  const miss = [dc.bigErr && `千張大戶：${dc.bigErr}`, dc.lendErr, dc.dayTradeErr && `當沖比重：${dc.dayTradeErr}`].filter(Boolean);
+  const miss = [dc.bigErr && `千張大戶：${dc.bigErr}`, dc.lendErr, dc.dayTradeErr && `當沖比重：${dc.dayTradeErr}`, dc.brokerErr && `分點：${dc.brokerErr}`, dc.dealerErr && `自營商：${dc.dealerErr}`].filter(Boolean);
   if (miss.length) html += `<div style="font-size:10px;color:var(--warn);margin-top:8px;line-height:1.6">⚠️ ${miss.map(escI).join('；')}</div>`;
   html += `<div style="font-size:10px;color:var(--muted2);margin-top:10px;line-height:1.6">💡 部位背離是「統計優勢」不是無風險套利（零售層級不存在套利）。持股分級為週資料。資料來源：FinMind。</div>`;
   document.getElementById('deepchip-content').innerHTML = html;

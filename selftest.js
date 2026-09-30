@@ -550,6 +550,25 @@ async function scanFlowTests() {
     const today = expectedTradeDate(0), Dq = mk(60, i => 100); Dq.price = 99.5;   // 5 日跌 0.5%
     o.q = [marginQuadrant({ marginChg5: 5, chg5N: 5, dataDate: today }, Dq), marginQuadrant({ marginChg5: 5, chg5N: 5, dataDate: today }, { ...Dq, price: 98 }),
       marginQuadrant({ marginChg5: 5, chg5N: 5, dataDate: today, headMiss: 1 }, { ...Dq, price: 98 }), marginQuadrant({ marginChg5: null, chg5N: 5, dataDate: today }, { ...Dq, price: 98 })];
+    // v184 盤中：量是昨天的，漲跌也要昨天那根（現價暴跌不可讓融資判成「接刀」、量價判成出貨）
+    const Dqi = { ...Dq, closes: Dq.closes.slice(), price: 90, prevClose: 100, _intraday: '20260930' };
+    o.qIntra = marginQuadrant({ marginChg5: 5, chg5N: 5, dataDate: today }, Dqi);
+    o.bar = [barPx(Dqi), barPrev(Dqi), barPx({ ...Dq, price: 95, prevClose: 97 }), barPrev({ ...Dq, price: 95, prevClose: 97 })];
+    o.probShort = computeProbability(mk(50, i => 100 + i));
+    const Dl = mk(300, i => 100 * Math.exp(i * 0.003));   // 大盤只有 200 根：區間要用兩邊都有的長度
+    o.rsShort = computeRSRating(Dl, Dl.closes.slice(-200));
+    // 分批進場：沒填張數不可冒出股數；沒代碼分不出張或股
+    document.getElementById('batch-rows').innerHTML = ''; addBatchRow(); document.getElementById('tr-shares').value = '';
+    { const bid = document.querySelector('[id^="batch-qty-"]').id.replace('batch-qty-', '');
+      document.getElementById('batch-date-' + bid).value = '2026-09-01'; document.getElementById('batch-price-' + bid).value = '100';
+      document.getElementById('tr-code').value = '2330'; calcBatch(); o.blankQty = document.getElementById('tr-shares').value;
+      document.getElementById('batch-qty-' + bid).value = '2'; document.getElementById('tr-code').value = ''; calcBatch(); o.noCode = document.getElementById('tr-shares').value;
+      document.getElementById('batch-rows').innerHTML = ''; }
+    // 時鐘較慢的裝置刪掉「別台（時鐘較快）還原」的交易：刪除時間要比還原晚，雲端合併時不可復活
+    { const ra = Date.now() + 600000; await dbAddTrade({ id: 't_skew', date: '2026-09-01', code: '9999', restoredAt: ra });
+      await dbDeleteTrade('t_skew'); const gone = await applyTombstones([]);
+      o.skew = { later: gone.get('t_skew') > ra, revived: await mergeTrades([{ id: 't_skew', date: '2026-09-01', code: '9999', restoredAt: ra }], gone) };
+      await dbSetSetting('deletedIds', []); }
     // 共振「結構」維度：貼近 VWAP 不偏任何一邊
     try { o.res = computeResonance({ D, vwap: { signal: 'hold' }, structure: { trend: 'down' } }).dims.find(d => d.name === '結構').dir; } catch (e) { o.res = 'err ' + e.message; }
     // 日誌：沒填股數＝金額未知；舊版「盈虧%×100」冒充金額的單也不算
@@ -570,6 +589,12 @@ async function scanFlowTests() {
     await refreshJournal(); await new Promise(r => setTimeout(r, 200)); o.xss = window._xss; await dbRemoveTrade('t_xss'); await refreshJournal();
     return o;
   });
+  ok('盤中：融資四象限用昨天收盤（現價盤中暴跌不算「接刀」）', v3.qIntra === 'flat', String(v3.qIntra));
+  ok('盤中：同一根K棒的價（盤中＝最後一根與前一根收盤；收盤後＝現價與昨收）', JSON.stringify(v3.bar) === '[100,100,95,97]', JSON.stringify(v3.bar));
+  ok('機率：K棒不足算不出當前訊號時不顯示（不是「多空訊號數相同」）', v3.probShort === null, JSON.stringify(v3.probShort));
+  ok('RS：大盤較短時兩邊用同一段區間（同一條序列＝50）', v3.rsShort.rating === 50 && Math.abs(v3.rsShort.excess) < 1e-9, JSON.stringify(v3.rsShort));
+  ok('分批進場：有批次沒填張數就不填股數；沒填代碼也不填（分不出張或股）', v3.blankQty === '' && v3.noCode === '', JSON.stringify([v3.blankQty, v3.noCode]));
+  ok('同步：時鐘較慢的裝置刪除「別台還原的交易」照樣刪得掉，不會在合併時復活', v3.skew.later && v3.skew.revived === 0, JSON.stringify(v3.skew));
   ok('RS：大盤用同樣的加權（自己對自己＝50、超額 0）', v3.rsSelf.rating === 50 && Math.abs(v3.rsSelf.excess) < 1e-9, JSON.stringify(v3.rsSelf));
   ok('大盤基準：盤中去掉今天未完成的K棒（與個股對齊，Beta 不錯位）', v3.benchLen === 299, String(v3.benchLen));
   ok('最大回撤：只看近一年（兩年前的腰斬不算）', v3.maxDD > -0.05, String(v3.maxDD));
@@ -582,8 +607,13 @@ async function scanFlowTests() {
   { const ap = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8'), bf = fs.readFileSync(path.join(ROOT, 'bingfa.js'), 'utf8'), av = fs.readFileSync(path.join(ROOT, 'advanced.js'), 'utf8');
     ok('機率品質檢驗用本次的 D（不是上一檔的 _lastD）', /renderProbability\(computeProbability\(D\), D\)/.test(ap) && /computeProbLogLoss\(D, 5\)/.test(av) && /ll\(x => x\.bull \? base : 1 - base\)/.test(av));
     ok('本次的 D 在啟動非同步卡片之前就登記', ap.indexOf('window._lastD=D;') < ap.indexOf("loadFundamentalCard(D)") && ap.indexOf('window._lastD=D;') > 0);
+    { const src = ['bingfa.js', 'enhance.js', 'mainforce.js', 'advanced.js'].map(f => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n'), jn = fs.readFileSync(path.join(ROOT, 'journal.js'), 'utf8'), sc = fs.readFileSync(path.join(ROOT, 'scan.js'), 'utf8');
+      ok('盤中量價：分析檔不再拿現價配昨天的量（price／D.price 對 prevClose）', !/(\bprice|D\.price) > D\.prevClose|\(price - D\.prevClose\)|\(D\.price - c\[n - 6\]\)|\(price - c\[n-6\]\)/.test(src) && /_intraday: it\._intraday/.test(sc));
+      ok('券資比「軋空燃料」與融資卡同一條線；融資卡過期資料不判軋空；橫幅籌碼警告用 chipUsable', !/shortRatio >= 25/.test(src) && /const sr = marginFresh\(m\) \? m\.shortRatio : null/.test(src) && /if \(cp && !chipUsable\(cp\)\) addW/.test(src));
+      ok('匯出：沒有金額的統計印「—」不印 +0；紀律門重繪出錯不清掉 6% 預算', !/cur\((s|d|rs|ss)\.(totalPnl|expectancy|avgWin|avgLoss|maxDrawdown)\)/.test(jn) && /catch \(e\) \{ if \(typeof ErrorLog !== 'undefined'\) ErrorLog\.push\('紀律門重繪'/.test(jn));
+      ok('掃描池說明裡的後端文字有跳脫', /escI\(p\.srcErrors\.join/.test(sc) && /動態池取得失敗：\$\{escI\(/.test(sc)); }
     ok('凱利 b：風險卡是做多配置，兩處都用「上漲」可達幅度', (ap.match(/computeRealisticTargets\(D, 1, stopPct\)/g) || []).length === 2 && !/computeRealisticTargets\(D, *(dir|sgn|-1)[^)]*stopPct\)/.test(ap));
-    ok('盤中：量價訊號用同一天（昨天）的K棒', /kC=D\._intraday\?c\[c\.length-1\]:price/.test(ap));
+    ok('盤中：量價訊號用同一天（昨天）的K棒', /kC=barPx\(D\), kO=D\._intraday\?\(D\.opens\?D\.opens\[D\.opens\.length-1\]:barPrev\(D\)\):open/.test(ap));
     ok('綜合研判：擁擠度（A級）有採計；波段尾端以溫度計為準；橫幅遇紀律門禁止時不叫你進場', /if \(crowd\) push\('crowding'/.test(bf) && /ms\.stage === '尾端' \? 0 : ms\.dir/.test(bf) && /computeTradeGate\(\{ D, regime, mtf, res, formulas, shi \}\)/.test(bf));
     ok('券資比門檻全站同一條（18%／30%）', /SHORT_RATIO_HOT/.test(fs.readFileSync(path.join(ROOT, 'mainforce.js'), 'utf8')) && !/shortRatio >= (15|20)\b/.test(bf + fs.readFileSync(path.join(ROOT, 'mainforce.js'), 'utf8'))); }
   // 掃描：三顆按鈕同一把鎖
@@ -600,7 +630,7 @@ async function scanFlowTests() {
     : { ok: true, noMeta: 1, rows: [{ code: '2330', d: '20260901', asOf: 1, ai: 'ok', tilt: 0.6 }, { code: '2317', d: '20260902', asOf: 2, ai: 'ok', tilt: -0.6 }] };
   await pg.evaluate(() => runIntelCalib());
   const cal = await pg.evaluate(() => document.getElementById('intel-calib').innerText);
-  ok('資訊面校準：逐檔抓之後 5 日、列出方向組別與樣本不足', /共 2 筆已滿 5 日的快照（2 檔）/.test(cal) && /1 筆沒有摘要/.test(cal) && /偏多 \| 2 \|/.test(cal) && /樣本不足/.test(cal), cal.slice(0, 300));
+  ok('資訊面校準：逐檔抓之後 5 日、列出方向組別與樣本不足', /共 2 筆已滿 5 日的快照（2 檔）/.test(cal) && /1 筆內容無法判讀/.test(cal) && /偏多 \| 2 \|/.test(cal) && /樣本不足/.test(cal), cal.slice(0, 300));
   snapResp = () => ({ ok: false, error: '這支 Worker 沒有綁定 KV（名稱須為 SYNC），沒有快照可讀' });
   await pg.evaluate(() => runIntelCalib());
   const calE = await pg.evaluate(() => document.getElementById('intel-calib').innerText);
@@ -743,6 +773,8 @@ function intelFrontTests() {
     ok('交易對照：用進場日「之前」最近的快照（當天的可能是收盤後才查的）；超過 7 天不算', (F.tradeSnap(t, rows) || {}).d === '20260910'
       && F.tradeSnap({ ...t, entryDate: '2026-09-20' }, rows) === null && (F.tradeSnap({ ...t, code: '2330.TW' }, rows) || {}).d === '20260910');
     const md = F.intelTradeMd([t, { ...t, direction: 'short', result: 'loss', pnlPct: -2 }, { ...t, entryDate: '2026-09-30' }], rows);
+    const mdUS = F.intelTradeMd([t, { ...t, code: 'AAPL', result: 'loss' }], rows);
+    ok('交易對照：美股沒有資訊面，不列入各組也不拉低基準', /沒查資訊面[^|]*\| 0 \|/.test(mdUS) && /全部台股交易勝率 100\.0%（另 1 筆非台股/.test(mdUS), mdUS);
     ok('交易對照：做多遇偏空快照＝逆、做空遇偏空＝順、沒快照另列', /順著資訊面 \| 1 \| 0\.0%/.test(md) && /逆著資訊面 \| 1 \| 100\.0%/.test(md) && /沒查資訊面[^|]*\| 1 \|/.test(md), md); }
 
   let v = V(J(0.8, st(0.05, 3)), chip(1000, 200));
@@ -859,7 +891,7 @@ async function backendTests() {
     ok('Code.gs 只用 ES5 語法（Rhino 可解析）', !bad.length, bad.join('、'));
   }
   const G = {};
-  new Function('module', fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8') + '\nmodule.fetchYahoo=fetchYahoo;module.fetchYahooTW=fetchYahooTW;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTopPool=fetchTopPool;module.rocToYmd=rocToYmd;module.eventStudy=eventStudy;module.infoTilt=infoTilt;module.validateAI=validateAI;module.parseRSS=parseRSS;module.parsePTT=parsePTT;module.parseAnnounce=parseAnnounce;module.fetchIntel=fetchIntel;module.dropIntraday=dropIntraday;module.fetchNews=fetchNews;module.dedupKey=dedupKey;module.doGet=doGet;module.doPost=doPost;module.heat=heat;module.parseFinMindNews=parseFinMindNews;module.dayMoves=dayMoves;module.mergeDays=mergeDays;module.intelPrompt=intelPrompt;module.revSurprise=revSurprise;module.fetchNewsEn=fetchNewsEn;module.normCite=normCite;module.yahooQuote=yahooQuote;module.numN=numN;module.peN=peN;module.fetchDeepChip=fetchDeepChip;module.fetchMarket=fetchMarket;module.fetchTaiwan=fetchTaiwan;module.fetchMargin=fetchMargin;')(G);
+  new Function('module', fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8') + '\nmodule.fetchYahoo=fetchYahoo;module.fetchYahooTW=fetchYahooTW;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTopPool=fetchTopPool;module.rocToYmd=rocToYmd;module.eventStudy=eventStudy;module.infoTilt=infoTilt;module.validateAI=validateAI;module.parseRSS=parseRSS;module.parsePTT=parsePTT;module.parseAnnounce=parseAnnounce;module.fetchIntel=fetchIntel;module.dropIntraday=dropIntraday;module.fetchNews=fetchNews;module.dedupKey=dedupKey;module.doGet=doGet;module.doPost=doPost;module.heat=heat;module.parseFinMindNews=parseFinMindNews;module.dayMoves=dayMoves;module.mergeDays=mergeDays;module.intelPrompt=intelPrompt;module.revSurprise=revSurprise;module.fetchNewsEn=fetchNewsEn;module.normCite=normCite;module.yahooQuote=yahooQuote;module.numN=numN;module.peN=peN;module.fetchDeepChip=fetchDeepChip;module.fetchMarket=fetchMarket;module.fetchTaiwan=fetchTaiwan;module.fetchMargin=fetchMargin;module.fetchFundamental=fetchFundamental;')(G);
 
   // twseGet 會先讀 resp.text()；測試替身統一用 jt() 同時提供 text 與 json
   const jt = o => ({ ok: true, status: 200, text: async () => JSON.stringify(o), json: async () => o });
@@ -1016,6 +1048,15 @@ async function backendTests() {
     ok('當沖比重：單位對不上（比重小得不合理）就不給數字，並說明', !w.dayTrading && /單位對不上/.test(w.dayTradeErr) && !g.dayTrading && /單位對不上/.test(g.dayTradeErr), w.dayTradeErr);
     [w, g] = await run({ TaiwanStockHoldingSharesPer: { status: 402 }, TaiwanStockTradingDailyReport: { status: 402 } });
     ok('主力縱深：持股分級／分點要付費方案（402）時，借券等其餘照常，並說明原因', w.lend && g.lend && /402/.test(w.bigErr) && /402/.test(g.bigErr) && !w.big && !g.big, JSON.stringify([w.bigErr, g.bigErr]));
+    ok('主力縱深：分點拿不到要講原因（原本整塊默默消失）', /402/.test(w.brokerErr) && /402/.test(g.brokerErr) && !w.brokers.length, JSON.stringify([w.brokerErr, g.brokerErr]));
+    [w, g] = await run({ TaiwanStockPrice: { status: 429 } });
+    ok('主力縱深：當沖分母（總成交量）抓失敗要講原因，不是空白', !w.dayTrading && /總成交量.*429/.test(w.dayTradeErr) && /總成交量.*429/.test(g.dayTradeErr), JSON.stringify([w.dayTradeErr, g.dayTradeErr]));
+    [w, g] = await run({ TaiwanStockDayTrading: { json: { data: [] } } });
+    ok('主力縱深：沒有當沖資料時明講（不是讓那塊消失）', /沒有此股的當沖資料/.test(w.dayTradeErr) && /沒有此股的當沖資料/.test(g.dayTradeErr), JSON.stringify([w.dayTradeErr, g.dayTradeErr]));
+    let de = ['', '']; [w, g] = [null, null];
+    try { await run({ TaiwanStockHoldingSharesPer: { status: 402 }, TaiwanDailyShortSaleBalances: { json: { data: [] } }, TaiwanStockTradingDailyReport: { json: { data: [] } } }); } catch (e) { de[0] = e.message; }
+    try { G.fetchDeepChip('2330', 'tok'); } catch (e) { de[1] = e.message; }
+    ok('主力縱深：全部拿不到時，錯誤訊息帶真正原因（402），不只「無此股資料」', /402/.test(de[0]) && /402/.test(de[1]), JSON.stringify(de));
     fetchImpl = async u => jt(T86); gsFetch = u => gsOf(T86); }
   { // 大盤：GAS 原本沒抓加權指數；一檔報價失敗其餘不可跟著消失，且要列在來源錯誤
     const qq = c => ({ chart: { result: [{ meta: {}, timestamp: [1, 2], indicators: { quote: [{ close: [100, c], high: [1, 1], low: [1, 1], open: [1, 1], volume: [1, 1] }], adjclose: [{ adjclose: [100, c] }] } }] } });
@@ -1034,7 +1075,17 @@ async function backendTests() {
     fetchImpl = async () => jt(BW);
     let fe = ''; try { await W.fetchFundamental('2330'); } catch (e) { fe = e.message; }
     ok('估值：欄名對不上時把實際欄名講出來（不是只說「無基本面資料」）', /BWIBBU_d 欄位全部對不上/.test(fe), fe);
-    fetchImpl = async u => jt(T86); }
+    gsFetch = () => gsOf(BW); let ge = ''; try { G.fetchFundamental('2330'); } catch (e) { ge = e.message; }
+    ok('估值（GAS）：欄名對不上同樣講出來（與 Worker 對等）', /BWIBBU_d 欄位全部對不上/.test(ge), ge);
+    // 找得到營收列、但年增是「-」（上市未滿一年）且不在估值表：Worker 回部分資料，GAS 原本丟「無基本面資料」
+    const BW0 = { stat: 'OK', fields: ['證券代號', '殖利率(%)', '本益比', '股價淨值比'], data: [['1101', '1', '2', '3']] };
+    const RV = [{ '公司代號': '2330', '營業收入-上月比較增減(%)': '5.5', '營業收入-去年同月增減(%)': '-', '資料年月': '11508' }];
+    fetchImpl = async u => jt(/openapi/.test(u) ? RV : BW0); gsFetch = u => gsOf(/openapi/.test(u) ? RV : BW0);
+    let wf = null, gf = null, fe2 = ''; try { wf = await W.fetchFundamental('2330'); } catch (e) { fe2 = 'W:' + e.message; } try { gf = G.fetchFundamental('2330'); } catch (e) { fe2 += ' G:' + e.message; }
+    ok('基本面：有營收列但年增為空時兩邊都回部分資料（不丟例外、不寫 0）', wf && gf && wf.revMoM === 5.5 && gf.revMoM === 5.5 && wf.revYoY === null && gf.revYoY === null, fe2 || JSON.stringify([wf, gf]));
+    fetchImpl = async u => jt(T86); gsFetch = u => gsOf(T86); }
+  ok('GAS 情報快取：只存完整成功的結果（AI 失敗或來源失敗不存）；有無 token 分開存', /if \(result\.ai\.status === 'ok' && !result\.srcErrors\.length\) try \{[^\n]*cache\.put/.test(fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8'))
+    && /ck = 'intel_' \+ ic \+ \(itk \? '_t' : ''\)/.test(fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8')));
   ok('Code.gs 不再用 getDay()（專案時區；星期要用台北時區算）', !/\.getDay\(\)/.test(fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')));
   { // GAS 備援（Yahoo 失敗改用證交所月資料）：原本沒有 lastDate 與原始價序列
     const SD = { stat: 'OK', title: '115年09月 2330 台積電 各日成交資訊', data: Array.from({ length: 20 }, (_, i) => [`115/09/${String(i + 1).padStart(2, '0')}`, '1,000', '1', '100', '101', '99', String(100 + i), '0', '1']) };
@@ -1665,7 +1716,7 @@ async function backendTests() {
 
     // KV 快照
     const kv = {}; fetchImpl = async u => asResp(IT.route(u, IT.gem));
-    const ks = await W2.fetchIntel('2330', { SYNC: { put: async (k, v) => { kv[k] = v; } } });
+    const ks = await W2.fetchIntel('2330', { SYNC: { put: async (k, v) => { kv[k] = v; }, getWithMetadata: async () => null } });
     ok('有綁 KV 時每日存快照（供日後回測）', ks.snapshot === 'saved' && Object.keys(kv).some(k => /^intel:2330:\d{8}$/.test(k)), Object.keys(kv).join());
     // v184 快照瘦身＋摘要放 metadata
     { let put = null; await W2.saveIntelSnap({ SYNC: { put: async (k, v, o) => { put = { v, o }; } } }, '2330', Date.now(), IT.full);
@@ -1674,6 +1725,11 @@ async function backendTests() {
         && sv.items.length === IT.full.items.length && sv.events.length === IT.full.events.length && sv.ai.prompt === IT.full.ai.prompt && sv.tilt.tilt === IT.full.tilt.tilt && Array.isArray(sv.srcErrors),
         put ? `${put.v.length}/${full}` : '沒寫入');
       console.log(`    （快照大小：測試資料 ${full} → ${put ? put.v.length : '?'} 字元）`);
+      const mk = old => { const st = { n: 0 }; return { st, env: { SYNC: { put: async () => { st.n++; }, getWithMetadata: async () => old } } }; };
+      const noAi = { ...IT.full, ai: { status: 'error', why: 'quota' }, tilt: null };
+      const k1 = mk({ value: '{}', metadata: { ai: 'ok' } }), k2 = mk({ value: '{}', metadata: { ai: 'error' } }), k3 = mk(null);
+      const r1 = await W2.saveIntelSnap(k1.env, '2330', Date.now(), noAi), r2 = await W2.saveIntelSnap(k2.env, '2330', Date.now(), noAi), r3 = await W2.saveIntelSnap(k3.env, '2330', Date.now(), noAi);
+      ok('快照：當天已有 AI 成功的，重查 AI 失敗不覆蓋；原本就失敗或沒有則照存', r1 === 'kept' && k1.st.n === 0 && r2 === 'saved' && k2.st.n === 1 && r3 === 'saved' && k3.st.n === 1, [r1, r2, r3].join());
       ok('快照摘要放 KV metadata（列表一次拿全部；上限 1024 bytes）', !!meta && meta.ai === 'ok' && meta.tilt === 1 && meta.prompt === IT.full.ai.prompt && meta.asOf > 0
         && Buffer.byteLength(JSON.stringify(meta)) < 1024, JSON.stringify(meta)); }
     { const ser = { dates: ['20260901', '20260902', '20260903', '20260904', '20260907', '20260908', '20260909', '20260910', '20260911', '20260914', '20260915'], closes: [100, 101, 102, 103, 104, 105, 106, 107, 110, 111, 112] };
@@ -1683,10 +1739,15 @@ async function backendTests() {
       ok('之後5日報酬：13:30 前查＝當天收盤進場、之後查＝下一個交易日、假日查＝下一個交易日', a.entry === '20260902' && b.entry === '20260903' && c.entry === '20260907', JSON.stringify([a, b, c]));
       ok('之後5日報酬：超額＝個股 − 0050 同期', Math.abs(a.r5 - (106 / 101 - 1)) < 1e-12 && Math.abs(a.ex5 - a.r5) < 1e-12 && Math.abs(b.ex5 - ((107 / 102 - 1) - (51 / 50 - 1))) < 1e-12, JSON.stringify(b));
       ok('之後5日報酬：還沒滿 5 日／早於價格資料 分開標，不給數字', W2.snapFwd(ser, mkt, at('20260910', '10:00')).why === 'pending' && W2.snapFwd(ser, mkt, at('20250101', '10:00')).why === 'old'); }
-    { const keys = [{ name: 'intel:2330:20260901', metadata: { asOf: 1, ai: 'ok', tilt: 0.5 } }, { name: 'intel:2330:20260902' }, { name: 'intel:2317:20260903', metadata: { asOf: 2, ai: 'error', tilt: null } }];
-      const seen = []; const env = { SYNC: { list: async o => { seen.push(o); return o.cursor ? { keys: keys.slice(2), list_complete: true } : { keys: keys.slice(0, 2), list_complete: false, cursor: 'c1' }; } } };
+    { const keys = [{ name: 'intel:2330:20260901', metadata: { asOf: 1, ai: 'ok', tilt: 0.5 } }, { name: 'intel:2330:20260902' }, { name: 'intel:2330:20260904' }, { name: 'intel:2317:20260903', metadata: { asOf: 2, ai: 'error', tilt: null } }];
+      const vals = { 'intel:2330:20260902': IT.full, 'intel:2330:20260904': 'garbage' }, wrote = [];
+      const seen = []; const env = { SYNC: { get: async k => vals[k], put: async (k, v, o) => { wrote.push([k, o && o.metadata]); }, list: async o => { seen.push(o); return o.cursor ? { keys: keys.slice(3), list_complete: true } : { keys: keys.slice(0, 3), list_complete: false, cursor: 'c1' }; } } };
       const L = await W2.listIntelSnaps(env, '');
-      ok('快照清單：分頁讀完、沒有摘要的明講筆數', L.rows.length === 2 && L.noMeta === 1 && L.rows[1].code === '2317' && L.rows[0].d === '20260901' && seen.length === 2 && seen[1].cursor === 'c1', JSON.stringify(L));
+      ok('快照清單：分頁讀完；v183 沒摘要的舊快照讀內容補算；讀不出的明講筆數', L.rows.length === 3 && L.noMeta === 1 && L.rows[1].d === '20260902' && L.rows[1].ai === 'ok' && L.rows[1].tilt === 1
+        && L.rows[2].code === '2317' && seen.length === 2 && seen[1].cursor === 'c1', JSON.stringify(L));
+      ok('快照清單：舊快照補算的摘要寫回去（只讀一次）', wrote.length === 1 && wrote[0][0] === 'intel:2330:20260902' && wrote[0][1].ai === 'ok', JSON.stringify(wrote));
+      const L2 = await W2.listIntelSnaps({ SYNC: { get: async () => { throw new Error('KV 503'); }, list: async () => ({ keys: [{ name: 'intel:2330:20260902' }], list_complete: true }) } }, '');
+      ok('快照清單：讀取失敗另外計數，不混成「內容無法判讀」', L2.readErr === 1 && L2.noMeta === 0, JSON.stringify(L2));
       let kvErr = ''; try { await W2.listIntelSnaps({}, ''); } catch (e) { kvErr = e.message; }
       ok('快照清單：沒綁 KV 丟出原因（不回空清單假裝沒資料）', /沒有綁定 KV/.test(kvErr), kvErr); }
     ok('GAS：intelsnaps 明講快照只在 Worker（端點對等，不回空清單）', /action === 'intelsnaps'\) return[^\n]*ok: false[^\n]*Worker/.test(fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8')));

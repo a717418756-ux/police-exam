@@ -44,7 +44,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['enhance.js'] = 183; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['enhance.js'] = 185; } catch (e) {}
 
 /* ══ 區塊 H：ADX 市場狀態過濾器 ════════════════════════════════════════
    機構73%使用：ADX 不告訴方向，而是告訴你「該用哪種策略」
@@ -178,7 +178,7 @@ function computeChipHealth(chip, D) {
   let volNote = null;
   if (D && D.volumes && D.volumes.length >= 6) {
     const vr = D.volumes[D.volumes.length-1] / (D.volumes.slice(-6,-1).reduce((a,b)=>a+b,0)/5);
-    const priceUp = D.price > D.prevClose;
+    const priceUp = barPx(D) > barPrev(D);   // v184 量與價同一根K棒
     if (priceUp && vr > 1.5) { score += 6; signals.push(`量增價漲（${vr.toFixed(1)}倍量），資金進場推升，量價齊揚`); volNote='healthy'; }
     else if (!priceUp && vr > 1.5) { score -= 8; warnings.push(`量增價跌（${vr.toFixed(1)}倍量），疑似主力出貨換手`); volNote='distribution'; }
     else if (vr < 0.5) { warnings.push('窒息量，成交極度萎縮，多空觀望，留意變盤'); volNote='dead'; }

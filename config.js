@@ -11,7 +11,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 
 // ▼▼▼ 每次改版把這個數字 +1（例如 6 → 7），就會自動清除舊快取 ▼▼▼
-const APP_VERSION = 184;
+const APP_VERSION = 185;
 
 /* ── 快取存活時間（統一常數，v95）─────────────────────────────────────
    v95修：原本四個快取各自寫死不同TTL（股價5分/融資5分/大盤10分/縱深10分），
@@ -76,7 +76,7 @@ function evScorable(k) { try { const e = EVIDENCE[k]; return !!(e && e.w > 0); }
    app.js 啟動時比對，不符就直接點名是哪個檔沒更新——
    以前只能靠「畫面文字怎麼還是舊的」去猜，這種事發生過不只一次。 */
 const FILE_VERS = {
-  'help.js': 179, 'db.js': 183, 'market.js': 163, 'quant.js': 163, 'formula.js': 163, 'enhance.js': 183, 'advanced.js': 183, 'smc.js': 163, 'mainforce.js': 183, 'mtf.js': 163, 'resonance.js': 183, 'bingfa.js': 183, 'layout.js': 176, 'journal.js': 184, 'scan.js': 183, 'intel.js': 184, 'app.js': 183
+  'help.js': 179, 'db.js': 185, 'market.js': 163, 'quant.js': 163, 'formula.js': 163, 'enhance.js': 185, 'advanced.js': 185, 'smc.js': 163, 'mainforce.js': 185, 'mtf.js': 163, 'resonance.js': 183, 'bingfa.js': 185, 'layout.js': 176, 'journal.js': 185, 'scan.js': 185, 'intel.js': 185, 'app.js': 185
 };
 
 const EVIDENCE = {
@@ -157,6 +157,12 @@ function weekdayTradeDate(lagDays, at) {   // 只跳週末的推算
   const y = day.getUTCFullYear(), m = String(day.getUTCMonth() + 1).padStart(2, '0'), dd = String(day.getUTCDate()).padStart(2, '0');
   return `${y}${m}${dd}`;
 }
+/* v184 盤中已去掉今天未完成的K棒（trimIntradayBar），序列最後一根是「昨天」。拿最後一根的量或K棒配漲跌時，
+   價格也要用同一根——現價配昨天的量＝把兩天拼在一起（量增價漲可能是昨天爆量下跌＋今天盤中上漲）。
+   收盤後 barPx＝現價、barPrev＝昨收，行為不變 */
+const barPx = D => D._intraday ? D.closes[D.closes.length - 1] : D.price;
+const barPrev = D => D._intraday ? D.closes[D.closes.length - 2] : D.prevClose;
+
 function checkDataFreshness(dataDate, lagDays) {
   if (!dataDate) return null;
   const ds = String(dataDate);

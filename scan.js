@@ -15,7 +15,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['scan.js'] = 183; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['scan.js'] = 185; } catch (e) {}
 
 /* v115修：前端原送15檔/批，但 Code.gs（GAS後端）上限只取前10檔——
    使用GAS的人每批會默默遺失5檔（不成功也不算失敗，直接消失，總數對不上）。
@@ -213,14 +213,14 @@ async function runScanAutoInner(dirStr) {
     _poolNote = `<div style="margin-bottom:8px;padding:8px 10px;background:var(--bg);border:1px dashed var(--bd2);border-radius:7px;font-size:10px;color:var(--muted);line-height:1.6">
       📊 <b>動態掃描池</b>：取 ${fresh} 上市＋上櫃成交金額前 ${n} 名（全市場符合條件個股 ${p.universe} 檔，第 ${n} 名當日成交金額 ${(p.cutoff / 1e8).toFixed(2)} 億）。
       已排除 ETF／特別股／DR（只留四位數字代碼）。<b>這只是候選範圍，不是推薦</b>——流動性門檻仍以20日均額≥1億逐檔判定。
-      ${p.srcErrors ? `<div style="color:var(--warn);margin-top:4px">⚠️ 其中有來源沒拿到，這次的排行<b>不含</b>它：${p.srcErrors.join('；')}</div>` : ''}
+      ${p.srcErrors ? `<div style="color:var(--warn);margin-top:4px">⚠️ 其中有來源沒拿到，這次的排行<b>不含</b>它：${escI(p.srcErrors.join('；'))}</div>` : ''}
     </div>`;
   } catch (e) {
     /* 備援必須吵。靜默改用靜態清單＝使用者以為自己掃的是今日熱門股，
        其實掃的是可能已過時的寫死清單。 */
     pool = TW_POOL.filter(c => !(dead[c] >= 2));
     _poolNote = `<div style="margin-bottom:8px;padding:8px 10px;background:var(--warn-d);border:1px solid var(--warn);border-radius:7px;font-size:10px;color:var(--muted);line-height:1.6">
-      ⚠️ <b>這次用的是內建備援清單（${pool.length} 檔），不是今日成交排行</b>——動態池取得失敗：${String(e && e.message || e)}<br>
+      ⚠️ <b>這次用的是內建備援清單（${pool.length} 檔），不是今日成交排行</b>——動態池取得失敗：${escI(e && e.message || e)}<br>
       備援清單是寫死的，可能已過時（成分調整／下市／新上市都不會反映）。若你的後端尚未部署 v166，請重新部署 worker.js 或 Code.gs 後再掃一次。
     </div>`;
   }
@@ -284,7 +284,7 @@ async function runScanInner() {
         const D = {
           code: it.code, currency: /^\d{4,6}$/.test(it.code) ? 'TWD' : 'USD',
           closes: it.closes, highs: it.highs, lows: it.lows, volumes: it.volumes,
-          opens: it.opens || undefined, price: it.price, lastDate: it.lastDate,
+          opens: it.opens || undefined, price: it.price, lastDate: it.lastDate, _intraday: it._intraday,   // v184 量價判斷要知道最後一根是昨天（barPx）
           // v182：勢能分用「今天漲還是跌」判斷量價；原本沒給前一日收盤→ price > undefined 永遠 false，量增一律算成「量增價跌」
           prevClose: it.closes[it.closes.length - (it._trimmed ? 1 : 2)],
           /* v152：原本把「還原價」直接當成 rawCloses 塞進去，於是掃描用還原價算

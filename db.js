@@ -20,7 +20,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['db.js'] = 183; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['db.js'] = 185; } catch (e) {}
 
 const DB_NAME = 'stockRadarDB';
 // DB schema 版本獨立管理（schema 沒變就不用動；這裡固定 1）
@@ -79,7 +79,10 @@ async function dbAddTrade(trade) {
    v183 墓碑帶刪除時間 {id, t}：從備份檔還原的交易帶 restoredAt，「還原比刪除晚」就保留——
    原本還原後一按雲端儲存，雲端的舊墓碑又把它刪掉（誤刪救不回）。舊格式（純 id）視為 t=0。 */
 async function dbDeleteTrade(id) {
-  await mergeTombstones([{ id, t: Date.now() }]);
+  /* v184：刪除時間至少比這筆的還原時間晚——還原時間可能來自時鐘較快的另一台裝置，
+     單用本機時鐘，「還原後在時鐘較慢的裝置上刪掉」會被判成「刪除比還原早」，交易悄悄復活 */
+  const tr = (await dbGetAllTrades()).find(x => x.id === id);
+  await mergeTombstones([{ id, t: Math.max(Date.now(), ((tr && tr.restoredAt) || 0) + 1) }]);
   return dbRemoveTrade(id);
 }
 async function dbRemoveTrade(id) {   // 只刪資料、不留墓碑（套用別處墓碑時用，避免把刪除時間改成現在）
@@ -290,7 +293,8 @@ async function importBackup(obj, restore) {
   const trades = Array.isArray(obj.trades) ? obj.trades : [];
   const now = Date.now();
   const gone = await applyTombstones(restore ? [] : obj.deletedIds);
-  return mergeTrades(restore ? trades.map(t => ({ ...t, restoredAt: now })) : trades, gone);   // 還原＝這些交易的還原時間是現在
+  // 還原＝這些交易的還原時間是現在；v184 同理至少比已知的刪除時間晚（刪除可能來自時鐘較快的裝置）
+  return mergeTrades(restore ? trades.map(t => ({ ...t, restoredAt: Math.max(now, (gone.get(t.id) || 0) + 1) })) : trades, gone);
 }
 
 /* ══════════════════════════════════════════════════════════════════════
