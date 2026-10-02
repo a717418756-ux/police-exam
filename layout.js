@@ -14,22 +14,21 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['layout.js'] = 176; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['layout.js'] = 188; } catch (e) {}
 
 // 分頁定義（順序即按鈕順序）。cards 含該頁所有卡片 id
 const TABS = [
   { id:'t-decision', icon:'🎯', name:'決策',
-    cards:['gate-card','behavior-chain-card','movestage-card','bingfa-card','resonance-card','health-card','formula-card','prob-card','playbook-card'] },
-  { id:'t-score', icon:'📊', name:'分數',
-    cards:['quant-card','oos-card'] },
+    cards:['gate-card','behavior-chain-card','movestage-card','bingfa-card','playbook-card'] },
+  // v188 拿掉「分數」分頁（專屬量化分數、樣本外驗證都已移除）
   { id:'t-market', icon:'🌐', name:'大盤',
-    cards:['mktscore-card','market-card','regime-card'] },
+    cards:['market-card','regime-card'] },
   { id:'t-chip', icon:'💰', name:'籌碼',
     cards:['mainforce-card','margin-card','deepchip-card','chip-card','fundamental-card','rs-card','beta-card'] },
   { id:'t-trend', icon:'📈', name:'趨勢',
     cards:['mtf-card','trend-banner','risk-card','riskmetric-card'] },
   { id:'t-signal', icon:'🔍', name:'訊號',
-    cards:['smc-card','sr-card','vpradar-card','multiperiod-card','cat-row','ind-grid'] },
+    cards:['smc-card','sr-card','cat-row','ind-grid'] },
   { id:'t-mind', icon:'🧠', name:'心理AI',
     cards:['intel-card','crowd-card','psych-card','ai-card'] },   // v176 情報面（新聞/PTT/AI）歸心理AI
 ];

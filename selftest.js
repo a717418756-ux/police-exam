@@ -34,16 +34,89 @@ function logicTests() {
     ok('週日23:00台北→週五', evalExpected('2026-09-20T15:00:00Z') === '20260918', evalExpected('2026-09-20T15:00:00Z'));
   }
   const cfg = fs.readFileSync(path.join(ROOT, 'config.js'), 'utf8');
-  const phase = cfg.match(/function twMarketPhase[\s\S]*?\n}/);
-  ok('config.js 內含 twMarketPhase', !!phase);
-  if (phase) {
-    const run = (iso) => { const real = Date.now; Date.now = () => new Date(iso).getTime();
-      const v = eval('(()=>{' + phase[0] + ' return twMarketPhase();})()'); Date.now = real; return v.phase; };
-    ok('週一10:00→盤中', run('2026-09-21T02:00:00Z') === '盤中', run('2026-09-21T02:00:00Z'));
-    ok('週一14:00→已收盤', run('2026-09-21T06:00:00Z') === '已收盤', run('2026-09-21T06:00:00Z'));
-    ok('週一08:00→未開盤', run('2026-09-21T00:00:00Z') === '未開盤', run('2026-09-21T00:00:00Z'));
-    ok('週六11:00→非交易日', run('2026-09-19T03:00:00Z') === '未開盤', run('2026-09-19T03:00:00Z'));
+  { // v186 暫存有效期：看資料日期，不看抓了多久（台股用台北時間、美股用美東時間，夏令時間也要對）
+    const seg = cfg.slice(cfg.indexOf('const CACHE_TTL ='), cfg.indexOf('/* ── 前端超時保護'));
+    const C = new Function('chipUsable', seg + '\nreturn { cacheUntil, nextWeekdayAt, lastWeekdayFrom };')(ch => !ch.bad);
+    const at = x => Date.parse(x), iso = t => new Date(t).toISOString().slice(0, 16);
+    const px = (t, d, us) => iso(C.cacheUntil('px', d, at(t), us));
+    ok('暫存：台股盤中 5 分鐘（現價會變）', px('2026-10-01T10:00:00+08:00', { lastDate: '20260930' }) === iso(at('2026-10-01T10:05:00+08:00')));
+    ok('暫存：收盤後K棒到了、法人還沒（昨天的仍算最新）→ 留到 16:00 法人公布', px('2026-10-01T14:30:00+08:00', { lastDate: '20261001', chip: { dataDate: '20260930' } }) === iso(at('2026-10-01T16:00:00+08:00')));
+    // v187 審查：T86 尚未公布時後端把 expected 退回昨天（chipUsable 說完整）——16:00 後拿到昨天的法人不可留到隔天開盤
+    ok('暫存：16:00 後法人仍是昨天的（尚未公布）→ 30 分鐘後再試，不留到隔天', px('2026-10-01T16:05:00+08:00', { lastDate: '20261001', chip: { dataDate: '20260930' } }) === iso(at('2026-10-01T16:35:00+08:00')));
+    ok('暫存：16:00 後法人也到了 → 留到隔天開盤；週五留到週一 09:00', px('2026-10-01T17:00:00+08:00', { lastDate: '20261001', chip: { dataDate: '20261001' } }) === iso(at('2026-10-02T09:00:00+08:00'))
+      && px('2026-10-02T20:00:00+08:00', { lastDate: '20261002', chip: { dataDate: '20261002' } }) === iso(at('2026-10-05T09:00:00+08:00')));
+    ok('暫存：該有今天K棒卻還沒有、或法人不完整 → 30 分鐘後再試', px('2026-10-01T15:00:00+08:00', { lastDate: '20260930' }) === iso(at('2026-10-01T15:30:00+08:00'))
+      && px('2026-10-01T17:00:00+08:00', { lastDate: '20261001', chip: { bad: 1, dataDate: '20261001' } }) === iso(at('2026-10-01T17:30:00+08:00')));
+    ok('暫存：週末查（資料是週五的）→ 留到週一開盤', px('2026-10-03T12:00:00+08:00', { lastDate: '20261002' }) === iso(at('2026-10-05T09:00:00+08:00')));
+    // 美股：台北週五 10:00＝美東週四 22:00（夏令）；資料到週四 → 留到美東週五 09:30
+    ok('暫存：美股用美東時間（夏令 09:30＝台北 21:30）', px('2026-10-02T10:00:00+08:00', { lastDate: '20261001' }, true) === iso(at('2026-10-02T09:30:00-04:00')));
+    ok('暫存：美股冬令時間自動換算（11/2 起 09:30＝台北 22:30）', iso(C.nextWeekdayAt(at('2026-11-02T08:00:00Z'), 'America/New_York', 570)) === iso(at('2026-11-02T09:30:00-05:00')));
+    ok('暫存：美股盤中 5 分鐘', px('2026-10-01T23:00:00+08:00', { lastDate: '20260930' }, true) === iso(at('2026-10-01T23:05:00+08:00')));
+    const post = (t, d) => iso(C.cacheUntil('post', d, at(t)));
+    ok('暫存：融資／估值 當天的到了且抓齊 → 留到下一個 16:00；還沒到或缺漏 → 30 分鐘', post('2026-10-01T17:00:00+08:00', { date: '20261001', ok: true }) === iso(at('2026-10-02T16:00:00+08:00'))
+      && post('2026-10-01T15:00:00+08:00', { date: '20260930', ok: true }) === iso(at('2026-10-01T16:00:00+08:00'))
+      && post('2026-10-01T17:00:00+08:00', { date: '20260930', ok: true }) === iso(at('2026-10-01T17:30:00+08:00'))
+      && post('2026-10-01T17:00:00+08:00', { date: '20261001', ok: false }) === iso(at('2026-10-01T17:30:00+08:00')));
+    ok('暫存：FinMind 籌碼以 21:00 為界（借券日期是 YYYY-MM-DD 也要認得）', iso(C.cacheUntil('finmind', { date: '2026-10-01', ok: true }, at('2026-10-01T21:30:00+08:00'))) === iso(at('2026-10-02T21:00:00+08:00'))
+      && iso(C.cacheUntil('finmind', { date: '2026-09-30', ok: true }, at('2026-10-01T21:30:00+08:00'))) === iso(at('2026-10-01T22:00:00+08:00')));
+    ok('暫存：大盤盤中 5 分鐘、週末最多 30 分鐘；情報面 1 小時', iso(C.cacheUntil('market', {}, at('2026-10-01T10:00:00+08:00'))) === iso(at('2026-10-01T10:05:00+08:00'))
+      && iso(C.cacheUntil('market', {}, at('2026-10-03T12:00:00+08:00'))) === iso(at('2026-10-03T12:30:00+08:00'))
+      && iso(C.cacheUntil('intel', {}, at('2026-10-01T10:00:00+08:00'))) === iso(at('2026-10-01T11:00:00+08:00')));
   }
+  { // v188 工具盤點後的整併：每個工具都要有用處——永遠不會亮、跟別張卡重複、或已證實無效的都已刪除
+    const FRONT = ['config.js', 'help.js', 'db.js', 'market.js', 'enhance.js', 'advanced.js', 'smc.js', 'mainforce.js', 'mtf.js', 'bingfa.js', 'layout.js', 'journal.js', 'scan.js', 'intel.js', 'app.js'];
+    const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8'), sw = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8');
+    const all = FRONT.map(f => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n') + html;
+    const code = all.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+    // 死碼守門：前端每個頂層函式都要至少被用到一次
+    const defs = [...code.matchAll(/(?:^|\n)\s*(?:async\s+)?function\s+([A-Za-z_][\w]*)\s*\(/g)].map(m => m[1]);
+    const dead = defs.filter(n => (code.match(new RegExp('\\b' + n + '\\b', 'g')) || []).length <= 1);
+    ok('死碼：前端沒有定義了卻沒人用的函式', dead.length === 0, dead.join(','));
+    const gone = ['formula.js', 'quant.js', 'resonance.js'];
+    ok('已刪除的檔案不再被載入或預快取', gone.every(f => !html.includes(f) && !sw.includes(f) && !fs.existsSync(path.join(ROOT, f))));
+    const goneIds = ['quant-card', 'formula-card', 'prob-card', 'bayes-box', 'oos-card', 'multiperiod-card', 'health-card', 'mktscore-card', 'resonance-card', 'vpradar-card', 'bf-exit', 'bf-tradescore'];
+    ok('已刪除的卡片沒有殘留（畫面、分頁、重置清單）', goneIds.every(id => !all.includes(id)), goneIds.filter(id => all.includes(id)).join(','));
+    const goneFns = ['computeFormulas', 'calcSTI', 'computeResonance', 'computeProbability', 'computeBayesProb', 'computeProprietaryScore', 'computeTradeScore', 'computeMarketScore', 'renderHealthReport', 'computeOverheat', 'computeLiquidityPools', 'signalsAtIndex', 'computeOOSValidation', 'multiPeriodBacktest', 'computeVolPriceRadar', 'evScorable'];
+    ok('已刪除的工具沒有人再呼叫', goneFns.every(f => !code.includes(f)), goneFns.filter(f => code.includes(f)).join(','));
+    const bf = fs.readFileSync(path.join(ROOT, 'bingfa.js'), 'utf8'), ap = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8'), en = fs.readFileSync(path.join(ROOT, 'enhance.js'), 'utf8'), jn = fs.readFileSync(path.join(ROOT, 'journal.js'), 'utf8');
+    ok('紀律門：大週期反向只提醒（順逆勢期望值無差異）；主力行為推估只提醒（未經驗證）', /else if \(mtf\.dir === -dir\) warn\.push/.test(bf) && /mf\.behavior === '吸籌'\) warn\.push/.test(bf) && !/mf\.behavior === '吸籌'\) fail\.push/.test(bf));
+    ok('停利改用此股中位可達（風險卡、劇本）；不再用 1:2／1:3、2R／3R', /tp5 = row5/.test(ap) && /const \[longTp1, longTp2\] = tgt\(1, distL\)/.test(en) && !/stopDist\*2|distL \* 2|distS \* 3/.test(ap + en));
+    ok('日誌：進場時記 A 級證據（波段階段／風報比／高波動），匯出有對照表', /entryEvidence = \{ stage:/.test(jn) && /進場時的 A 級證據 vs 實際結果/.test(jn));
+    ok('擁擠度與指標卡用同一套 RSI／KD／MACD（不再有 quant.js 的第二份算法）', /const rsi = calcRSI\(c, 14\)/.test(fs.readFileSync(path.join(ROOT, 'mainforce.js'), 'utf8')));
+    // ADX：標準 Wilder（從頭平滑）；回測腳本必須用同一算法，否則期望值表的盤勢分類會和畫面對不上
+    const grab = (src, n) => { const i = src.indexOf('function ' + n + '('); let d = 0, j = src.indexOf('{', i); for (;; j++) { if (src[j] === '{') d++; else if (src[j] === '}' && !--d) break; } return src.slice(i, j + 1); };
+    const bt = fs.readFileSync(path.join(ROOT, 'backtest_conditional.js'), 'utf8');
+    const X = new Function(grab(ap, 'calcDMI') + grab(bt, 'adxSeries') + ';return { calcDMI, adxSeries };')();
+    const f2330 = path.join(DATA, '2330.json');
+    if (fs.existsSync(f2330)) { const r = JSON.parse(fs.readFileSync(f2330, 'utf8'));
+      if (Array.isArray(r)) { const h = r.map(x => x.max), l = r.map(x => x.min), c = r.map(x => x.close), a = X.calcDMI(h, l, c).adx, b = X.adxSeries({ h, l, c }).at(-1).adx;
+        ok('ADX：標準 Wilder 算法（2330 實測 15.9，與獨立參考實作一致），回測腳本算出的完全相同', Math.abs(a - 15.9) < 0.15 && Math.abs(a - b) < 1e-9, `${a.toFixed(3)}／${b.toFixed(3)}`); } }
+    // v188 重測後的修正：工具要能亮、亮了要有意義
+    const mk = fs.readFileSync(path.join(ROOT, 'market.js'), 'utf8');
+    { const tg = bf.slice(bf.indexOf('function computeTradeGate('), bf.indexOf('function renderTradeGate('));
+      ok('紀律門：唯一的禁止是「高波動時放空」（19年 −1.42%/筆，t−6.6）；高波動做多改提醒（−0.40%，比平常不差）', !/fail\.push\(/.test(tg) && /regime\.regime === '高波動危險'\) \(dir === -1 \? fail : warn\)\.push/.test(tg)
+        && /regime\.regime === '高波動危險' && dir === -1\) fail\.push/.test(fs.readFileSync(path.join(ROOT, 'scan.js'), 'utf8')));
+      ok('追突破：台股一律用全市場實測（−1.54% vs 隨便進場 −0.87%），不再有未驗證的逐股 38%／48% 綠燈', /全市場2,136檔19年實測，突破20日高進場每筆−1\.54%/.test(tg) && !/優於台股基準38\.4%/.test(tg));
+      const GC = new Function(grab(bf, 'gapChase') + ';return gapChase;')();
+      const mkG = (open, vol, o = {}) => ({ _intraday: '20261002', currency: 'TWD', open, volume: vol, closes: Array(60).fill(100), volumes: Array(60).fill(1000), ...o });
+      ok('盤中追跳空：只在台股盤中、跳空 7~9.5%、量已達 50 日均量 3 倍才提醒（與回測同條件）',
+        Math.abs(GC(mkG(108, 3000)) - 8) < 1e-9 && GC(mkG(108, 2999)) === null && GC(mkG(106.9, 9000)) === null && GC(mkG(109.6, 9000)) === null
+        && GC(mkG(108, 9000, { _intraday: undefined })) === null && GC(mkG(108, 9000, { currency: 'USD' })) === null);
+      ok('紀律門：只剩「禁止／未觸禁止＋提醒」兩級（「可出手」兩份資料都是 0 次，已移除）', /const vClass = fail\.length \? 'no' : 'ok'/.test(tg) && !/'go'|'caution'|rrBad/.test(bf)); }
+    ok('執行計畫：方向依勢能等級、該方向被禁止就不給；一律試單（風險減半）', /const planSide = want && g\[want\]\.vClass !== 'no' \? want : null/.test(bf) && /riskAmt2 = riskAmt2 \/ 2;/.test(bf) && !/\bhalf\b/.test(bf));
+    ok('擁擠度：沒有「非擁擠」預設綠燈（沒資料時 95% 都亮）', !/pass\.push\('非擁擠明牌/.test(bf));
+    ok('行為鏈：不足 3 票不顯示 ±100 分數', /\$\{syn\.decisive \? `綜合分數/.test(bf));
+    ok('線位警示：K 棒真的碰到確認過的線才亮（不是現價接近就亮）', /lo <= p\.level && p\.level <= hi/.test(bf) && !/Math\.abs\(px - p\.level\)/.test(bf));
+    ok('go()：趨勢／風險／心理／訊號／大盤卡各自 try，單卡壞掉不拖垮整頁', ['趨勢卡', '風險卡', '心理卡', '訊號卡', '大盤卡'].every(k => ap.includes(`ErrorLog.push('${k}',err)`)));
+    ok('月營收驚奇進紀律門與橫幅（回測數字同一處 REV_EV）；情報面到了就重繪', /const rv = revSur\(D\)/.test(bf) && /REV_EV = \{ up: \{ m3: 2\.25, m6: 3\.41 \}, dn: \{ m3: -2\.01, m6: -3\.82 \} \}/.test(bf)
+      && /📊 中期基本面/.test(bf) && /renderAiCard\(j\); refreshAsyncDependents\(D\.code\);/.test(fs.readFileSync(path.join(ROOT, 'intel.js'), 'utf8')));
+    ok('VIX 漲跌缺值時不炸、顯示「—」', /us\.vix\.changePct != null \?/.test(mk));
+    ok('凱利為 0 時顯示「不下注＋此股需要的勝率」而不是 0.0%（預設 50% 勝率下幾乎都是 0，門檻勝率才是每檔不同的資訊）', /:`不下注｜需勝率≥\$\{\(r\.breakevenWR\*100\)/.test(ap));
+    { const wk = fs.readFileSync(path.join(ROOT, 'worker.js'), 'utf8'), gs2 = fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8'), av2 = fs.readFileSync(path.join(ROOT, 'advanced.js'), 'utf8');
+      ok('上櫃月營收：兩個後端都改用 TPEx mopsfin_t187ap05_O（TWSE 的 t187ap05_O 不存在），失敗原因回傳並顯示在基本面卡', [wk, gs2].every(x => x.includes('https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap05_O') && !/'t187ap05_O'/.test(x) && /revErr/.test(x)) && /月營收抓不到：/.test(av2) && /!j\.revErr/.test(av2)); }
+    ok('ADX：期望值表已用標準 ADX 重跑，查表用畫面同一個盤勢分類；舊版算法已移除', /const rgNow = computeRegime\(D\)/.test(bf) && !/calcDMILegacy|legacy/.test(ap + en + bf) && /多頭: \[-0\.80, 5126\]/.test(cfg));
+  }
+  ok('盤中時鐘 twMarketPhase 已移除（推估全日量的依據已不存在），沒有殘留呼叫', !/twMarketPhase/.test(['config.js', 'bingfa.js', 'enhance.js', 'mainforce.js', 'app.js'].map(f => fs.readFileSync(path.join(ROOT, f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')).join('')));
   // 台北時間一律「+8h 時間戳搭配 getUTC*」：混用 getHours 會整個時區錯位
   for (const f of ['config.js', 'app.js', 'worker.js', 'bingfa.js', 'enhance.js']) {
     const s = fs.readFileSync(path.join(ROOT, f), 'utf8');
@@ -85,7 +158,7 @@ function logicTests() {
     const cards = [...html.matchAll(/<div id="([\w-]+-card)"/g)].map(m => m[1]);
     const tabs = new Set([...lay.matchAll(/cards:\[([^\]]*)\]/g)].flatMap(m => m[1].match(/[\w-]+/g)));
     const rm = app.match(/\[('stock-bar'[^\]]*)\]\.forEach\(id=>\$\(id\)\.style\.display='none'\)/), reset = new Set(rm ? rm[1].match(/[\w-]+/g) : []);
-    ok('每張卡片都歸到某個分頁（否則每個分頁都會出現它）', cards.length > 20 && cards.every(c => tabs.has(c)), cards.filter(c => !tabs.has(c)).join(','));
+    ok('每張卡片都歸到某個分頁（否則每個分頁都會出現它）', cards.length > 15 && cards.every(c => tabs.has(c)), cards.filter(c => !tabs.has(c)).join(','));
     ok('每張卡片都在換股時的重置清單', cards.every(c => reset.has(c)), cards.filter(c => !reset.has(c)).join(','));
   }
   const gs = fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8');
@@ -410,9 +483,9 @@ async function scanFlowTests() {
 
   // v177 大盤基準：台美各自計時（原本共用時間戳，剛抓過美股會讓過期的台股基準繼續被用）
   const bc = await pg.evaluate(async () => {
-    _benchCache = {}; const calls = [], f0 = window.fetchT, n0 = Date.now; let now = n0();
+    _benchCache = {}; await new Promise(async r => { const tx = (await pcOpen()).transaction('c', 'readwrite'); tx.objectStore('c').clear(); tx.oncomplete = r; }); const calls = [], f0 = window.fetchT, n0 = Date.now; let now = n0();
     Date.now = () => now; window.fetchT = async u => { calls.push(u); return { json: async () => ({ ok: true, closes: [calls.length] }) }; };
-    try { await fetchBenchmark(true); now += CACHE_TTL + 1000; await fetchBenchmark(false); const tw = await fetchBenchmark(true); return { calls: calls.length, tw }; }
+    try { await fetchBenchmark(true); now += 3 * 864e5; await fetchBenchmark(false); const tw = await fetchBenchmark(true); return { calls: calls.length, tw }; }
     finally { window.fetchT = f0; Date.now = n0; _benchCache = {}; }
   });
   ok('大盤基準：台美各自計時，過期的台股基準會重抓', bc.calls === 3 && bc.tw[0] === 3, JSON.stringify(bc));
@@ -536,16 +609,13 @@ async function scanFlowTests() {
     o.rsSelf = computeRSRating(D, D.closes);   // 自己對自己＝沒有超額報酬
     // 大盤基準：盤中要跟個股一樣去掉今天未完成的K棒
     try {
-      Date.now = () => Date.parse('2026-09-30T10:00:00+08:00'); _benchCache = {};
+      Date.now = () => Date.parse('2026-09-30T10:00:00+08:00'); _benchCache = {}; await new Promise(async r => { const tx = (await pcOpen()).transaction('c', 'readwrite'); tx.objectStore('c').clear(); tx.oncomplete = r; });
       const f0 = window.fetchT; window.fetchT = async () => ({ json: async () => ({ ok: true, closes: D.closes.slice(), lastDate: '20260930' }) });
       o.benchLen = (await fetchBenchmark(true)).length; window.fetchT = f0;
     } finally { Date.now = n0; _benchCache = {}; }
     // 最大回撤只看近一年（252 根）
     const Ddd = mk(500, i => i < 100 ? 100 - i * 0.5 : 50 + (i - 100) * 0.2);   // 前 100 根腰斬，之後一路漲
     o.maxDD = computeRiskMetrics(Ddd).maxDD;
-    // 機率：多空訊號相同時不假裝有方向
-    renderProbability({ direction: 'neutral', results: [] }, D);
-    o.probTxt = document.getElementById('prob-dir').textContent;
     // 融資四象限：全站同一套
     const today = expectedTradeDate(0), Dq = mk(60, i => 100); Dq.price = 99.5;   // 5 日跌 0.5%
     o.q = [marginQuadrant({ marginChg5: 5, chg5N: 5, dataDate: today }, Dq), marginQuadrant({ marginChg5: 5, chg5N: 5, dataDate: today }, { ...Dq, price: 98 }),
@@ -554,7 +624,6 @@ async function scanFlowTests() {
     const Dqi = { ...Dq, closes: Dq.closes.slice(), price: 90, prevClose: 100, _intraday: '20260930' };
     o.qIntra = marginQuadrant({ marginChg5: 5, chg5N: 5, dataDate: today }, Dqi);
     o.bar = [barPx(Dqi), barPrev(Dqi), barPx({ ...Dq, price: 95, prevClose: 97 }), barPrev({ ...Dq, price: 95, prevClose: 97 })];
-    o.probShort = computeProbability(mk(50, i => 100 + i));
     const Dl = mk(300, i => 100 * Math.exp(i * 0.003));   // 大盤只有 200 根：區間要用兩邊都有的長度
     o.rsShort = computeRSRating(Dl, Dl.closes.slice(-200));
     // 分批進場：沒填張數不可冒出股數；沒代碼分不出張或股
@@ -569,12 +638,22 @@ async function scanFlowTests() {
       await dbDeleteTrade('t_skew'); const gone = await applyTombstones([]);
       o.skew = { later: gone.get('t_skew') > ra, revived: await mergeTrades([{ id: 't_skew', date: '2026-09-01', code: '9999', restoredAt: ra }], gone) };
       await dbSetSetting('deletedIds', []); }
-    // 共振「結構」維度：貼近 VWAP 不偏任何一邊
-    try { o.res = computeResonance({ D, vwap: { signal: 'hold' }, structure: { trend: 'down' } }).dims.find(d => d.name === '結構').dir; } catch (e) { o.res = 'err ' + e.message; }
+    // v187 紀律門讀風報比（A 級、權重最高）：與執行計畫同一算法，<1 必擋
+    { const Dg = mk(300, i => 100 * (1 + 0.01 * Math.sin(i / 2)) + i * 0.02), g = computeTradeGate({ D: Dg }), pb = planBasis(Dg, 'long');
+      o.gateRR = { rr: pb.rr, warnRR: g.long.warn.some(x => /風報比/.test(x)), v: g.long.vClass }; }
+    // v187 美股盤中也去掉未完成的K棒（美東時段、美東日期）
+    { const n1 = Date.now; try { Date.now = () => Date.parse('2026-10-01T11:00:00-04:00');
+        const mkJ = cur => ({ closes: Array.from({ length: 80 }, (_, i) => i), lastDate: '20261001', currency: cur });
+        o.usTrim = [trimIntradayBar(mkJ('USD')).closes.length, trimIntradayBar(mkJ('TWD')).closes.length];
+        Date.now = () => Date.parse('2026-10-01T10:00:00+08:00'); o.twTrim = trimIntradayBar(mkJ('TWD')).closes.length; } finally { Date.now = n1; } }
+    // v187 升版後舊暫存作廢
+    { const db = await pcOpen(); await new Promise(r => { const tx = db.transaction('c', 'readwrite'); tx.objectStore('c').put({ k: 'fund:TOLD', d: { a: 1 }, t: Date.now(), until: Date.now() + 1e7, v: 1 }); tx.oncomplete = r; });
+      o.oldVer = await pcGet({}, 'TOLD', 'fund'); }
     // 日誌：沒填股數＝金額未知；舊版「盈虧%×100」冒充金額的單也不算
-    const T = [{ result: 'loss', pnlPct: -5, pnl: -500, shares: null, date: today.slice(0, 4) + '-' + today.slice(4, 6) + '-01' },
-               { result: 'loss', pnlPct: -5, pnl: -50000, shares: 1000, date: today.slice(0, 4) + '-' + today.slice(4, 6) + '-02' },
-               { result: 'win', pnlPct: 10, pnl: null, shares: null, date: today.slice(0, 4) + '-' + today.slice(4, 6) + '-03' }];
+    const ym = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 7);   // 預算看「台北本月」（每月 1 號時 expectedTradeDate 還是上個月）
+    const T = [{ result: 'loss', pnlPct: -5, pnl: -500, shares: null, date: ym + '-01' },
+               { result: 'loss', pnlPct: -5, pnl: -50000, shares: 1000, date: ym + '-01' },
+               { result: 'win', pnlPct: 10, pnl: null, shares: null, date: ym + '-01' }];
     const st = computeStats(T), rb = computeRiskBudget(T, 1000000);
     o.stats = { total: st.totalPnl, noAmt: st.noAmt, payoff: +st.payoff.toFixed(2) };
     o.rb = { used: rb.usedPct, noAmt: rb.noAmt };
@@ -591,30 +670,38 @@ async function scanFlowTests() {
   });
   ok('盤中：融資四象限用昨天收盤（現價盤中暴跌不算「接刀」）', v3.qIntra === 'flat', String(v3.qIntra));
   ok('盤中：同一根K棒的價（盤中＝最後一根與前一根收盤；收盤後＝現價與昨收）', JSON.stringify(v3.bar) === '[100,100,95,97]', JSON.stringify(v3.bar));
-  ok('機率：K棒不足算不出當前訊號時不顯示（不是「多空訊號數相同」）', v3.probShort === null, JSON.stringify(v3.probShort));
   ok('RS：大盤較短時兩邊用同一段區間（同一條序列＝50）', v3.rsShort.rating === 50 && Math.abs(v3.rsShort.excess) < 1e-9, JSON.stringify(v3.rsShort));
   ok('分批進場：有批次沒填張數就不填股數；沒填代碼也不填（分不出張或股）', v3.blankQty === '' && v3.noCode === '', JSON.stringify([v3.blankQty, v3.noCode]));
   ok('同步：時鐘較慢的裝置刪除「別台還原的交易」照樣刪得掉，不會在合併時復活', v3.skew.later && v3.skew.revived === 0, JSON.stringify(v3.skew));
+  ok('紀律門：風報比 <1 列入提醒（與執行計畫同一算法）', v3.gateRR.rr != null && v3.gateRR.warnRR === (v3.gateRR.rr < 1) && ['ok', 'no'].includes(v3.gateRR.v), JSON.stringify(v3.gateRR));
+  ok('盤中：美股在美東盤中也去掉未完成的K棒；台股照舊（各用自己的時段）', JSON.stringify(v3.usTrim) === '[79,80]' && v3.twTrim === 79, JSON.stringify([v3.usTrim, v3.twTrim]));
+  ok('暫存：升版後舊版本存的資料不再使用', v3.oldVer === null, JSON.stringify(v3.oldVer));
   ok('RS：大盤用同樣的加權（自己對自己＝50、超額 0）', v3.rsSelf.rating === 50 && Math.abs(v3.rsSelf.excess) < 1e-9, JSON.stringify(v3.rsSelf));
   ok('大盤基準：盤中去掉今天未完成的K棒（與個股對齊，Beta 不錯位）', v3.benchLen === 299, String(v3.benchLen));
   ok('最大回撤：只看近一年（兩年前的腰斬不算）', v3.maxDD > -0.05, String(v3.maxDD));
-  ok('機率：多空訊號相同時不給機率、明講沒有方向', /沒有方向可比/.test(v3.probTxt), v3.probTxt);
   ok('融資四象限：股價只跌 0.5% 不算「散戶接刀」（與融資卡一致）；落後或基期 0 不判讀', JSON.stringify(v3.q) === '["flat","knife",null,null]', JSON.stringify(v3.q));
-  ok('共振：貼近 VWAP 時「結構」維度不投空票（原本只會投空不會投多）', v3.res === 0, String(v3.res));
   ok('日誌：金額只算有填股數的單、盈虧比用%；6%預算明講有幾筆沒算', v3.stats.total === -50000 && v3.stats.noAmt === 2 && v3.stats.payoff === 2 && v3.rb.used === 5 && v3.rb.noAmt === 2, JSON.stringify([v3.stats, v3.rb]));
   ok('日誌：分批進場 3 張＝3000 股（原本填成 3 股，金額小 1000 倍）', v3.shares === '3000', v3.shares);
   ok('日誌：代碼與判斷理由裡的 HTML 不會被執行', v3.xss === 0, String(v3.xss));
   { const ap = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8'), bf = fs.readFileSync(path.join(ROOT, 'bingfa.js'), 'utf8'), av = fs.readFileSync(path.join(ROOT, 'advanced.js'), 'utf8');
-    ok('機率品質檢驗用本次的 D（不是上一檔的 _lastD）', /renderProbability\(computeProbability\(D\), D\)/.test(ap) && /computeProbLogLoss\(D, 5\)/.test(av) && /ll\(x => x\.bull \? base : 1 - base\)/.test(av));
     ok('本次的 D 在啟動非同步卡片之前就登記', ap.indexOf('window._lastD=D;') < ap.indexOf("loadFundamentalCard(D)") && ap.indexOf('window._lastD=D;') > 0);
     { const src = ['bingfa.js', 'enhance.js', 'mainforce.js', 'advanced.js'].map(f => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n'), jn = fs.readFileSync(path.join(ROOT, 'journal.js'), 'utf8'), sc = fs.readFileSync(path.join(ROOT, 'scan.js'), 'utf8');
       ok('盤中量價：分析檔不再拿現價配昨天的量（price／D.price 對 prevClose）', !/(\bprice|D\.price) > D\.prevClose|\(price - D\.prevClose\)|\(D\.price - c\[n - 6\]\)|\(price - c\[n-6\]\)/.test(src) && /_intraday: it\._intraday/.test(sc));
       ok('券資比「軋空燃料」與融資卡同一條線；融資卡過期資料不判軋空；橫幅籌碼警告用 chipUsable', !/shortRatio >= 25/.test(src) && /const sr = marginFresh\(m\) \? m\.shortRatio : null/.test(src) && /if \(cp && !chipUsable\(cp\)\) addW/.test(src));
       ok('匯出：沒有金額的統計印「—」不印 +0；紀律門重繪出錯不清掉 6% 預算', !/cur\((s|d|rs|ss)\.(totalPnl|expectancy|avgWin|avgLoss|maxDrawdown)\)/.test(jn) && /catch \(e\) \{ if \(typeof ErrorLog !== 'undefined'\) ErrorLog\.push\('紀律門重繪'/.test(jn));
       ok('掃描池說明裡的後端文字有跳脫', /escI\(p\.srcErrors\.join/.test(sc) && /動態池取得失敗：\$\{escI\(/.test(sc)); }
+    { const bf = fs.readFileSync(path.join(ROOT, 'bingfa.js'), 'utf8'), en = fs.readFileSync(path.join(ROOT, 'enhance.js'), 'utf8'), mf = fs.readFileSync(path.join(ROOT, 'mainforce.js'), 'utf8'),
+        jn = fs.readFileSync(path.join(ROOT, 'journal.js'), 'utf8'), mk = fs.readFileSync(path.join(ROOT, 'market.js'), 'utf8'), av = fs.readFileSync(path.join(ROOT, 'advanced.js'), 'utf8');
+      ok('行為結構：不足 3 票不當方向證據（橫幅、綜合研判、敘事、翻盤條件都看 decisive）', /decisive: votes\.length >= 3/.test(bf) && /syn\.decisive \? \(syn\.score/.test(bf) && /if \(syn && syn\.decisive\) inval/.test(bf));
+      ok('橫幅：空方也先看紀律門；營收窗口不重複兩條', /gS && gS\.fail\.length/.test(bf) && /if \(!ew\) try \{/.test(bf));
+      ok('主力意圖：回測與即時餵同樣欄位；信心 <50 不投方向票', /opens: D\.opens \? D\.opens\.slice\(0, i \+ 1\) : undefined/.test(mf) && /prevClose: D\.closes\[i - 1\]/.test(mf) && /if \(intent\.confidence < 50\) \{ intentDir = 0/.test(bf));
+      ok('盤中量能：不再「推估全日量」（最後一根已是完整K棒）', !/ph\.elapsed/.test(en + mf + bf));
+      ok('勢能 5 日趨勢帶前一日收盤；開盤缺口盤中用今天開盤；Amihud 報酬用還原價', /prevClose: D\.closes\[n - 2\]/.test(en) && /live \? \(D\.open - c\[n - 1\]\)/.test(en) && /const dollar = raw\[i\] \* v\[i\]/.test(en));
+      ok('融資卡文字與四象限同一段股價；RS 沒有大盤時不當相對強弱', /chg5 = n >= 6 \? \(barPx\(D\) - c\[n-6\]\)/.test(mf) && /rsRating=rs\.excess!=null\?rs\.rating:null/.test(fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8')));
+      ok('日誌進場公式只用進場日之前的K線；基本面失敗講原因；盤中不比類股廣度', /until=\$\{dayBefore\(entryDate\)\}/.test(jn) && /基本面取得失敗/.test(av) && /const live = inSession\(Date\.now\(\), \.\.\.SESS\.tw\)/.test(mk)); }
     ok('凱利 b：風險卡是做多配置，兩處都用「上漲」可達幅度', (ap.match(/computeRealisticTargets\(D, 1, stopPct\)/g) || []).length === 2 && !/computeRealisticTargets\(D, *(dir|sgn|-1)[^)]*stopPct\)/.test(ap));
     ok('盤中：量價訊號用同一天（昨天）的K棒', /kC=barPx\(D\), kO=D\._intraday\?\(D\.opens\?D\.opens\[D\.opens\.length-1\]:barPrev\(D\)\):open/.test(ap));
-    ok('綜合研判：擁擠度（A級）有採計；波段尾端以溫度計為準；橫幅遇紀律門禁止時不叫你進場', /if \(crowd\) push\('crowding'/.test(bf) && /ms\.stage === '尾端' \? 0 : ms\.dir/.test(bf) && /computeTradeGate\(\{ D, regime, mtf, res, formulas, shi \}\)/.test(bf));
+    ok('橫幅遇紀律門禁止時不叫你進場', /computeTradeGate\(\{ D, regime, mtf, shi \}\)/.test(bf));
     ok('券資比門檻全站同一條（18%／30%）', /SHORT_RATIO_HOT/.test(fs.readFileSync(path.join(ROOT, 'mainforce.js'), 'utf8')) && !/shortRatio >= (15|20)\b/.test(bf + fs.readFileSync(path.join(ROOT, 'mainforce.js'), 'utf8'))); }
   // 掃描：三顆按鈕同一把鎖
   poolDelay = 800;
@@ -652,17 +739,17 @@ async function browserTests() {
   const errs = [];
   pg.on('pageerror', e => errs.push('PAGEERROR ' + e.message));
   pg.on('console', m => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errs.push('CONSOLE ' + m.text()); });
-  let todayBar = false, chip = null, slowCode = null;
+  let todayBar = false, chip = null, slowCode = null, stockCalls = {};
   await pg.route('https://selftest.local/**', async rt => { if (slowCode && new URL(rt.request().url()).searchParams.get('code') === slowCode) await new Promise(r => setTimeout(r, 1200)); const u = new URL(rt.request().url()); const act = u.searchParams.get('action'); const code = u.searchParams.get('code');
     if (act === 'scan') { const list = (u.searchParams.get('codes') || '').split(',').filter(c => codes.includes(c));
       return rt.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, results: list.map(c => { const m = mkPayload(c, todayBar);
         return { code: c, ok: true, closes: m.closes, highs: m.highs, lows: m.lows, volumes: m.volumes, opens: m.opens, price: m.price, lastDate: m.lastDate }; }) }) }); }
-    if (!act && code) { const p = mkPayload(code, todayBar); if (chip) p.chip = chip; return rt.fulfill({ contentType: 'application/json', body: JSON.stringify(p) }); }
+    if (!act && code) { stockCalls[code] = (stockCalls[code] || 0) + 1; const p = mkPayload(code, todayBar); if (chip) p.chip = chip; return rt.fulfill({ contentType: 'application/json', body: JSON.stringify(p) }); }
     rt.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: false, error: 'selftest-mock' }) }); });
   await pg.goto('http://localhost:8791/index.html'); await pg.waitForTimeout(1200);
 
-  const query = async (code) => { await pg.evaluate(c => { GAS_URL = 'https://selftest.local/exec';
-      Object.keys(_stockCache).forEach(k => delete _stockCache[k]);
+  const query = async (code) => { await pg.evaluate(async c => { GAS_URL = 'https://selftest.local/exec';
+      Object.keys(_stockCache).forEach(k => delete _stockCache[k]); await new Promise(async r => { const tx = (await pcOpen()).transaction('c', 'readwrite'); tx.objectStore('c').clear(); tx.oncomplete = r; });
       document.getElementById('ticker-input').value = c; return go(); }, code);
     await pg.waitForTimeout(1800);
     return pg.evaluate(() => {
@@ -697,15 +784,34 @@ async function browserTests() {
   }
   { await query(codes[0]); const nar = await pg.evaluate(() => [(document.getElementById('vb-narrative') || {}).innerText || '', (document.getElementById('vb-judgement') || {}).innerText || '']);
     ok('敘事：風報比同時列做多與做空（原本依 X 級的「環境」選一邊、且沒寫是哪邊）', !/結構/.test(nar[0]) || (/做多/.test(nar[0]) && /做空/.test(nar[0])), nar[0].slice(0, 200));
-    ok('綜合研判：擁擠度這項 A 級證據有被採計', /擁擠度\d+/.test(nar[1]), nar[1].slice(0, 160)); }
+    ok('v188 綜合研判：不再出現永遠「證據分散」的那一行，只留有回測數字的期望值', !/綜合研判/.test(nar[1]) && /期望值（19年24檔/.test(nar[1]), nar[1].slice(0, 160)); }
   // v177 兩次查詢重疊（Enter／最近查詢／掃描不經過停用的按鈕）：先查的晚回來，不可把它的卡片畫進後查那檔
   slowCode = codes[1];
-  await pg.evaluate(([a, c2]) => { GAS_URL = 'https://selftest.local/exec'; Object.keys(_stockCache).forEach(k => delete _stockCache[k]);
+  await pg.evaluate(async ([a, c2]) => { GAS_URL = 'https://selftest.local/exec'; Object.keys(_stockCache).forEach(k => delete _stockCache[k]); await new Promise(async r => { const tx = (await pcOpen()).transaction('c', 'readwrite'); tx.objectStore('c').clear(); tx.oncomplete = r; });
     const inp = document.getElementById('ticker-input'); inp.value = a; window._r1 = go(); inp.value = c2; window._r2 = go(); }, [codes[1], codes[2]]);
   await pg.evaluate(() => Promise.all([window._r1, window._r2])); await pg.waitForTimeout(1800);
   const race = await pg.evaluate(() => ({ bar: document.getElementById('sb-code').textContent, last: window._lastD && window._lastD.code, btn: document.getElementById('go-btn').disabled }));
   ok('重疊查詢：先查的晚回來不會蓋掉後查那檔', race.bar === codes[2] && race.last === codes[2] && !race.btn, JSON.stringify(race));
   slowCode = null;
+  // v186 暫存：關掉 App 也還在；⟳ 重新抓取會真的重抓
+  { await query(codes[3]); stockCalls = {};
+    await pg.evaluate(async c => { document.getElementById('ticker-input').value = c; await go(); }, codes[3]);
+    const second = stockCalls[codes[3]] || 0;
+    const pill1 = await pg.evaluate(() => [document.getElementById('time-pill').textContent, getComputedStyle(document.getElementById('refresh-btn')).display]);
+    await pg.reload(); await pg.waitForTimeout(1200);
+    await pg.evaluate(async c => { GAS_URL = 'https://selftest.local/exec'; document.getElementById('ticker-input').value = c; await go(); }, codes[3]);
+    const afterReload = stockCalls[codes[3]] || 0;
+    await pg.evaluate(() => forceRefresh()); await pg.waitForTimeout(600);
+    const pill2 = await pg.evaluate(() => document.getElementById('time-pill').textContent);
+    const ttl = await pg.evaluate(async () => { const m = {}; pcSet(m, 'TX', 'fund', { a: 1 }, Date.now() - 1); delete m.TX; await new Promise(r => setTimeout(r, 200)); return await pcGet(m, 'TX', 'fund'); });
+    ok('暫存：同一檔再查不打後端', second === 0, String(second));
+    { const it = fs.readFileSync(path.join(ROOT, 'intel.js'), 'utf8'), mk = fs.readFileSync(path.join(ROOT, 'market.js'), 'utf8'), mf = fs.readFileSync(path.join(ROOT, 'mainforce.js'), 'utf8');
+      ok('暫存：情報面／大盤有失敗的只留 5 分鐘；FinMind 只有「需付費方案」不算暫時性錯誤', /j\.ai\.status === 'ok' && !j\.srcErrors\.length \? cacheUntil\('intel'/.test(it)
+        && /\(j\.sourceErrors \|\| \[\]\)\.length \? Date\.now\(\) \+ CACHE_TTL : cacheUntil\('market'/.test(mk) && /\[j\.bigErr, j\.brokerErr\]\.some\(x => fetchFail\(x\) && !\/402\/\.test\(x\)\)/.test(mf)); }
+    ok('暫存：時間標籤寫「暫存」，⟳ 顯示', /（暫存）/.test(pill1[0]) && pill1[1] === 'flex', JSON.stringify(pill1));
+    ok('暫存：關掉 App（重新載入）後仍沿用，不重打後端', afterReload === 0, String(afterReload));
+    ok('暫存：⟳ 重新抓取會真的打後端，標示「即時」', stockCalls[codes[3]] === 1 && /即時/.test(pill2), `${JSON.stringify(stockCalls)} ${pill2}`);
+    ok('暫存：過期的不拿出來用', ttl === null, JSON.stringify(ttl)); }
   // 決定性：同一檔查兩次結果必須一字不差（否則使用者會看到結論忽多忽空）
   const a1 = await query(codes[0]); const a2 = await query(codes[0]);
   ok('同一檔重複查詢結果完全一致', a1.gate === a2.gate && a1.judge === a2.judge);
@@ -836,10 +942,12 @@ function intelFrontTests() {
   ok('情報卡：走勢報導不用漲跌箭頭、標明不計入方向', /○<\/span>\s*<span[^>]*>股價創高/.test(trendH) && /不計入方向/.test(trendH));
   ok('情報卡：固定標示「未經回測・不計入任何分數」', /未經回測・不計入任何分數/.test(F.renderIntel(amp, chip(0, 0))));
   const cfg = fs.readFileSync(path.join(ROOT, 'config.js'), 'utf8');
-  ok('EVIDENCE 將情報面列為 tier U、權重 0', /intel:\s*\{\s*tier:\s*'U',\s*w:\s*0\b/.test(cfg));
+  ok('證據登記：情報面新聞與AI方向列為 U（只顯示不計分），月營收驚奇為 A', /U 外資台指期、選擇權PCR、情報面新聞與AI方向/.test(cfg) && /A 月營收驚奇（revSur）/.test(cfg));
   const others = fs.readdirSync(ROOT).filter(f => /\.js$/.test(f) && !['intel.js', 'selftest.js', 'app.js', 'worker.js'].includes(f));
-  const leak = others.filter(f => /intelVerdict|\.tilt\b|_intelCache/.test(fs.readFileSync(path.join(ROOT, f), 'utf8')));
-  ok('其他模組沒有讀情報結果（確保不會偷偷進分數）', leak.length === 0, leak.join(','));
+  // v189 唯一例外：月營收驚奇（全市場回測★）只能經由 bingfa.js 的 revSur() 讀 revenue 欄位；新聞／AI 方向仍不准進分數
+  const noRev = src => src.replace(/function revSur\(D\) \{[\s\S]*?\n\}/, '');
+  const leak = others.filter(f => /intelVerdict|\.tilt\b|_intelCache/.test(noRev(fs.readFileSync(path.join(ROOT, f), 'utf8'))));
+  ok('其他模組沒有讀情報結果（確保不會偷偷進分數；只有 revSur 可讀月營收）', leak.length === 0 && /function revSur\(D\) \{\n  const c = typeof _intelCache[^\n]*rv = c && c\.d && c\.d\.revenue;/.test(fs.readFileSync(path.join(ROOT, 'bingfa.js'), 'utf8')), leak.join(','));
 }
 
 /* ── 第三部分：後端資料正確性（worker.js 與 Code.gs 都要驗）──────────────
@@ -852,7 +960,7 @@ async function backendTests() {
   let fetchImpl = async () => { throw new Error('未設定'); };
   global.fetch = (...a) => fetchImpl(...a);
   const W = {};
-  new Function('module', src + '\nmodule.yahooChart=yahooChart;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTaifexFutures=fetchTaifexFutures;module.fetchTaifexPCR=fetchTaifexPCR;module.fetchMargin=fetchMargin;module.fetchTopPool=fetchTopPool;module.rocToYmd=rocToYmd;module.eventStudy=eventStudy;module.infoTilt=infoTilt;module.validateAI=validateAI;module.parseRSS=parseRSS;module.parsePTT=parsePTT;module.parseAnnounce=parseAnnounce;module.fetchIntel=fetchIntel;module.dropIntraday=dropIntraday;module.fetchNews=fetchNews;module.fetchIntelRouted=fetchIntelRouted;module.dedupKey=dedupKey;module.heat=heat;module.parseFinMindNews=parseFinMindNews;module.dayMoves=dayMoves;module.mergeDays=mergeDays;module.intelPrompt=intelPrompt;module.revSurprise=revSurprise;module.fetchNewsEn=fetchNewsEn;module.normCite=normCite;module.yahooQuote=yahooQuote;module.numN=numN;module.peN=peN;module.fetchDeepChip=fetchDeepChip;module.fetchMarket=fetchMarket;module.fetchFundamental=fetchFundamental;module.saveIntelSnap=saveIntelSnap;module.listIntelSnaps=listIntelSnaps;module.snapFwd=snapFwd;')(W);
+  new Function('module', src + '\nmodule.yahooChart=yahooChart;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTaifexFutures=fetchTaifexFutures;module.fetchTaifexPCR=fetchTaifexPCR;module.fetchMargin=fetchMargin;module.fetchTopPool=fetchTopPool;module.rocToYmd=rocToYmd;module.eventStudy=eventStudy;module.infoTilt=infoTilt;module.validateAI=validateAI;module.parseRSS=parseRSS;module.parsePTT=parsePTT;module.parseAnnounce=parseAnnounce;module.fetchIntel=fetchIntel;module.dropIntraday=dropIntraday;module.fetchNews=fetchNews;module.fetchIntelRouted=fetchIntelRouted;module.dedupKey=dedupKey;module.heat=heat;module.parseFinMindNews=parseFinMindNews;module.dayMoves=dayMoves;module.mergeDays=mergeDays;module.intelPrompt=intelPrompt;module.revSurprise=revSurprise;module.fetchNewsEn=fetchNewsEn;module.normCite=normCite;module.yahooQuote=yahooQuote;module.numN=numN;module.peN=peN;module.fetchDeepChip=fetchDeepChip;module.fetchMarket=fetchMarket;module.fetchFundamental=fetchFundamental;module.saveIntelSnap=saveIntelSnap;module.listIntelSnaps=listIntelSnaps;module.snapFwd=snapFwd;module.fetchTaiwan=fetchTaiwan;')(W);
   const W2 = W;
 
   // Code.gs：補上 GAS 全域物件
@@ -965,6 +1073,24 @@ async function backendTests() {
   gsFetch = u => { gtried.push(u); return gsOf(u.includes('.TWO') ? chart(30) : { chart: { result: [] } }); };
   let gr = null; try { gr = G.fetchRangeOHLC('6488', '2026-09-01', '2026-09-30'); } catch (e) {}
   ok('GAS 上櫃會退而試 .TWO', !!gr && gtried.some(u => u.includes('.TWO')));
+  { // v187 剛從上櫃轉上市：.TW 不滿 60 日、.TWO 停在轉板日——不可拿舊K線冒充最新
+    const sh = (c, k) => { const r = JSON.parse(JSON.stringify(c)); r.chart.result[0].timestamp = r.chart.result[0].timestamp.map(t => t + k * DAY); return r; };
+    const TW = sh(chart(30), 200), TWO = chart(100);
+    fetchImpl = async u => ({ ok: true, json: async () => (u.includes('.TWO') ? TWO : TW) });
+    let we = ''; try { await W.fetchTaiwan('6488'); } catch (e) { we = e.message; }
+    gsFetch = u => /STOCK_DAY/.test(u) ? gsOf({ stat: 'X' }) : gsOf(u.includes('.TWO') ? TWO : TW);
+    let ge = ''; try { G.fetchYahooTW('6488'); } catch (e) { ge = e.message; }
+    ok('剛轉上市：不拿上櫃的舊K線冒充最新，明講只有幾日', /上市只有 30 個交易日/.test(we) && /上市只有 30 個交易日/.test(ge), `${we}｜${ge}`);
+    fetchImpl = async u => ({ ok: true, json: async () => (u.includes('.TWO') ? { chart: { result: [] } } : chart(30)) });
+    let we2 = ''; try { await W.fetchTaiwan('7777'); } catch (e) { we2 = e.message; }
+    ok('新上市不滿 60 日：講出實際天數（原本只說「找不到」）', /只有 30 個交易日/.test(we2), we2);
+    // 還原係數整段固定（之後才除息）≠ 區間內除息
+    fetchImpl = async () => ({ ok: true, json: async () => chart(30) }); gsFetch = () => gsOf(chart(30));
+    const wr = await W.fetchRangeOHLC('2330', '2026-09-01', '2026-09-30'), grr = G.fetchRangeOHLC('2330', '2026-09-01', '2026-09-30');
+    const div = chart(30); div.chart.result[0].indicators.adjclose[0].adjclose = div.chart.result[0].indicators.quote[0].close.map((c, i) => c * (i < 15 ? 0.95 : 1));
+    fetchImpl = async () => ({ ok: true, json: async () => div }); gsFetch = () => gsOf(div);
+    const wd = await W.fetchRangeOHLC('2330', '2026-09-01', '2026-09-30'), gd = G.fetchRangeOHLC('2330', '2026-09-01', '2026-09-30');
+    ok('日誌除權息標示：區間內係數有變才算（原本之後才除息也標示）', !wr.hasDividend && !grr.hasDividend && wd.hasDividend && gd.hasDividend, JSON.stringify([wr.hasDividend, grr.hasDividend, wd.hasDividend, gd.hasDividend])); }
 
   // ⑤ MAE/MFE 三組陣列必須對齊同一根K棒
   gsFetch = () => gsOf(chart(30, { nullHighAt: 10 }));
@@ -1064,6 +1190,16 @@ async function backendTests() {
     const gm = G.fetchMarket();
     ok('大盤（GAS）：有加權指數；一檔報價失敗其餘照常，並列出沒拿到的', gm.tw && gm.tw.index && Math.abs(gm.tw.index.changePct - 1) < 1e-9 && !gm.us.sox && gm.us.nasdaq && (gm.sourceErrors || []).some(x => /費半/.test(x.why)), JSON.stringify(gm.sourceErrors));
     gsFetch = u => gsOf(T86); }
+  { const wk = fs.readFileSync(path.join(ROOT, 'worker.js'), 'utf8'), gs = fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8');
+    ok('PCR：欄名改版（取不到 pcrOI）時 Worker 也列入來源錯誤（與 GAS 一致）', /\(!pcr \|\| pcr\.pcrOI == null\) && !srcErr\.some/.test(wk));
+    ok('掃描：台股判斷與個股查詢相同（首字是數字；00632R 這類 ETF 不再被當美股）', /const isTW = \/\^\\d\/\.test\(code\)/.test(wk) && /dd = \/\^\\d\/\.test\(cd\) \? fetchYahooTW/.test(gs) && /trimIntradayBar\(\{ \.\.\.item, currency: \/\^\\d\/\.test\(item\.code\)/.test(fs.readFileSync(path.join(ROOT, 'scan.js'), 'utf8'))); }
+  { // v187 當天有公布但表裡沒有這檔（暫停交易／不得信用交易）＝沒資料，不是限流
+    const MF = ['代號', '名稱', '融資今日餘額', '融券今日餘額'], MX = { stat: 'OK', fields: MF, data: [['1101', '台泥', '10', '1']] }, MH = { stat: 'OK', fields: MF, data: [['2330', '台積電', '1000', '50']] };
+    const mDates = []; fetchImpl = async u => { mDates.push(dOf(u)); return jt(MH); }; await W.fetchMargin('2330');
+    const mNew = mDates.sort().slice(-1)[0];   // 最新那天沒有這檔，其餘有
+    fetchImpl = async u => jt(dOf(u) === mNew ? MX : MH); let wx = null, wxe = ''; try { wx = await W.fetchMargin('2330'); } catch (e) { wxe = e.message; }
+    ok('融資：表裡沒有這檔不算抓取失敗（不再誤報限流、與 GAS 一致）', !!wx && wx.headMiss === 0, wxe || JSON.stringify(wx && { headMiss: wx.headMiss }));
+    fetchImpl = async u => jt(T86); }
   { // 基期為 0：融資變化、券資比都沒有定義，不可寫 0%
     const MM = { stat: 'OK', fields: ['代號', '名稱', '融資今日餘額', '融券今日餘額'], data: [['2330', '台積電', '0', '0']] };
     fetchImpl = async () => jt(MM); gsFetch = () => gsOf(MM);
@@ -1200,16 +1336,9 @@ async function backendTests() {
     ok('GAS 會回傳 sourceErrors（端點對等）', /out\.sourceErrors = srcErr/.test(gs));
   }
 
-  // ⑦c 復活的維度不得在未驗證下就開始影響分數
-  {
-    const cfg = fs.readFileSync(path.join(ROOT, 'config.js'), 'utf8');
-    ok('config 已登記 twFutures / pcr 為未驗證', /twFutures:\s*\{[^}]*w:\s*0/.test(cfg) && /\bpcr:\s*\{[^}]*w:\s*0/.test(cfg));
-    ok('config 提供 evScorable 開關', /function evScorable/.test(cfg));
-    for (const [f, k] of [['enhance.js', 'twFutures'], ['enhance.js', 'pcr'], ['quant.js', 'pcr'], ['smc.js', 'pcr']]) {
-      const src = fs.readFileSync(path.join(ROOT, f), 'utf8');
-      ok(`${f} 的 ${k} 已受 EVIDENCE 控制`, new RegExp(`evScorable\\('${k}'\\)`).test(src));
-    }
-  }
+  // ⑦c 未驗證的外資台指期／PCR 只在大盤卡顯示，不進任何分數或門檻（v188 起計分的地方都已移除）
+  { const front = ['bingfa.js', 'enhance.js', 'mainforce.js', 'advanced.js', 'smc.js', 'mtf.js', 'app.js', 'journal.js', 'scan.js'].map(f => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n');
+    ok('外資台指期／PCR 只在大盤卡顯示，不進分數', !/pcrOI|foreignNet/.test(front)); }
 
   // ⑦b2 檔案版本宣告必須與 config.js 的 FILE_VERS 完全一致（否則舊版偵測會誤報或漏報）
   {
@@ -1645,7 +1774,10 @@ async function backendTests() {
     {
       const rr = IT.revRows('2026-09-09'), rs = W2.revSurprise(rr), v = rr.map(x => x.revenue);
       ok('月營收：本月年增率、月增率正確', rs && Math.abs(rs.yoy - 0.6) < 1e-6 && Math.abs(rs.mom - (v[39] / v[38] - 1)) < 1e-9 && rs.ym === 202608, JSON.stringify(rs));
-      ok('月營收：驚奇度＝偏離過去24個月常態（平均20%、年增60%→遠超過2）', rs && rs.n === 24 && Math.abs(rs.mean - 0.2) < 1e-9 && Math.abs(rs.sur - 0.4 / Math.sqrt(24 * 0.0004 / 23)) < 1e-6, rs && `${rs.n} ${rs.mean} ${rs.sur}`);
+      ok('月營收：驚奇度＝偏離之前 12 個月常態、母體標準差（v189 與回測同定義；平均20%、標準差2%、年增60%→20）', rs && rs.n === 12 && Math.abs(rs.mean - 0.2) < 1e-9 && Math.abs(rs.sur - 20) < 1e-6, rs && `${rs.n} ${rs.mean} ${rs.sur}`);
+      { const GS = new Function(fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8') + '\nreturn revSurprise;')();
+        const g2 = GS(rr), g3 = GS(rr.slice(-20));
+        ok('月營收：GAS 與 Worker 驚奇度算法完全相同', g2 && Math.abs(g2.sur - rs.sur) < 1e-9 && g2.n === rs.n && g3.sur === null && g3.n === 7, g2 && `${g2.n} ${g2.sur}`); }
       const ytd = [31, 32, 33, 34, 35, 36, 37, 38, 39].slice(-8).reduce((a, i) => a + v[i], 0) / [19, 20, 21, 22, 23, 24, 25, 26, 27].slice(-8).reduce((a, i) => a + v[i], 0) - 1;
       ok('月營收：今年累計年增、連續年增月數', rs && Math.abs(rs.ytd - ytd) < 1e-9 && rs.streak === 28, rs && `${rs.ytd} vs ${ytd}｜${rs.streak}`);
       ok('月營收：公布日取 FinMind 入庫日', rs && rs.seen === '2026-09-09');

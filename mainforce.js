@@ -37,7 +37,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['mainforce.js'] = 185; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['mainforce.js'] = 188; } catch (e) {}
 
 /* ══ A. OBV 能量潮 ════════════════════════════════════════════════════
    收漲日加量、收跌日減量的累積線。價與 OBV 背離 = 主力偷跑：
@@ -76,7 +76,7 @@ function computeMFI(D, n = 14) {
 /* ══ B. 主力行為推估引擎 ══════════════════════════════════════════════
    多證據加分制：每個行為累積分數，取最高者，信心=與第二名的差距
    ════════════════════════════════════════════════════════════════════ */
-function computeMainForce(D, formulas) {
+function computeMainForce(D) {
   const c = D.closes, h = D.highs, l = D.lows, v = D.volumes, n = c.length;
   const scores = { 吸籌: 0, 洗盤: 0, 出貨: 0, 誘多: 0, 誘空: 0, 恐慌殺盤: 0 };
   const evidence = { 吸籌: [], 洗盤: [], 出貨: [], 誘多: [], 誘空: [], 恐慌殺盤: [] };
@@ -107,8 +107,8 @@ function computeMainForce(D, formulas) {
   let downStreak = 0;
   for (let i = n - 1; i > 0; i--) { if (c[i] < c[i-1]) downStreak++; else break; }
   if (vr > 1.8 && chg1 < -2) {
-    if (downStreak >= 3 && formulas && formulas.psy && formulas.psy.value <= 25) {
-      add('恐慌殺盤', 30, `連跌${downStreak}天+爆量長黑+PSY恐慌（散戶不計價殺出）`);
+    if (downStreak >= 3 && calcRSI(c, 14) <= 30) {   // v188 PSY 併入 RSI（相關 0.88）；回測與即時用同一條（原本回測固定 PSY=50，這條永遠不成立）
+      add('恐慌殺盤', 30, `連跌${downStreak}天+爆量長黑+RSI超賣（散戶不計價殺出）`);
     } else {
       add('出貨', 15, `爆量下跌（${vr.toFixed(1)}倍量，主力調節）`);
     }
@@ -166,12 +166,10 @@ function computeMainForce(D, formulas) {
     }
   }
 
-  // ── PSY 情緒環境 ──
-  if (formulas && formulas.psy) {
-    const psyV = formulas.psy.value;
-    if (psyV >= 80) add('出貨', 10, `PSY ${psyV} 群眾過度貪婪（FOMO環境，主力常趁勢出貨）`);
-    if (psyV <= 20 && scores.恐慌殺盤 === 0) add('吸籌', 8, `PSY ${psyV} 群眾恐慌（恐慌是主力的買點環境）`);
-  }
+  // ── 情緒環境（v188 PSY 併入 RSI）──
+  { const rsiV = calcRSI(c, 14);
+    if (rsiV >= 75) add('出貨', 10, `RSI ${rsiV.toFixed(0)} 群眾過度貪婪（FOMO環境，主力常趁勢出貨）`);
+    if (rsiV <= 25 && scores.恐慌殺盤 === 0) add('吸籌', 8, `RSI ${rsiV.toFixed(0)} 群眾恐慌（恐慌是主力的買點環境）`); }
 
   // ── 結算 ──
   const sorted = Object.entries(scores).sort((a, b) => b[1] - a[1]);
@@ -205,7 +203,7 @@ function computeMainForce(D, formulas) {
       任何把此判定改回無條件方向訊號的修改，都與實證證據相悖。
    ⚠️ 洗盤時的「吸籌確認觸發價」用原始市價（可下單價位鐵律）
    ════════════════════════════════════════════════════════════════════ */
-function computeIntentAnalysis(D, formulas, mainForce) {
+function computeIntentAnalysis(D, mainForce) {
   const c = D.closes, h = D.highs, l = D.lows, v = D.volumes, n = c.length;
   if (n < 25) return null;
   const price = D.price;
@@ -217,7 +215,7 @@ function computeIntentAnalysis(D, formulas, mainForce) {
   const vol5 = v.slice(-5).reduce((a,b)=>a+b,0)/5;
   const vol20 = v.slice(-20).reduce((a,b)=>a+b,0)/20;
   const volRatio = vol20 ? vol5/vol20 : 1;                // 近5日相對20日量比
-  const psyV = (formulas && formulas.psy) ? formulas.psy.value : 50;
+  const rsiV = calcRSI(c, 14);   // v188 PSY 併入 RSI（同為 0~100 情緒刻度，相關 0.88）
   const obvSlope = mainForce ? mainForce.obvSlope : 0;
   const kbar = mainForce ? mainForce.kbar : null;
   const instNet = chipUsable(D.chip) ? D.chip.foreign5 + D.chip.trust5 : null;   // v182：不可用＝沒有法人票（不是 0）
@@ -298,7 +296,7 @@ function computeIntentAnalysis(D, formulas, mainForce) {
     if (lowerShadow >= 2) { washScore += 25; ev.wash.push(`近5日 ${lowerShadow} 根長下影（殺低有人承接）`); }
     if (obvSlope > -0.15 && drop5 < -3) { washScore += 25; ev.wash.push('價跌但OBV未同步破底（籌碼沒真的離開＝洗籌痕跡）'); }
     if (volRatio < 0.9 && drop5 < -3) { washScore += 20; ev.wash.push(`量縮下跌（${volRatio.toFixed(2)}倍量，殺盤無量＝非主力出逃）`); }
-    if (psyV <= 25) { washScore += 15; ev.wash.push(`PSY ${psyV} 散戶恐慌交出籌碼（洗盤最愛的情緒）`); }
+    if (rsiV <= 25) { washScore += 15; ev.wash.push(`RSI ${rsiV.toFixed(0)} 散戶恐慌交出籌碼（洗盤最愛的情緒）`); }
     if (instNet != null && instNet > 0) { washScore += 20; ev.wash.push('法人5日仍淨買（跌勢中法人沒跑）'); }
     if (closeStrong >= 2) { washScore += 10; ev.wash.push('多日收在當日高檔（盤中殺低尾盤拉回）'); }
     // Wyckoff Test 確認：破底後量能遞減，賣壓真枯竭（比單看下影線更可信的兩段式驗證）
@@ -363,7 +361,7 @@ function computeIntentAnalysis(D, formulas, mainForce) {
     verdict: top.name, dir: top.dir, confidence,
     title: s.title, desc: s.script,
     scores, evidence: top.ev,
-    metrics: { biasPct, drop5, volRatio, psyV, obvSlope, lowerShadow },
+    metrics: { biasPct, drop5, volRatio, rsiV, obvSlope, lowerShadow },
   };
 }
 
@@ -381,19 +379,14 @@ function computeEarlyFootprints(D) {
     if (n < 150) return null;   // v102修：ATR百分位序列需往回134根，130~149日會產生NaN靜默失能
     const fp = [];
     const avg20 = v.slice(n - 21, n - 1).reduce((a, b) => a + b, 0) / 20;
-    // 盤中用推估全日量（同突破檢查的防呆）
-    let vT = v[n - 1];
-    let phTxt = '';
-    try { const ph = (D.currency === 'TWD' && typeof twMarketPhase === 'function') ? twMarketPhase() : null;
-      if (ph && ph.open && ph.elapsed >= 0.15) { vT = v[n - 1] / ph.elapsed; phTxt = '（盤中推估）'; }
-      else if (ph && ph.open) { return null; }   // v102修：開盤未滿40分鐘量推估雜訊過大，此時段不判足跡（寧可慢一步不誤報）
-    } catch (e) {}
+    // v187：盤中最後一根已是昨天的完整K棒（v141 去掉未完成的），不再「推估全日量」（原本把完整量再放大好幾倍）
+    const vT = v[n - 1];
     const ret1 = Math.abs((c[n - 1] - c[n - 2]) / c[n - 2] * 100);
     let atr = 0; for (let k = n - 14; k < n; k++) atr += Math.max(h[k] - l[k], Math.abs(h[k] - c[k - 1]), Math.abs(l[k] - c[k - 1])); atr /= 14;
     const atrPct = atr / c[n - 1] * 100;
     // ① 量增價滯
     if (avg20 > 0 && vT > avg20 * 2 && ret1 < atrPct * 0.4) {
-      fp.push({ icon: '👣', txt: `量增價滯${phTxt}：量達20日均量${(vT / avg20).toFixed(1)}倍但價僅動${ret1.toFixed(1)}%——大量換手中（吸貨或出貨，方向未知），通常領先籌碼資料1天` });
+      fp.push({ icon: '👣', txt: `量增價滯：量達20日均量${(vT / avg20).toFixed(1)}倍但價僅動${ret1.toFixed(1)}%——大量換手中（吸貨或出貨，方向未知），通常領先籌碼資料1天` });
     }
     // ② OBV 先行背離（20日窗）
     const obv = []; let s = 0;
@@ -414,11 +407,11 @@ function computeEarlyFootprints(D) {
   } catch (e) { return null; }
 }
 
-function renderMainForce(D, formulas) {
+function renderMainForce(D) {
   const card = document.getElementById('mainforce-card');
   if (!card) return;
   card.style.display = 'block';
-  const mf = computeMainForce(D, formulas);
+  const mf = computeMainForce(D);
 
   const colMap = { 吸籌: 'var(--buy)', 洗盤: 'var(--warn)', 出貨: 'var(--sell)', 誘多: 'var(--sell)', 誘空: 'var(--warn)', 恐慌殺盤: 'var(--sell)', 無明顯主力行為: 'var(--muted)' };
   const col = colMap[mf.behavior] || 'var(--muted)';
@@ -445,7 +438,7 @@ function renderMainForce(D, formulas) {
   </div>`;
 
   // ── 主力意圖研判（洗盤/出貨/進貨的關鍵分岔）──
-  const intent = computeIntentAnalysis(D, formulas, mf);
+  const intent = computeIntentAnalysis(D, mf);
   if (intent && intent.confidence > 0) {
     const iCol = intent.dir === 'up' ? 'var(--buy)' : intent.dir === 'down' ? 'var(--sell)' : intent.dir === 'bounce' ? 'var(--warn)' : 'var(--muted)';
     html += `<div style="margin:4px 0 14px;padding:12px;background:${iCol}12;border:1.5px solid ${iCol}60;border-radius:10px">
@@ -520,13 +513,13 @@ function renderMainForce(D, formulas) {
    ════════════════════════════════════════════════════════════════════ */
 const _marginCache = {};
 async function fetchMarginData(code) {
-  const hit = _marginCache[code];
-  if (hit && Date.now() - hit.t < CACHE_TTL) return hit.d;
+  const hit = await pcGet(_marginCache, code, 'margin');   // v186 盤後資料：當天的到了且抓齊就留到下一個 16:00
+  if (hit) return hit.d;
   if (!GAS_URL || GAS_URL.indexOf('http') !== 0) return null;
   try {
     const r = await fetchT(`${GAS_URL}?action=margin&code=${encodeURIComponent(code)}`);
     const j = await r.json();
-    if (j.ok) { _marginCache[code] = { d: j, t: Date.now() }; return j; }
+    if (j.ok) { pcSet(_marginCache, code, 'margin', j, cacheUntil('post', { date: j.dataDate, ok: !(j.headMiss > 0) }, Date.now())); return j; }
   } catch (e) { if (typeof ErrorLog !== 'undefined') ErrorLog.push('融資融券', e); }
   return null;
 }
@@ -540,7 +533,7 @@ async function loadMarginCard(D) {
   card.style.display = 'block';
 
   const c = D.closes, n = c.length;
-  const chg5 = n >= 6 ? (D.price - c[n-6]) / c[n-6] * 100 : 0;
+  const chg5 = n >= 6 ? (barPx(D) - c[n-6]) / c[n-6] * 100 : 0;   // v187 與四象限同一段（盤中：至昨天收盤），文字才不會跟判讀對不上
   const mc = m.marginChg5, span = m.chg5N != null ? m.chg5N : 5;   // v177：照後端回報的實際跨距標示
   const q = marginQuadrant(m, D);   // v183：與紀律門／橫幅／行為鏈同一套判讀
 
@@ -611,10 +604,10 @@ async function loadMarginCard(D) {
    ══════════════════════════════════════════════════════════════════════ */
 function refreshAsyncDependents(code) {
   if (window._activeCode !== code) return;   // 使用者已換股，放棄補繪
-  try { if (typeof renderCrowding === 'function' && window._lastD && window._lastD.code === code) renderCrowding(window._lastD, window._lastFormulas); } catch (e) {}
+  try { if (typeof renderCrowding === 'function' && window._lastD && window._lastD.code === code) renderCrowding(window._lastD); } catch (e) {}
   try { if (typeof renderBehaviorChain === 'function' && window._gateCtx && window._gateCtx.D && window._gateCtx.D.code === code) renderBehaviorChain(window._gateCtx); } catch (e) {}
   try { if (typeof renderTradeGate === 'function' && window._gateCtx && window._gateCtx.D && window._gateCtx.D.code === code) renderTradeGate(window._gateCtx); } catch (e) {}
-  try { const ba = window._bannerArgs; if (ba && ba.D && ba.D.code === code && typeof renderVerdictBanner === 'function') renderVerdictBanner(ba.shi, ba.tradeScore, ba.formulas, ba.marketScore, ba.res, ba.D, ba.regime, ba.mtf); } catch (e) {}
+  try { const ba = window._bannerArgs; if (ba && ba.D && ba.D.code === code && typeof renderVerdictBanner === 'function') renderVerdictBanner(ba.shi, ba.D, ba.regime, ba.mtf); } catch (e) {}
 }
 
 /* ══ 【區塊 D】智慧停損 ═══════════════════════════════════════════════
@@ -739,26 +732,27 @@ function checkETFRebalanceWindow() {
   };
 }
 
-function computeCrowding(D, formulas) {
+function computeCrowding(D) {
   const c = D.closes, h = D.highs, l = D.lows, v = D.volumes, n = c.length;
   const price = D.price;
   let buyVotes = 0, sellVotes = 0;
   const seen = [];
 
   // 教科書訊號盤點（每個AI散戶工具都會報的那幾條）
-  const rsi = _btRSI(c, 14);
+  // v188 與指標卡同一套算法（原本另有一份 quant.js 的 _bt 版本）
+  const rsi = calcRSI(c, 14);
   if (rsi <= 32) { buyVotes++; seen.push(`RSI ${rsi.toFixed(0)} 超賣（AI教科書：買）`); }
   else if (rsi >= 68) { sellVotes++; seen.push(`RSI ${rsi.toFixed(0)} 超買（AI教科書：賣）`); }
 
-  const kd = _btKD(h, l, c, 9);
+  const kd = calcKD(h, l, c, 9);
   if (kd.k <= 22) { buyVotes++; seen.push(`KD ${kd.k.toFixed(0)} 低檔（教科書：買）`); }
   else if (kd.k >= 78) { sellVotes++; seen.push(`KD ${kd.k.toFixed(0)} 高檔（教科書：賣）`); }
 
-  const macd = _btMACD(c);
+  const macd = calcMACD(c);
   if (macd.hist > 0) { buyVotes++; seen.push('MACD 柱體翻紅（教科書：買）'); }
   else if (macd.hist < 0) { sellVotes++; seen.push('MACD 柱體翻綠（教科書：賣）'); }
 
-  const ma20 = _btSMA(c, 20), ma60 = _btSMA(c, 60);
+  const ma20 = sma(c, 20).slice(-1)[0], ma60 = sma(c, 60).slice(-1)[0];
   if (price > ma20 && ma20 > ma60) { buyVotes++; seen.push('均線多頭排列（教科書：買）'); }
   else if (price < ma20 && ma20 < ma60) { sellVotes++; seen.push('均線空頭排列（教科書：賣）'); }
 
@@ -815,11 +809,11 @@ function computeCrowding(D, formulas) {
   return { crowdDir, crowding, buyVotes, sellVotes, seen, trap, bias, marginNote, dayTradeNote };
 }
 
-function renderCrowding(D, formulas) {
+function renderCrowding(D) {
   const card = document.getElementById('crowd-card');
   if (!card) return;
   card.style.display = 'block';
-  const cw = computeCrowding(D, formulas);
+  const cw = computeCrowding(D);
 
   const dirTxt = cw.crowdDir === 1 ? '散戶擁擠在「多方」' : cw.crowdDir === -1 ? '散戶擁擠在「空方」' : '無明顯擁擠方向';
   const col = cw.crowding >= 70 ? 'var(--sell)' : cw.crowding >= 45 ? 'var(--warn)' : 'var(--buy)';
@@ -876,13 +870,17 @@ async function loadDeepChipCard(D) {
   if (!card) return;
   if (D.currency !== 'TWD' || typeof FINMIND_TOKEN === 'undefined' || !FINMIND_TOKEN) { card.style.display = 'none'; return; }
   let dc = null;
-  const hit = _deepCache[D.code];
-  if (hit && Date.now() - hit.t < CACHE_TTL) dc = hit.d;
+  const hit = await pcGet(_deepCache, D.code, 'deep');
+  if (hit) dc = hit.d;
   else {
     try {
       const r = await fetchT(`${GAS_URL}?action=deepchip&code=${encodeURIComponent(D.code)}&token=${encodeURIComponent(FINMIND_TOKEN)}`);
       const j = await r.json();
-      if (j.ok) { dc = j; _deepCache[D.code] = { d: j, t: Date.now() }; }
+      /* v186 FinMind 籌碼 20:00～21:00 更新：借券到當天就留到下一個 21:00。
+         有暫時性錯誤（限流、逾時）30 分鐘後重試；「需付費方案」（402）不會因為重抓而變好，不算 */
+      const fetchFail = x => x && /HTTP|逾時|超時|timeout|abort|Unexpected token|JSON|fetch|network/i.test(x);
+      const transient = [j.bigErr, j.brokerErr].some(x => fetchFail(x) && !/402/.test(x)) || [j.lendErr, j.dayTradeErr, j.dealerErr].some(fetchFail);
+      if (j.ok) { dc = j; pcSet(_deepCache, D.code, 'deep', j, cacheUntil('finmind', { date: j.lend && j.lend.lastDate, ok: !transient }, Date.now())); }
     } catch (e) { if (typeof ErrorLog !== 'undefined') ErrorLog.push('主力縱深', e); }
   }
   if (window._activeCode && window._activeCode !== D.code) return;  // 已換股，丟棄遲到結果
@@ -1009,8 +1007,7 @@ function computeIntentBacktest(D) {
   if (_ibMemo.k === _k) return _ibMemo.v;
   const H2 = 10;   // 同時統計5日與10日：洗盤機制上需等測試完成才反彈，單一視窗有盲點，雙視窗不挑好看的報
   const stats = { '洗盤': { n: 0, sum5: 0, win5: 0, sum10: 0, win10: 0 }, '出貨': { n: 0, sum5: 0, win5: 0, sum10: 0, win10: 0 }, '進貨': { n: 0, sum5: 0, win5: 0, sum10: 0, win10: 0 } };
-  const neutralF = { psy: { value: 50 } };
-  const lastCount = { '洗盤': -99, '出貨': -99, '進貨': -99 };   // 各類判定獨立去重（信心短暫跌破50不會讓同一事件被重複計數）
+    const lastCount = { '洗盤': -99, '出貨': -99, '進貨': -99 };   // 各類判定獨立去重（信心短暫跌破50不會讓同一事件被重複計數）
 
   // 基準線（無條件上漲率）：此股任一天的未來5日/10日本身漲跌機率，不看任何訊號。
   // 若股票本身處於強勢多頭，基準線會>50%，此時判定命中率必須扣掉基準線才是真正的Alpha，
@@ -1025,10 +1022,13 @@ function computeIntentBacktest(D) {
   const base10 = baseN ? baseWin10 / baseN * 100 : 50;
 
   for (let i = 70; i < n - H2; i++) {
+    /* v187 與即時判讀餵同樣的欄位：原本缺開盤價與前一日收盤，K棒證據整組關掉、「爆量下跌／恐慌殺盤」永遠不成立，
+       回測驗的是另一個分類器（實測 22% 的事件日判讀不同），α 閘門放行的依據對不上 */
     const Ds = { closes: D.closes.slice(0, i + 1), highs: D.highs.slice(0, i + 1), lows: D.lows.slice(0, i + 1),
-                 volumes: D.volumes.slice(0, i + 1), price: D.closes[i], chip: null };
+                 volumes: D.volumes.slice(0, i + 1), opens: D.opens ? D.opens.slice(0, i + 1) : undefined,
+                 price: D.closes[i], prevClose: D.closes[i - 1], chip: null };
     let it = null;
-    try { const mfs = computeMainForce(Ds, neutralF); it = computeIntentAnalysis(Ds, neutralF, mfs); } catch (e) { continue; }
+    try { const mfs = computeMainForce(Ds); it = computeIntentAnalysis(Ds, mfs); } catch (e) { continue; }
     if (!it || it.verdict === '訊號不足' || it.confidence < 50) continue;
     if (i - lastCount[it.verdict] < 10) continue;   // 同事件去重
     lastCount[it.verdict] = i;

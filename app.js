@@ -1,6 +1,6 @@
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['app.js'] = 185; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['app.js'] = 188; } catch (e) {}
 
 // ══════════════════════════════════════════════════════════════════════
 // 短線雷達 Pro — 風險優先分層決策系統
@@ -10,7 +10,6 @@ try { (window.SR_FV = window.SR_FV || {})['app.js'] = 185; } catch (e) {}
 // 全域狀態（僅go()主流程賦值，其他函式只讀不寫，防async競爭）：
 //   window._activeCode   — 目前查詢中的股票代碼（補繪前必查此值防閃現舊股）
 //   window._lastD        — 最近一次完整D物件（含opens/rawCloses等）
-//   window._lastFormulas — 最近一次formulas物件
 //   window._gateCtx      — 紀律門上下文（供margin/deep到達後補繪renderTradeGate）
 //   window._bannerArgs   — 決策橫幅參數（v81起，供margin/deep到達後補繪橫幅警示）
 // ──────────────────────────────────────────────────────────────────
@@ -23,7 +22,8 @@ try { (window.SR_FV = window.SR_FV || {})['app.js'] = 185; } catch (e) {}
 //     （股價5分/融資5分/大盤10分/主力縱深10分），導致重查時各層過期時機
 //     不同步，出現「股價已更新但大盤還是舊的」的混搭狀態，指標自然算出
 //     不同結果。已統一為 config.js 的 CACHE_TTL 單一常數。
-//     ★ 任何新增的資料快取一律使用 CACHE_TTL，不可另寫時間數字
+//     ★ 任何新增的資料快取一律用 pcGet/pcSet＋config.js 的 cacheUntil（v186 依資料日期決定
+//       有效期），不可另寫時間數字
 //   - 任何新增的非同步補繪邏輯，必須比對 window._activeCode === D.code
 //     才能渲染，否則使用者換股查詢時可能短暫看到上一檔的資料
 //   - 卡片重置清單（約464行的陣列）與layout.js分頁清單、index.html卡片id
@@ -42,15 +42,15 @@ function showErr(m){$('err-box').style.display='block';$('err-box').innerHTML=`<
 function hideErr(){$('err-box').style.display='none';}
 
 // ── 抓資料（透過 GAS） ─────────────────────────────────────────────────
-const _stockCache = {};  // 個股資料快取（5分鐘，重查同股秒回）
+const _stockCache = {};  // 個股資料快取 { d, t, until }（v186：有效期看資料日期，見 config.js cacheUntil；關掉 App 也還在）
 async function fetchStock(code){
   if(GAS_URL.indexOf('http')!==0) throw new Error('尚未設定 GAS 網址，請先部署 Code.gs 並把 URL 填入設定');
-  // 快取命中（5分鐘內）
-  const cached=_stockCache[code];
-  if(cached && (Date.now()-cached.time < CACHE_TTL)){
-    window._dataFetchedAt = cached.time;   // v95：記錄資料實際抓取時刻（非查詢時刻），供UI透明顯示
+  const cached=await pcGet(_stockCache, code, 'px');
+  if(cached){
+    window._dataFetchedAt = cached.t;   // v95：記錄資料實際抓取時刻（非查詢時刻），供UI透明顯示
+    window._dataUntil = cached.until;   // v186：沿用的理由（見時間標籤說明）
     window._dataFromCache = true;
-    return cached.data;
+    return JSON.parse(JSON.stringify(cached.d));   // 副本：trimIntradayBar 會改動陣列，暫存要保留原樣（盤中/收盤後依「當下」重新判斷）
   }
   let r;
   try{ r=await fetchT(`${GAS_URL}?code=${encodeURIComponent(code)}`); }
@@ -59,10 +59,10 @@ async function fetchStock(code){
   const j=await r.json();
   if(!j.ok) throw new Error(j.error||'後端無法取得資料');
   if(!j.closes||j.closes.length<10) throw new Error(`${code} 歷史資料不足`);
-  _stockCache[code]={data:j,time:Date.now()};
+  pcSet(_stockCache, code, 'px', j, cacheUntil('px', j, Date.now(), !/^\d/.test(code)));
   window._dataFetchedAt = Date.now();
   window._dataFromCache = false;
-  return j;
+  return JSON.parse(JSON.stringify(j));
 }
 
 /* v141 盤中資料未定案處理 ─────────────────────────────────────────────
@@ -75,10 +75,10 @@ async function fetchStock(code){
 function trimIntradayBar(j) {
   try {
     if (!j || j._trimmed || !Array.isArray(j.closes) || j.closes.length < 60) return j;
-    const d = new Date(Date.now() + 8 * 3600000);
-    const ymd = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`;
-    const mins = d.getUTCHours() * 60 + d.getUTCMinutes();
-    const during = d.getUTCDay() >= 1 && d.getUTCDay() <= 5 && mins >= 9 * 60 && mins < 14 * 60;
+    /* v187：美股原本沒去（只看台北 09:00~14:00）——美股盤中（台北深夜）那根半天的K棒與半天的量一直留著，
+       結論在盤中翻來翻去、半天量還被當成「量縮」。改用各自交易所的時段與當地日期（config.js SESS） */
+    const [tz, open, close] = SESS[j.currency === 'USD' ? 'us' : 'tw'], p = zoneParts(Date.now(), tz);
+    const ymd = p.ymd, during = p.wd >= 1 && p.wd <= 5 && p.min >= open && p.min < close;
     if (!during || String(j.lastDate || '') !== ymd) return j;
     ['closes', 'highs', 'lows', 'volumes', 'opens', 'rawCloses', 'rawHighs', 'rawLows']
       .forEach(k => { if (Array.isArray(j[k]) && j[k].length > 1) j[k] = j[k].slice(0, -1); });
@@ -92,7 +92,6 @@ function trimIntradayBar(j) {
 
 function sma(a,n){return a.map((_,i)=>i<n-1?null:a.slice(i-n+1,i+1).reduce((s,v)=>s+v,0)/n);}
 function ema(a,n){const k=2/(n+1);let e=null;return a.map(v=>{e=e===null?v:v*k+e*(1-k);return e;});}
-function stddev(a){const m=a.reduce((s,v)=>s+v,0)/a.length;return Math.sqrt(a.reduce((s,v)=>s+(v-m)**2,0)/a.length);}
 function lastNonNull(a){for(let i=a.length-1;i>=0;i--)if(a[i]!=null)return a[i];return null;}
 
 // ── ATR（Average True Range）────────────────────────────────────────────
@@ -138,64 +137,34 @@ function calcKD(h,l,c,n=9){
   return{k,d,j:3*k-2*d};
 }
 // ── 其他 ───────────────────────────────────────────────────────────────
-function calcBB(c,n=20,m=2){const s=sma(c,n),last=s[s.length-1];const std=stddev(c.slice(-n));return{upper:last+m*std,mid:last,lower:last-m*std,std};}
+/* v188 標準 Wilder ADX（從第 1 根K棒一路平滑到最後）。原本只用最後 29 根，與標準算法差距中位數 6.8 點、
+   盤勢分類 33.6% 的日子不同；條件式期望值表已用同一算法重跑回測（24檔 2006~2026），舊版已移除 */
 function calcDMI(h,l,c,n=14){
-  // 標準 Wilder ADX：+DI/-DI 先各自做 n 期 Wilder 平滑，再算 DX 序列，
-  // 最後對 DX 序列再做一次 n 期 Wilder 平滑才是 ADX（單日DX雜訊很大，這層平滑才是「>25=趨勢明確」門檻站得住的原因）
-  const len = c.length;
-  if (len < n * 2 + 1) {
-    // 資料不足以做完整雙重平滑，退回單期估計但不冒充標準ADX刻度（供極短資料的向下相容）
+  const len=c.length;
+  if(len<n*2+1){   // 資料不足以雙重平滑（新上市股）：用最後 n 根的單期估計
     let pdm=0,ndm=0,tr=0;
     for(let i=Math.max(1,len-n);i<len;i++){
       const up=h[i]-h[i-1],dn=l[i-1]-l[i];
       pdm+=up>dn&&up>0?up:0; ndm+=dn>up&&dn>0?dn:0;
       tr+=Math.max(h[i]-l[i],Math.abs(h[i]-c[i-1]),Math.abs(l[i]-c[i-1]));
     }
-    if(tr===0)return{adx:0,pdi:0,ndi:0};
+    if(!tr)return{adx:0,pdi:0,ndi:0};
     const pdi=pdm/tr*100,ndi=ndm/tr*100;
     return{adx:Math.abs(pdi-ndi)/(pdi+ndi)*100||0,pdi,ndi};
   }
-
-  // 逐日算 +DM/-DM/TR，Wilder 平滑後得到逐日 +DI/-DI，再逐日算 DX
-  const dxSeries = [];
-  let smPDM=0, smNDM=0, smTR=0, pdiLast=0, ndiLast=0;
-  const start = len - (n * 2 + 1);
-  for (let i = start + 1; i < len; i++) {
-    const up=h[i]-h[i-1], dn=l[i-1]-l[i];
-    const pdm = up>dn&&up>0?up:0, ndm = dn>up&&dn>0?dn:0;
-    const tr = Math.max(h[i]-l[i],Math.abs(h[i]-c[i-1]),Math.abs(l[i]-c[i-1]));
-    const idxInWindow = i - start;
-    if (idxInWindow <= n) {
-      // 前n期：累加，第n期時轉換成初始平滑值
-      smPDM += pdm; smNDM += ndm; smTR += tr;
-      if (idxInWindow === n) {
-        pdiLast = smTR ? smPDM/smTR*100 : 0;
-        ndiLast = smTR ? smNDM/smTR*100 : 0;
-        const dx = (pdiLast+ndiLast) ? Math.abs(pdiLast-ndiLast)/(pdiLast+ndiLast)*100 : 0;
-        dxSeries.push(dx);
-      }
-    } else {
-      // Wilder 平滑遞迴：新值 = 舊值 - 舊值/n + 當期值
-      smPDM = smPDM - smPDM/n + pdm;
-      smNDM = smNDM - smNDM/n + ndm;
-      smTR  = smTR  - smTR/n  + tr;
-      pdiLast = smTR ? smPDM/smTR*100 : 0;
-      ndiLast = smTR ? smNDM/smTR*100 : 0;
-      const dx = (pdiLast+ndiLast) ? Math.abs(pdiLast-ndiLast)/(pdiLast+ndiLast)*100 : 0;
-      dxSeries.push(dx);
-    }
+  let sP=0,sN=0,sT=0,adx=null,dxSum=0,dxN=0,pdi=0,ndi=0;
+  for(let i=1;i<len;i++){
+    const up=h[i]-h[i-1],dn=l[i-1]-l[i],p=up>dn&&up>0?up:0,m=dn>up&&dn>0?dn:0;
+    const tr=Math.max(h[i]-l[i],Math.abs(h[i]-c[i-1]),Math.abs(l[i]-c[i-1]));
+    if(i<=n){ sP+=p; sN+=m; sT+=tr; if(i<n) continue; }
+    else { sP+=p-sP/n; sN+=m-sN/n; sT+=tr-sT/n; }
+    pdi=sT?sP/sT*100:0; ndi=sT?sN/sT*100:0;
+    const dx=pdi+ndi?Math.abs(pdi-ndi)/(pdi+ndi)*100:0;
+    if(adx==null){ dxSum+=dx; if(++dxN===n) adx=dxSum/n; }
+    else adx=(adx*(n-1)+dx)/n;
   }
-  if (!dxSeries.length) return { adx: 0, pdi: pdiLast, ndi: ndiLast };
-
-  // 對 DX 序列做第二層 Wilder 平滑 → 這才是真正的 ADX
-  let adx = dxSeries.slice(0, Math.min(n, dxSeries.length)).reduce((a,b)=>a+b,0) / Math.min(n, dxSeries.length);
-  for (let i = n; i < dxSeries.length; i++) {
-    adx = (adx * (n-1) + dxSeries[i]) / n;
-  }
-  return { adx, pdi: pdiLast, ndi: ndiLast };
+  return{adx,pdi,ndi};
 }
-function calcROC(c,n=12){const p=c[c.length-1-n];return p?(c[c.length-1]-p)/p*100:0;}
-
 // ── RSI 背離偵測（價創新高/低，但RSI未跟上）─────────────────────────────
 function detectRSIDivergence(c,rsiSeries){
   const N=Math.min(20,c.length);
@@ -302,9 +271,6 @@ function analyzeRisk(D,atr){
   const recentHigh=Math.max(...rawH.slice(-22));
   const chandelier=recentHigh-atr*3;
 
-  // 風報比 1:2 與 1:3 對應的停利價
-  const tp2=price+stopDist*2;
-  const tp3=price+stopDist*3;
 
   // 固定風險法部位大小
   const riskAmount=capital*riskPct/100;
@@ -320,11 +286,15 @@ function analyzeRisk(D,atr){
      （b=1 比原本的 b=2 保守，符合「寧可低估也不高估部位」的風控原則） */
   let b = 1;   // 保守預設（原為2，已證實過度樂觀）
   let bSource = '保守預設1:1（未取得此股實測風報比）';
+  /* v188 停利改用此股 5／10 日中位可達價（原本 1:2、1:3 風報比：實測 10 日內到 2R 只有 10.5%、3R 3.9%，
+     與紀律門執行計畫用的是同一套 MFE 統計）；資料不足 120 日時不給停利價，不拿 R 倍數硬湊 */
+  let tp5 = null, tp10 = null;
   try {
     if (typeof computeRealisticTargets === 'function' && stopPct > 0) {
       // v183：風險卡是做多的配置（停損在現價下方、停利在上方），可達幅度要看上漲方向；原本傳 -1 量的是下跌幅度
       const rt = computeRealisticTargets(D, 1, stopPct);
       const row5 = rt && rt.rows ? rt.rows.find(r => r.days === 5) : null;
+      tp5 = row5; tp10 = rt && rt.rows ? rt.rows.find(r => r.days === 10) || null : null;
       if (row5 && row5.rr > 0) { b = row5.rr; bSource = `此股實測（5日中位可達 ${row5.medPct.toFixed(1)}% ÷ 停損 ${stopPct.toFixed(1)}%）`; }
     }
   } catch (e) {}
@@ -360,9 +330,9 @@ function analyzeRisk(D,atr){
     }
   } catch (e) {}
 
-  return{capital,riskPct,winRate,atr,stopLoss,stopPct,stopDist,chandelier,tp2,tp3,stopNote,b,bSource,breakevenWR,fixSuggestion,
+  return{capital,riskPct,winRate,atr,stopLoss,stopPct,stopDist,chandelier,tp5,tp10,stopNote,b,bSource,breakevenWR,fixSuggestion,
     riskAmount,shares,positionValue,positionPct,
-    kellyFull:Math.max(0,kellyFull),kellyHalf:Math.max(0,kellyHalf),kellyQuarter:Math.max(0,kellyQuarter),
+    kellyFull,kellyHalf,kellyQuarter,
     currency:D.currency};
 }
 
@@ -400,14 +370,7 @@ function analyzePsychology(D){
       desc:`股價偏離20日均線 ${bias20.toFixed(1)}%，深度超跌。「損失厭惡」會讓人小賠不砍、凹單到大賠。若手中套牢，請用紀律停損，而非僥倖硬抱。`});
   }
 
-  // 3. 損失厭惡核心提醒（恆顯示）
-  alerts.push({type:'ok',icon:'🧠',title:'損失厭惡校正',
-    desc:`心理學研究：虧損的痛苦約為等量獲利快樂的 2 倍。這導致多數人「小賺就跑、大賠硬抱」——正好和賺錢法則相反。請永遠先看好你的停損（第②層），讓獲利奔跑。`});
-
-  // 4. 確認偏誤提醒
-  alerts.push({type:'ok',icon:'🔍',title:'確認偏誤校正',
-    desc:`別只找支持你想法的訊號。本系統第④層同時列出買進與賣出指標——請把反方訊號也讀完，再做決定。`});
-
+  // v188 拿掉兩條「恆顯示」的固定說教（損失厭惡、確認偏誤）：每檔每天都一樣，不是分析
   return alerts;
 }
 
@@ -459,34 +422,8 @@ function analyzeSignals(D,atr,trend){
     k<20&&k>d?'buy':k>80&&k<d?'sell':'hold',
     k<20&&k>d?`K${k.toFixed(0)} 低檔黃金交叉`:k>80&&k<d?`K${k.toFixed(0)} 高檔死亡交叉`:`K ${k.toFixed(0)} 中性`);
 
-  // 布林 Squeeze（核心：通道收窄→大波動）
-  const bb=calcBB(c);
-  const bw=(bb.upper-bb.lower)/bb.mid*100;
-  const bbP=(price-bb.lower)/((bb.upper-bb.lower)||1)*100;
-  add('布林 Squeeze ⭐','核心',`頻寬 ${bw.toFixed(1)}%`,bw,0,20,
-    bw<3?'buy':'hold',
-    bw<3?`通道極度收窄 ${bw.toFixed(1)}%！量化系統最愛訊號：即將出現大波動，留意突破方向`:
-    bw>12?`通道偏寬 ${bw.toFixed(1)}%，波動擴大期`:`頻寬 ${bw.toFixed(1)}%，位於通道 ${bbP.toFixed(0)}%`);
-
-  // DMI 趨勢強度
-  const dmi=calcDMI(h,l,c);
-  add('DMI 趨勢強度','趨勢',`ADX:${dmi.adx.toFixed(1)} +DI:${dmi.pdi.toFixed(0)} -DI:${dmi.ndi.toFixed(0)}`,dmi.adx,0,60,
-    dmi.pdi>dmi.ndi&&dmi.adx>20?'buy':dmi.ndi>dmi.pdi&&dmi.adx>20?'sell':'hold',
-    dmi.adx<20?`ADX ${dmi.adx.toFixed(0)} < 20，無明顯趨勢（盤整，不利順勢單）`:
-    dmi.pdi>dmi.ndi?`ADX ${dmi.adx.toFixed(0)} 趨勢明確，+DI領先 → 多方掌控`:`ADX ${dmi.adx.toFixed(0)} 趨勢明確，-DI領先 → 空方掌控`);
-
-  // ROC 動能（與 MACD 算法不同，保留為輔助）
-  const roc=calcROC(c,12);
-  add('ROC 變動率','動能',`${roc>=0?'+':''}${roc.toFixed(1)}%`,roc,-15,15,roc>4?'buy':roc<-4?'sell':'hold',
-    roc>4?`12日 +${roc.toFixed(1)}% 動能強`:roc<-4?`12日 ${roc.toFixed(1)}% 弱`:`動能 ${roc.toFixed(1)}% 平淡`);
-
-  // 200MA 趨勢（機構最愛）
-  if(trend.ma200!=null){
-    add('200MA 長期趨勢','趨勢',`${trend.aboveMA200?'站上':'跌破'} ${fmt(trend.ma200)}`,null,null,null,
-      trend.aboveMA200?'buy':'sell',
-      trend.aboveMA200?`股價在200日線之上，長期偏多（機構最常用的多空分界）`:`股價在200日線之下，長期偏空`);
-  }
-
+  /* v188 拿掉四格：布林 Squeeze（頻寬<3% 實測 0.3% 才出現，等於不會亮；壓縮度改看市場狀態卡的百分位）、
+     DMI（與市場狀態卡同一個 ADX，重複）、ROC（與 VWAP 距離相關 0.90，重複）、200MA（與趨勢橫幅同一件事） */
   return sigs;
 }
 
@@ -508,11 +445,11 @@ function renderRisk(r){
   const cur=r.currency==='TWD'?'NT$':'$';
   const boxes=[
     {cls:'',label:'🛑 ATR 停損價 (2×ATR)',value:cur+fmt(r.stopLoss),valCls:'sell',sub:`停損距離 ${fmt(r.stopDist)}（${r.stopPct.toFixed(1)}%）${r.stopNote?'。📐 '+r.stopNote:'，比固定%停損更貼合波動'}`},
-    {cls:'good',label:'🎯 停利價 1:2 風報比',value:cur+fmt(r.tp2),valCls:'buy',sub:`風報比 1:2，即使勝率40%長期仍可能獲利`},
-    {cls:'good',label:'🎯 停利價 1:3 風報比',value:cur+fmt(r.tp3),valCls:'buy',sub:`理想風報比，讓獲利奔跑`},
+    {cls:'good',label:'🎯 停利一（此股5日中位可達）',value:r.tp5?cur+fmt(r.tp5.medPrice):'—',valCls:'buy',sub:r.tp5?`+${r.tp5.medPct.toFixed(1)}%${r.tp5.rr!=null?`｜風報比 1:${r.tp5.rr.toFixed(2)}`:''}（歷史上一半的時候5日內摸得到）`:'資料不足 120 日，算不出此股實際可達幅度'},
+    {cls:'good',label:'🎯 停利二（此股10日中位可達）',value:r.tp10?cur+fmt(r.tp10.medPrice):'—',valCls:'buy',sub:r.tp10?`+${r.tp10.medPct.toFixed(1)}%｜抱得久一點的目標（固定 1:2、1:3 實測 10 日內只摸到 10.5%／3.9%）`:'資料不足 120 日'},
     {cls:'warn',label:'🪜 移動停利 (Chandelier)',value:cur+fmt(r.chandelier),valCls:'warn',sub:`最高價-3×ATR，股價創高就上移，保護獲利`},
     {cls:'',label:'📦 建議部位（固定風險法）',value:`${fmt(r.shares,0)} ${r.currency==='TWD'?'股':'股'}`,valCls:'',sub:`單筆風險 ${cur}${fmtV(Math.round(r.riskAmount))}（資金${r.riskPct}%），佔總資金 ${r.positionPct.toFixed(1)}%`},
-    {cls:'warn',label:'🎲 凱利建議比例',value:`${(r.kellyHalf*100).toFixed(1)}%`,valCls:'warn',sub:`半凱利（保守）。全凱利 ${(r.kellyFull*100).toFixed(1)}%／四分之一凱利 ${(r.kellyQuarter*100).toFixed(1)}%。風報比 1:${r.b.toFixed(2)}（${r.bSource}）｜<b>損益兩平勝率 ${(r.breakevenWR*100).toFixed(0)}%</b>——你的勝率需高於此才值得下注，目前填 ${(r.winRate*100).toFixed(0)}%${r.kellyFull<=0?`。<span style="color:var(--sell)">⚠️ 凱利=0：以此風報比，${(r.winRate*100).toFixed(0)}%勝率是負期望值，這筆不該做</span>`:''}${r.fixSuggestion?`<br><span style="color:var(--warn)">🔧 <b>出路</b>：問題在進場位置不在選股。若停損能從 ${r.fixSuggestion.curStopPct.toFixed(1)}% 縮到 <b>${r.fixSuggestion.stopNeedPct.toFixed(1)}%</b>（縮 ${r.fixSuggestion.shrink.toFixed(0)}%），損益兩平勝率就降到55%。做法：等價格回測到關鍵壓力/支撐附近再進場，把停損貼在該結構外緣——這才是「等回測」的真正價值，不是方向更準，而是讓數學結構由負轉正。</span>`:''}`},
+    {cls:'warn',label:'🎲 凱利建議比例',value:r.kellyFull>0?`${(r.kellyHalf*100).toFixed(1)}%`:`不下注｜需勝率≥${(r.breakevenWR*100).toFixed(0)}%`,valCls:r.kellyFull>0?'warn':'sell',sub:`半凱利（保守）。全凱利 ${(r.kellyFull*100).toFixed(1)}%／四分之一凱利 ${(r.kellyQuarter*100).toFixed(1)}%。風報比 1:${r.b.toFixed(2)}（${r.bSource}）｜<b>損益兩平勝率 ${(r.breakevenWR*100).toFixed(0)}%</b>——你的勝率需高於此才值得下注，目前填 ${(r.winRate*100).toFixed(0)}%${r.kellyFull<=0?`。<span style="color:var(--sell)">⚠️ 凱利=0：以此風報比，${(r.winRate*100).toFixed(0)}%勝率是負期望值，這筆不該做</span>`:''}${r.fixSuggestion?`<br><span style="color:var(--warn)">🔧 <b>出路</b>：問題在進場位置不在選股。若停損能從 ${r.fixSuggestion.curStopPct.toFixed(1)}% 縮到 <b>${r.fixSuggestion.stopNeedPct.toFixed(1)}%</b>（縮 ${r.fixSuggestion.shrink.toFixed(0)}%），損益兩平勝率就降到55%。做法：等價格回測到關鍵壓力/支撐附近再進場，把停損貼在該結構外緣——這才是「等回測」的真正價值，不是方向更準，而是讓數學結構由負轉正。</span>`:''}`},
   ];
   $('risk-grid').innerHTML=boxes.map(x=>`<div class="risk-box ${x.cls}"><div class="rb-label">${x.label}</div><div class="rb-value ${x.valCls}">${x.value}</div><div class="rb-sub">${x.sub}</div></div>`).join('');
 }
@@ -553,12 +490,20 @@ function renderGrid(sigs){
 // ══ 主流程 ═════════════════════════════════════════════════════════════
 function qs(t){$('ticker-input').value=t;go();}
 
+/* v186 重新抓取：清掉這一檔（與共用的大盤、基準）的暫存後重查 */
+async function forceRefresh(){
+  const code=window._activeCode; if(!code) return;
+  [_stockCache,_marginCache,_deepCache,_fundCache,_intelCache].forEach(m=>{ delete m[code]; });
+  _benchCache={}; _mktCache={};
+  await pcDrop(code);
+  $('ticker-input').value=code; await go();
+}
 async function go(){
   const raw=$('ticker-input').value.trim();
   if(!raw)return;
   const btn=$('go-btn');btn.disabled=true;btn.innerHTML='<span class="spin"></span>';
   hideErr();
-  ['stock-bar','trend-banner','risk-card','psych-card','ai-card','market-card','quant-card','formula-card','mktscore-card','chip-card','playbook-card','riskmetric-card','multiperiod-card','health-card','regime-card','rs-card','beta-card','prob-card','sr-card','vpradar-card','bingfa-card','verdict-banner','smc-card','resonance-card','mainforce-card','margin-card','mtf-card','crowd-card','gate-card','behavior-chain-card','movestage-card','oos-card','fundamental-card','deepchip-card','intel-card'].forEach(id=>$(id).style.display='none');
+  ['stock-bar','trend-banner','risk-card','psych-card','ai-card','market-card','chip-card','playbook-card','riskmetric-card','regime-card','rs-card','beta-card','sr-card','bingfa-card','verdict-banner','smc-card','mainforce-card','margin-card','mtf-card','crowd-card','gate-card','behavior-chain-card','movestage-card','fundamental-card','deepchip-card','intel-card'].forEach(id=>$(id).style.display='none');
   $('ind-grid').style.display='none';$('ind-grid').innerHTML='';
   $('cat-row').style.display='none';$('cat-tabs').innerHTML='';
   activeCat='全部';
@@ -595,9 +540,14 @@ async function go(){
     const ageSec = Math.round((Date.now() - (window._dataFetchedAt || Date.now())) / 1000);
     const lastK = D.lastDate ? String(D.lastDate) : '';   // v141：改用本次查詢的D（_lastD此時還是上一檔，會顯示錯日期）
     const kTxt = D._intraday ? '盤中·判斷用前一交易日K｜' : (lastK.length>=8 ? `K線至${lastK.slice(4,6)}/${lastK.slice(6,8)}｜` : '');
-    tp.textContent=`v${APP_VERSION}｜${kTxt}${String(ft.getHours()).padStart(2,'0')}:${String(ft.getMinutes()).padStart(2,'0')}抓取${window._dataFromCache ? `（快取${ageSec}s）` : '（即時）'}`;
+    // v186 暫存可能是幾小時前、甚至前一天抓的：講清楚是哪天幾點，並給「重新抓取」
+    const ftDay = new Date().toDateString() === ft.toDateString() ? '' : `${ft.getMonth()+1}/${ft.getDate()} `;
+    const ageTxt = ageSec < 60 ? `${ageSec}秒前` : ageSec < 3600 ? `${Math.round(ageSec/60)}分前` : `${Math.round(ageSec/3600)}小時前`;
+    tp.textContent=`v${APP_VERSION}｜${kTxt}${ftDay}${String(ft.getHours()).padStart(2,'0')}:${String(ft.getMinutes()).padStart(2,'0')}抓取${window._dataFromCache ? '（暫存）' : '（即時）'}`;
     tp.style.display='block';
-    tp.title = window._dataFromCache ? `此結果使用 ${ageSec} 秒前抓取的資料（5分鐘內重查會沿用，確保結果可重現）。想強制更新請等快取過期或重新載入頁面。` : '此結果為剛抓取的即時資料';
+    const hold = (window._dataUntil || 0) - (window._dataFetchedAt || 0);   // 依當初訂的有效期講沿用的理由，不一律說「已是最新」
+    tp.title = window._dataFromCache ? `此結果使用 ${ageTxt}抓取的資料：${hold <= CACHE_TTL ? '盤中 5 分鐘內重查沿用' : hold <= CACHE_RETRY ? '最新一天的資料當時還沒到齊（尚未公布、抓取不完整或休市），30 分鐘內會自動再抓' : '資料已是最新那一天的，在它可能更新之前（開盤、16:00 盤後）沿用'}。要立刻重抓請按旁邊的 ⟳。` : '此結果為剛抓取的即時資料';
+    $('refresh-btn').style.display='flex';
     /* v108 裝置診斷：同一檔在手機/電腦顯示不同數字，原因幾乎都是這四項之一——
        ①版本不同（PWA快取住舊版）②資金設定不同 ③風險%設定不同 ④交易日誌未同步
        （6%預算算本地日誌）。這些都存在各裝置本地，無法自動一致，但點一下就能比對。 */
@@ -627,25 +577,25 @@ async function go(){
     const psych=analyzePsychology(D);
     allSigs=analyzeSignals(D,atr,trend);
 
-    renderTrend(trend);
+    try{ renderTrend(trend); }
+    catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('趨勢卡',err); }
     // ADX 市場狀態（該用趨勢還是震盪策略）
     let regimeResult=null;
     try{ regimeResult=computeRegime(D); renderRegime(regimeResult); }
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('市場狀態',err); }
-    renderRisk(risk);
-    renderPsych(psych);
-    renderTabs(allSigs);
-    renderGrid(allSigs);
+    // v188 單卡失敗只記錄、不拖垮後面所有卡
+    try{ renderRisk(risk); }
+    catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('風險卡',err); }
+    try{ renderPsych(psych); }
+    catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('心理卡',err); }
+    try{ renderTabs(allSigs); renderGrid(allSigs); }
+    catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('訊號卡',err); }
 
-    // 大盤環境（第⓪層）+ 市場總分 + 專屬量化分數
+    // 大盤環境（第⓪層）
     const market=await fetchMarket();
     if(stale())return;
-    renderMarket(market);
-
-    // 市場環境總分（含 VIX）
-    let marketScore=null;
-    try{ marketScore=computeMarketScore(market); renderMarketScore(marketScore); }
-    catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('市場總分',err); }
+    try{ renderMarket(market); }
+    catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('大盤卡',err); }
 
     // 籌碼面（外資/投信，台股才有）
     try{ renderChip(D.chip, D); }
@@ -657,67 +607,34 @@ async function go(){
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('進出場劇本',err); }
 
     // 風險強化（回撤+波動率）
-    let riskMetrics=null;
-    try{ riskMetrics=computeRiskMetrics(D); renderRiskMetrics(riskMetrics); }
+    try{ renderRiskMetrics(computeRiskMetrics(D)); }
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('風險強化',err); }
 
-    // 多週期回測
-    try{ renderMultiPeriod(multiPeriodBacktest(D)); }
-    catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('多週期回測',err); }
+    /* v188 拿掉：多週期回測、量價雷達、機率預測、貝氏機率、樣本外驗證、專屬量化分數（同一組9訊號投票，
+       本專案回測 α=-4.4／LogLoss 劣於基準／貝氏極端區嚴重偏離）、自創公式 STI/MFD/ECO/崩跌/FUSION（ECO 永不觸發、
+       MFD 門檻差約 10 倍、FUSION 極端值 57% 都在亮且無優勢）、健康度與市場總分（重複彙整）、多維共振（X 級環境加權、
+       各維度是其他卡的複本）。理由與實測數字見 AI協作交接提示詞 v188 */
 
-    // ── 進階分析（法人等級）──
-    // 支撐壓力、量價雷達、機率預測（不需大盤資料，先做）
+    // 支撐壓力
     try{ renderSupportResistance(computeSupportResistance(D), D); }
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('支撐壓力',err); }
-    try{ renderVolPriceRadar(computeVolPriceRadar(D)); }
-    catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('量價雷達',err); }
-    try{ renderProbability(computeProbability(D), D); }
-    catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('機率預測',err); }
 
-    // 回測動態權重 → 專屬分數 → 韭菜反指標
-    let formulas=null;
-    try{
-      const weights=backtestWeights(D);
-      const score=computeProprietaryScore(D,weights);
-      const contra=contrarianSignal(D,market);
-      renderQuant(score,contra);
-    }catch(err){ console.warn('量化分數計算失敗',err); if(typeof ErrorLog!=='undefined')ErrorLog.push('量化分數',err); }
-
-    // 自創公式（STI / MFD / ECO / 崩跌預警 / 融合總分）
-    try{
-      formulas=computeFormulas(D);
-      renderFormulas(formulas);
-    }catch(err){ console.warn('自創公式計算失敗',err); if(typeof ErrorLog!=='undefined')ErrorLog.push('自創公式',err); }
-
-    // 個股健康度體檢（彙整各層級）
-    try{
-      renderHealthReport({trend,formulas,riskMetrics:riskMetrics||{maxDD:0,annualVol:30},chip:D.chip,marketScore,signals:allSigs});
-    }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('健康度',err); }
-
-    // 機構足跡：VWAP + 結構 + 過熱反指標
-    try{ if(typeof renderSMC==='function') renderSMC(D, formulas, market); }
+    // 機構足跡：VWAP + 結構
+    try{ if(typeof renderSMC==='function') renderSMC(D); }
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('機構足跡',err); }
 
-    // 多時間框架共振（月/週/日）
+    // 多時間框架（月/週/日）
     let mtfResult=null;
     try{ if(typeof computeMTF==='function'){ mtfResult=computeMTF(D); renderMTF(D); } }
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('MTF',err); }
 
-    // 貝氏機率整合（真機率，非燈號）
-    try{ if(typeof renderBayes==='function') renderBayes(D); }
-    catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('貝氏機率',err); }
-
     // 主力行為推估（OBV偷跑/洗盤/出貨/誘多誘空）
-    try{ if(typeof renderMainForce==='function') renderMainForce(D, formulas); }
+    try{ if(typeof renderMainForce==='function') renderMainForce(D); }
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('主力行為',err); }
-
-    // 樣本外驗證（誠實準確率：前70%訓練、後30%測試）
-    try{ if(typeof renderOOS==='function') renderOOS(D); }
-    catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('樣本外驗證',err); }
 
     /* v183：先登記本次的 D，再啟動非同步卡片——主力縱深命中快取時會「立刻」補繪擁擠度／紀律門／橫幅，
        原本那時 _lastD 還是上一次查詢的物件、_gateCtx/_bannerArgs 也是上一次的，會用舊資料畫一輪 */
-    window._lastD=D; window._lastFormulas=formulas; window._gateCtx=null; window._bannerArgs=null;
+    window._lastD=D; window._gateCtx=null; window._bannerArgs=null;
     // 基本面體檢（台股，非同步不擋主流程）
     try{ if(typeof loadFundamentalCard==='function') loadFundamentalCard(D); }
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('基本面',err); }
@@ -727,7 +644,7 @@ async function go(){
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('主力縱深',err); }
 
     // 散戶擁擠度反指標（反AI散戶引擎）
-    try{ if(typeof renderCrowding==='function') renderCrowding(D, formulas); }
+    try{ if(typeof renderCrowding==='function') renderCrowding(D); }
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('擁擠度',err); }
 
     // 融資融券散戶心理（台股限定，非同步不擋主流程）
@@ -738,41 +655,29 @@ async function go(){
     try{ if(typeof loadIntelCard==='function') loadIntelCard(D); }
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('情報面',err); }
 
-    // RS Rating / Beta / Alpha / 兵法系統（需大盤基準，此時 formulas 已就緒）
+    // RS Rating / Beta / Alpha / 兵法系統（需大盤基準）
     fetchBenchmark(D.currency==='TWD').then(bench=>{
       if(window._activeCode && window._activeCode!==D.code) return;  // 已換股，丟棄遲到基準，避免用舊D重畫決策層
       let rsRating=null;
       try{
         const rs=computeRSRating(D, bench);
-        rsRating=rs.rating;
+        rsRating=rs.excess!=null?rs.rating:null;   // v187 大盤沒抓到時那是「絕對報酬」，不可當相對強弱餵進勢能（RS 卡自己會標明）
         renderRSRating(rs);
       }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('RS評級',err); }
       try{ renderBetaAlpha(computeBetaAlpha(D, bench)); }
       catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('BetaAlpha',err); }
 
-      // ── 中國兵法交易系統（formulas/riskMetrics 此時保證已算完）──
+      // ── 中國兵法交易系統 ──
       try{
         const shi=computeShiPower(D, rsRating);
-        const tradeScore=computeTradeScore(D, shi, formulas, riskMetrics, rsRating);
-        const exit=computeBingfaExit(D.rawCloses ? D.rawCloses[D.rawCloses.length-1] : D.price);
-        renderBingfa(D, shi, tradeScore, exit);
+        renderBingfa(D, shi);
         checkBingfaWarning();
-
-        // 多維度共振先算 → 信心指數餵給決策橫幅（指標衝突時自動降信心）
-        let res=null;
-        try{
-          const vwap=(typeof computeVWAP==='function')?computeVWAP(D,20):null;
-          const structure=(typeof computeStructure==='function')?computeStructure(D):null;
-          const overheat=(typeof computeOverheat==='function')?computeOverheat(D,formulas,market):null;
-          res=computeResonance({D,trend,formulas,chip:D.chip,vwap,structure,overheat,rsRating,marketScore,shi,mtf:mtfResult,regime:regimeResult});
-          renderResonance(res);
-        }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('共振確認',err); }
-        renderVerdictBanner(shi, tradeScore, formulas, marketScore, res, D, regimeResult, mtfResult);
-        window._bannerArgs = { shi, tradeScore, formulas, marketScore, res, D, regime: regimeResult, mtf: mtfResult };   // 供margin/deep非同步到達後補繪橫幅警示
+        renderVerdictBanner(shi, D, regimeResult, mtfResult);
+        window._bannerArgs = { shi, D, regime: regimeResult, mtf: mtfResult };   // 供margin/deep非同步到達後補繪橫幅警示
 
         // 出手紀律門（濃縮全站分析為出手/禁止裁決）
         try{
-          const gateCtx={D, regime:(typeof computeRegime==='function'?computeRegime(D):null), mtf:mtfResult, res, formulas, shi};
+          const gateCtx={D, regime:regimeResult, mtf:mtfResult, shi};
           window._gateCtx=gateCtx;  // 供融資載入後補繪
           renderTradeGate(gateCtx);
         }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('紀律門',err); }
@@ -823,10 +728,10 @@ async function installApp() {
    （使用者實例：匯入備份時出現 importBackup is not defined ＝ db.js 沒載進來）。
    這裡在啟動時直接點名缺哪個檔，並在畫面頂端紅字提示，不必等踩到才知道。 */
 const FILE_CHECK = {
-  'config.js': ['twMarketPhase'], 'help.js': ['showHelp'], 'db.js': ['dbAddTrade', 'importBackup', 'exportBackup'],
-  'market.js': ['fetchMarket'], 'quant.js': ['computeProprietaryScore', 'backtestWeights'], 'formula.js': ['calcSTI'],
-  'enhance.js': ['computeRegime', 'computeChipHealth'], 'advanced.js': ['computeProbLogLoss'], 'smc.js': ['computeVWAP'],
-  'mainforce.js': ['computeMainForce', 'computeSmartStop'], 'mtf.js': ['computeMTF'], 'resonance.js': ['computeResonance'],
+  'config.js': ['cacheUntil'], 'help.js': ['showHelp'], 'db.js': ['dbAddTrade', 'importBackup', 'exportBackup'],
+  'market.js': ['fetchMarket'],
+  'enhance.js': ['computeRegime', 'computeChipHealth'], 'advanced.js': ['computeRSRating'], 'smc.js': ['computeVWAP'],
+  'mainforce.js': ['computeMainForce', 'computeSmartStop'], 'mtf.js': ['computeMTF'],
   'bingfa.js': ['renderTradeGate', 'renderVerdictBanner'], 'layout.js': ['switchTab'], 'journal.js': ['refreshJournal', 'importLocalFile'],
   'scan.js': ['runScanAuto'],
 };
@@ -894,116 +799,6 @@ if ('serviceWorker' in navigator) {
     if (!hadController || reloaded) return;   // 首次安裝不重載，避免一進站就閃一下
     reloaded = true; location.reload();
   });
-}
-
-// ══════════════════════════════════════════════════════════════════════
-// 專屬量化分數渲染
-// ══════════════════════════════════════════════════════════════════════
-function renderQuant(score,contra){
-  if(!score){ $('quant-card').style.display='none'; return; }
-  $('quant-card').style.display='block';
-
-  // 套用反指標調整
-  const upFinal=Math.min(100,score.upPct+(contra?contra.upAdj:0));
-  const downFinal=Math.min(100,score.downPct+(contra?contra.downAdj:0));
-
-  $('q-up').textContent=upFinal;
-  $('q-down').textContent=downFinal;
-  $('q-up-conf').textContent=`${score.upMax} 個看漲訊號參與`+(contra&&contra.upAdj?`（含反指標+${contra.upAdj}）`:'');
-  $('q-down-conf').textContent=`${score.downMax} 個看跌訊號參與`+(contra&&contra.downAdj?`（含反指標+${contra.downAdj}）`:'');
-
-  /* v126：移除方向宣稱——樣本外實測揭穿了這張卡
-     ・大漲分數≥40：315次、命中53.7% vs 基準58.0% → α = -4.4（負值＝反指標）
-     ・大跌分數≥40：8檔全部從未觸發 → 對做空者是死功能
-     原本卻輸出「🟢強烈偏漲訊號／🔴強烈偏跌訊號」，是全系統最不誠實的一處。
-     改為純描述「指標一致度」：只陳述有幾項指標同向，不宣稱方向會如何。
-     指標貢獻明細保留（有描述價值：知道當下哪些指標處於什麼狀態）。 */
-  const v=$('q-verdict');
-  const diff=upFinal-downFinal;
-  const agree=Math.max(score.upMax||0,score.downMax||0);
-  v.textContent=`📊 指標一致度：${agree} 項同向（偏多${score.upMax||0}／偏空${score.downMax||0}）——僅為當下指標狀態描述，非方向預測`;
-  v.style.background='var(--bg2)'; v.style.color='var(--muted)';
-  const note=$('q-evidence');
-  if(note){
-    note.innerHTML=`⚠️ <b>實證結果</b>：本卡分數經樣本外檢驗（8檔×後40%資料）——「大漲分數≥40」共315次，命中53.7% 對比該股基準58.0%，<b>α = -4.4（負值，即略帶反指標性質）</b>；「大跌分數≥40」則從未觸發。<br>故此處<b>不再輸出方向結論</b>，僅保留指標狀態描述。方向判斷請改用出手紀律門、風報比、突破統計等有實證支撐的維度。`;
-  }
-
-  // 權重明細
-  if(score.contrib.length===0){
-    $('q-contrib').innerHTML=`<div style="font-size:12px;color:var(--muted);line-height:1.7">目前 14 項指標中，當下沒有發出買進/賣出訊號的（多為中性 hold）。<br>資料筆數：${score.dataLen} 根　訊號分布：買 ${score.buyCount}／賣 ${score.sellCount}／中性 ${score.holdCount}<br>${score.dataLen<70?'⚠️ 資料偏少，回測樣本不足，請重新部署 Code.gs（已改抓1年資料）':'此為正常現象——多數時間指標處於中性，等待明確訊號出現時這裡才會列出。'}</div>`;
-  }else{
-    $('q-contrib').innerHTML=score.contrib.map(c=>{
-      const col=c.dir==='漲'?'var(--buy)':'var(--sell)';
-      const pct=Math.round(c.rate*100);
-      return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-        <span style="font-size:11px;width:60px;color:var(--muted)">${c.name}</span>
-        <span style="font-size:10px;color:${col};width:30px">${c.dir}</span>
-        <div style="flex:1;height:6px;background:var(--bd);border-radius:99px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${col}"></div></div>
-        <span style="font-family:var(--mono);font-size:11px;color:${col};width:40px;text-align:right">${pct}%</span>
-        <span style="font-size:9px;color:var(--muted);width:54px;text-align:right">${c.confident?c.samples+'樣本':'⚠️信心低'}</span>
-      </div>`;
-    }).join('');
-  }
-
-  // 韭菜反指標
-  if(contra&&contra.alerts.length){
-    $('q-contrarian').innerHTML='<div style="font-size:11px;color:var(--purple);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">🐑 韭菜反指標</div>'+
-      contra.alerts.map(a=>`<div style="background:#A855F70a;border:1px solid #A855F730;border-radius:8px;padding:10px 12px;margin-bottom:6px;display:flex;gap:8px"><span style="font-size:16px">${a.icon}</span><div><div style="font-size:12px;font-weight:700;color:var(--purple);margin-bottom:2px">${a.title}</div><div style="font-size:11px;color:var(--muted);line-height:1.5">${a.desc}</div></div></div>`).join('');
-  }else{
-    $('q-contrarian').innerHTML='';
-  }
-}
-
-
-// ══════════════════════════════════════════════════════════════════════
-// 自創公式渲染
-// ══════════════════════════════════════════════════════════════════════
-function renderFormulas(f){
-  if(!f){ document.getElementById('formula-card').style.display='none'; return; }
-  document.getElementById('formula-card').style.display='block';
-
-  // 融合總分
-  const fv=f.fusion.value;
-  document.getElementById('fusion-val').textContent=(fv>0?'+':'')+fv;
-  const fbox=document.getElementById('fusion-box');
-  const flabel=document.getElementById('fusion-label');
-  flabel.textContent=f.fusion.label;
-  if(f.fusion.signal==='buy'){fbox.style.borderColor='var(--buy)';fbox.style.background='var(--buy-d)';document.getElementById('fusion-val').style.color='var(--buy)';flabel.style.color='var(--buy)';}
-  else if(f.fusion.signal==='sell'){fbox.style.borderColor='var(--sell)';fbox.style.background='var(--sell-d)';document.getElementById('fusion-val').style.color='var(--sell)';flabel.style.color='var(--sell)';}
-  else{fbox.style.borderColor='var(--warn)';fbox.style.background='var(--warn-d)';document.getElementById('fusion-val').style.color='var(--warn)';flabel.style.color='var(--warn)';}
-
-  // 崩跌預警
-  const cb=document.getElementById('crash-box');
-  if(f.crash.level==='low'){
-    cb.style.display='none';
-  }else{
-    cb.style.display='block';
-    const isHigh=f.crash.level==='high';
-    cb.style.border='2px solid '+(isHigh?'var(--sell)':'var(--warn)');
-    cb.style.background=isHigh?'var(--sell-d)':'var(--warn-d)';
-    cb.innerHTML=`<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-        <span style="font-size:26px">${isHigh?'🚨':'⚠️'}</span>
-        <div><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">崩跌預警分數</div>
-        <div style="font-family:var(--mono);font-size:24px;font-weight:800;color:${isHigh?'var(--sell)':'var(--warn)'}">${f.crash.score} / 100　${isHigh?'高風險':'中度風險'}</div></div></div>
-      <div style="font-size:11px;color:var(--muted);line-height:1.6">觸發因子：${f.crash.reasons.join('、')}</div>`;
-  }
-
-  // 三公式卡
-  const sig2cls=s=>s==='buy'?'buy':s==='sell'?'sell':'hold';
-  const sig2txt=s=>s==='buy'?'▲ 偏漲':s==='sell'?'▼ 偏跌':'◆ 中性';
-  const fmtCard=(tag,name,val,unit,obj)=>{
-    const cls=sig2cls(obj.signal);
-    const col=cls==='buy'?'var(--buy)':cls==='sell'?'var(--sell)':'var(--warn)';
-    return `<div class="ic ${cls}"><div class="ic-top"><span class="ic-name">${tag} ${name}</span><span class="ic-badge ${cls==='buy'?'bb':cls==='sell'?'bs':'bh'}">${sig2txt(obj.signal)}</span></div>
-      <div class="ic-val" style="color:${col}">${val}${unit}</div>
-      <div class="ic-desc">${obj.detail}</div>
-      <div style="font-family:var(--mono);font-size:9px;color:var(--muted2);margin-top:6px;word-break:break-all">${obj.formula}</div></div>`;
-  };
-  document.getElementById('formula-list').innerHTML=
-    fmtCard('STI','訊號張力',f.sti.value.toFixed(1),'',f.sti)+
-    fmtCard('MFD','動量流變導數',f.mfd.value.toFixed(2),'',f.mfd)+
-    fmtCard('ECO','熵能轉折',f.eco.value.toFixed(0),'%',f.eco)+
-    (f.psy?fmtCard('PSY','心理偏離',f.psy.value.toFixed(0),'',f.psy):'');
 }
 
 // ══════════════════════════════════════════════════════════════════════

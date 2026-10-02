@@ -44,7 +44,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['enhance.js'] = 185; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['enhance.js'] = 188; } catch (e) {}
 
 /* ══ 區塊 H：ADX 市場狀態過濾器 ════════════════════════════════════════
    機構73%使用：ADX 不告訴方向，而是告訴你「該用哪種策略」
@@ -71,7 +71,7 @@ function computeRegime(D) {
   let regime, advice, cls, icon;
   if (volPct >= 88 && dd20 < -6) {
     regime = '高波動危險'; icon = '🌪️'; cls = 'bear';
-    advice = `波動位於近半年前 ${100-volPct}% 極端區且20日回撤 ${dd20.toFixed(1)}% → 恐慌/劇烈換手狀態。此狀態下所有技術指標可靠度大降，首要任務是「降部位保本金」，不是找進場點。歷史上多數大虧發生在硬要在這種盤操作。`;
+    advice = `波動位於近半年前 ${100-volPct}% 極端區且20日回撤 ${dd20.toFixed(1)}% → 恐慌/劇烈換手狀態。19年實測：此時放空每筆虧1.42%（禁止放空）；做多每筆−0.40%，反而比平常（−0.83%）不差——但單日波動大，部位減半。`;
   } else if (dmi.adx >= 25 && dmi.pdi > dmi.ndi) {
     regime = '多頭趨勢'; icon = '📈'; cls = 'bull';
     advice = `ADX ${dmi.adx.toFixed(0)} 多方主導 → 趨勢明確，RSI超買會鈍化（強勢股一直超買）。註：19年實測順勢、逆勢的期望值沒有差異，本狀態只作背景，不作方向依據。`;
@@ -276,122 +276,8 @@ function renderChip(chip, D) {
   document.getElementById('chip-grid').innerHTML = html;
 }
 
-/* ══ 區塊 C：市場環境總分（含 VIX）════════════════════════════════════
-   合成：外資期貨方向 + PCR + SOX隔夜 + VIX → 0~100 分
-   ════════════════════════════════════════════════════════════════════ */
-function computeMarketScore(m) {
-  if (!m) return null;
-  const t = m.taifex || {}, us = m.us || {};
-  let score = 50; // 中性基準
-  const factors = [];
-
-  /* v158：這兩個維度的資料管線原本是壞的（外資期貨端點網址錯、PCR欄名錯），
-     從未生效，因此也從未被回測驗證。資料修好後若直接恢復計分，等於一夕之間
-     讓兩個未驗證規則開始左右大盤分數——依本專案規矩（EVIDENCE 分級）先列為
-     U級不計分、只在大盤卡片顯示數值。要啟用請把 config.js 的 w 調成 >0。 */
-  // 外資期貨淨多空（±12）
-  if (t.foreignNet != null && typeof evScorable === 'function' && evScorable('twFutures')) {
-    if (t.foreignNet > 0) { score += 12; factors.push('外資期貨偏多 +12'); }
-    else { score -= 12; factors.push('外資期貨偏空 -12'); }
-  }
-  // PCR（±8）：>120 反指標偏多
-  if (t.pcrOI && typeof evScorable === 'function' && evScorable('pcr')) {
-    if (t.pcrOI > 120) { score += 8; factors.push('PCR高散戶恐慌(反指標偏多) +8'); }
-    else if (t.pcrOI < 80) { score -= 8; factors.push('PCR低過度樂觀 -8'); }
-  }
-  // SOX 隔夜（±12）
-  if (us.sox) {
-    const c = us.sox.changePct;
-    const adj = Math.max(-12, Math.min(12, c * 3));
-    score += adj; factors.push(`費半隔夜 ${c >= 0 ? '+' : ''}${c.toFixed(1)}% (${adj >= 0 ? '+' : ''}${adj.toFixed(0)})`);
-  }
-  // VIX（±15）：低過熱、高恐慌(可能築底)
-  let vixNote = '';
-  if (us.vix) {
-    const v = us.vix.price;
-    if (v < 15) { score += 5; vixNote = `VIX ${v.toFixed(1)} 過熱（市場自滿，留意拉回）`; factors.push('VIX過低自滿 +5'); }
-    else if (v > 30) { score -= 10; vixNote = `VIX ${v.toFixed(1)} 恐慌（大跌中，但常是底部區）`; factors.push('VIX恐慌 -10'); }
-    else if (v > 25) { score -= 5; vixNote = `VIX ${v.toFixed(1)} 偏高，波動加劇`; factors.push('VIX偏高 -5'); }
-    else { vixNote = `VIX ${v.toFixed(1)} 正常區間`; }
-  }
-
-  score = Math.max(0, Math.min(100, Math.round(score)));
-  let label, stars;
-  if (score >= 70) { label = '偏多'; stars = '★★★★★'; }
-  else if (score >= 55) { label = '偏多中性'; stars = '★★★★☆'; }
-  else if (score >= 45) { label = '中性'; stars = '★★★☆☆'; }
-  else if (score >= 30) { label = '偏空中性'; stars = '★★☆☆☆'; }
-  else { label = '偏空'; stars = '★☆☆☆☆'; }
-
-  return { score, label, stars, factors, vixNote, vix: us.vix ? us.vix.price : null };
-}
-
-function renderMarketScore(ms) {
-  const card = document.getElementById('mktscore-card');
-  if (!ms) { card.style.display = 'none'; return; }
-  card.style.display = 'block';
-  const col = ms.score >= 55 ? 'var(--buy)' : ms.score <= 45 ? 'var(--sell)' : 'var(--warn)';
-  document.getElementById('ms-score').textContent = ms.score;
-  document.getElementById('ms-score').style.color = col;
-  document.getElementById('ms-label').textContent = ms.label + '　' + ms.stars;
-  document.getElementById('ms-label').style.color = col;
-  document.getElementById('ms-vix').textContent = ms.vixNote || '';
-  document.getElementById('ms-factors').textContent = '計算：' + ms.factors.join('、');
-}
-
-/* ══ 區塊 D：多週期回測（3/5/10/20 天勝率）════════════════════════════ */
-function multiPeriodBacktest(D) {
-  const periods = [3, 5, 10, 20];
-  const c = D.closes, h = D.highs, l = D.lows, v = D.volumes;
-  const n = c.length;
-  const results = [];
-
-  for (const horizon of periods) {
-    // 用「綜合買進訊號」當進場條件，統計 horizon 天後上漲機率
-    let hit = 0, total = 0;
-    for (let i = 60; i < n - horizon; i++) {
-      const sig = signalsAtIndex(c, h, l, v, i);
-      if (!sig) continue;
-      // 多數指標偏多才算一次進場樣本
-      const vals = Object.values(sig);
-      const buys = vals.filter(s => s === 'buy').length;
-      const sells = vals.filter(s => s === 'sell').length;
-      if (buys > sells && buys >= 2) {
-        total++;
-        const future = (c[i + horizon] - c[i]) / c[i];
-        if (future > 0) hit++;
-      }
-    }
-    results.push({ horizon, winRate: total >= 3 ? hit / total : null, samples: total });
-  }
-  return results;
-}
-
-function renderMultiPeriod(results) {
-  const card = document.getElementById('multiperiod-card');
-  if (!results || results.every(r => r.winRate === null)) { card.style.display = 'none'; return; }
-  card.style.display = 'block';
-
-  // 找最高勝率週期 → 建議玩法
-  let best = null;
-  for (const r of results) if (r.winRate != null && (!best || r.winRate > best.winRate)) best = r;
-  const playMap = { 3: '隔日沖／極短線', 5: '短波段', 10: '波段', 20: '中長波段' };
-  const advice = best ? `此股歷史上最適合「${playMap[best.horizon]}」（${best.horizon}天勝率最高）` : '樣本不足';
-
-  const rows = results.map(r => {
-    const wr = r.winRate != null ? (r.winRate * 100).toFixed(0) + '%' : '樣本不足';
-    const col = r.winRate == null ? 'var(--muted)' : r.winRate >= 0.6 ? 'var(--buy)' : r.winRate >= 0.5 ? 'var(--warn)' : 'var(--sell)';
-    const isBest = best && r.horizon === best.horizon;
-    return `<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--bd)">
-      <span style="font-family:var(--mono);font-size:13px;width:50px;color:${isBest ? 'var(--buy)' : 'var(--txt)'}">${r.horizon}天${isBest ? ' ⭐' : ''}</span>
-      <div style="flex:1;height:7px;background:var(--bd);border-radius:99px;overflow:hidden"><div style="height:100%;width:${r.winRate != null ? r.winRate * 100 : 0}%;background:${col}"></div></div>
-      <span style="font-family:var(--mono);font-size:13px;font-weight:600;color:${col};width:70px;text-align:right">${wr}</span>
-      <span style="font-size:9px;color:var(--muted);width:50px;text-align:right">${r.samples}樣本</span>
-    </div>`;
-  }).join('');
-  document.getElementById('mp-rows').innerHTML = rows;
-  document.getElementById('mp-advice').textContent = advice;
-}
+/* v188 拿掉區塊 C「市場環境總分」（未驗證的兩項不計分後只剩 28～67 分，「偏多 ≥70」永遠到不了；VIX 原值改顯示在大盤卡）
+   與區塊 D「多週期回測」（同一組 9 訊號投票，同家族的專屬分數 α=-4.4、機率卡 LogLoss 劣於基準） */
 
 /* ══ 區塊 E：進出場劇本 ═══════════════════════════════════════════════ */
 function renderPlaybook(D, atr) {
@@ -405,10 +291,12 @@ function renderPlaybook(D, atr) {
   const longStop = smart ? smart.long.stop : price - atr * 2;
   const shortStop = smart ? smart.short.stop : price + atr * 2;
   const distL = price - longStop, distS = shortStop - price;
-  // 停利以實際停損距離的 2R/3R 計算（風報比一致）
-  const longTp1 = price + distL * 2, longTp2 = price + distL * 3;
-  const shortTp1 = price - distS * 2, shortTp2 = price - distS * 3;
+  /* v188 停利改用此股 5／10 日中位可達價（與紀律門執行計畫同一套 MFE 統計）。原本 2R/3R：實測 10 日內到 2R 只有 10.5%、
+     3R 3.9%——幾乎永遠「還沒到目標就先出場」。資料不足 120 日時明講算不出，不拿 R 倍數硬湊 */
+  const tgt = (dir, dist) => { const rt = computeRealisticTargets(D, dir, dist / price * 100), r = d => rt && rt.rows ? rt.rows.find(x => x.days === d) || null : null; return [r(5), r(10)]; };
+  const [longTp1, longTp2] = tgt(1, distL), [shortTp1, shortTp2] = tgt(-1, distS);
   const stopPct = ((smart ? distL : atr*2) / price * 100).toFixed(1);
+  const tpBox = (lbl, t) => `<div class="risk-box"><div class="rb-label">✅ ${lbl}</div><div class="rb-value" style="color:var(--buy)">${t ? cur + fmt(t.medPrice) : '—'}</div><div class="rb-sub">${t ? `${t.days}日中位可達 ${t.medPct.toFixed(1)}%${t.rr != null ? `｜風報比 1:${t.rr.toFixed(2)}` : ''}` : '資料不足 120 日，算不出此股實際可達幅度'}</div></div>`;
 
   const scenario = (title, color, entry, stop, tp1, tp2, stopNote) => `
     <div style="border:1px solid var(--bd);border-radius:12px;padding:12px;margin-bottom:10px">
@@ -416,8 +304,8 @@ function renderPlaybook(D, atr) {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
         <div class="risk-box"><div class="rb-label">🎯 參考進場</div><div class="rb-value">${cur}${fmt(entry)}</div><div class="rb-sub">當前價</div></div>
         <div class="risk-box"><div class="rb-label">🛑 智慧停損</div><div class="rb-value" style="color:var(--sell)">${cur}${fmt(stop)}</div><div class="rb-sub">${stopNote}</div></div>
-        <div class="risk-box"><div class="rb-label">✅ 停利一（出50%）</div><div class="rb-value" style="color:var(--buy)">${cur}${fmt(tp1)}</div><div class="rb-sub">風報比 1:2</div></div>
-        <div class="risk-box"><div class="rb-label">✅ 停利二（出25%）</div><div class="rb-value" style="color:var(--buy)">${cur}${fmt(tp2)}</div><div class="rb-sub">風報比 1:3，剩25%續抱</div></div>
+        ${tpBox('停利一（出50%）', tp1)}
+        ${tpBox('停利二（出25%）', tp2)}
       </div>
     </div>`;
 
@@ -426,7 +314,7 @@ function renderPlaybook(D, atr) {
   document.getElementById('pb-rows').innerHTML =
     scenario('📈 做多劇本', 'var(--buy)', price, longStop, longTp1, longTp2, noteL) +
     scenario('📉 做空劇本', 'var(--sell)', price, shortStop, shortTp1, shortTp2, noteS) +
-    `<div style="font-size:10px;color:var(--muted);line-height:1.6;padding:8px 4px">💡 停利採「知足不辱」分批：到停利一出50%、停利二出25%、剩25%續抱讓獲利奔跑。做空風險較高（虧損理論無上限），務必嚴守停損。<br>⏱️ 時間停損：進場 3~5 日未朝預期方向發展即離場——短線單不快贏通常不會贏，做空尤甚（拖著的空單還在付借券與除息成本）。<br>🛡️ 智慧停損原理：主力最愛掃「整數ATR位/結構位正下方」的停損，故本系統把停損放在<b>結構位之外＋動態緩衝</b>（該股越愛假跌破，緩衝越大），降低「剛停損就反向走」的機率。</div>`;
+    `<div style="font-size:10px;color:var(--muted);line-height:1.6;padding:8px 4px">💡 分批停利：到停利一（此股5日中位可達）出50%、停利二（10日中位）出25%、剩25%用移動停利。風報比 &lt;1＝方向做對也賺得比停損少，這筆不划算。做空風險較高（虧損理論無上限），務必嚴守停損。<br>⏱️ 時間停損：進場 3~5 日未朝預期方向發展即離場——短線單不快贏通常不會贏，做空尤甚（拖著的空單還在付借券與除息成本）。<br>🛡️ 智慧停損原理：主力最愛掃「整數ATR位/結構位正下方」的停損，故本系統把停損放在<b>結構位之外＋動態緩衝</b>（該股越愛假跌破，緩衝越大），降低「剛停損就反向走」的機率。</div>`;
 
   // ── 日內型態（此股歷史條件頻率，非模型預測）──
   try {
@@ -436,7 +324,7 @@ function renderPlaybook(D, atr) {
       let hint = '';
       if (ip.bucket === '開高' && ip.dist.find(x => x.k === '走低' && x.shift > 3)) hint = '此股開高後沖高回落的傾向高於平常——不追開盤價，等回測支撐再說';
       else if (ip.bucket === '開低' && ip.dist.find(x => x.k === '走高' && x.shift > 3)) hint = '此股開低後收復的傾向高於平常——開盤恐慌殺低常是日內低點，空單別追殺';
-      else if (ip.bucket === '開平') hint = '無跳空日此股偏向區間整理——日內突破需量能確認';
+      else if (ip.bucket === '開平' && ip.dist.find(x => x.k === '盤整' && x.shift > 3)) hint = '無跳空日此股偏向區間整理——日內突破需量能確認';   // v188 原本無條件顯示（38% 的時間都在講），改為統計真的偏向盤整才說
       const rows = ip.dist.map(x => `<span style="margin-right:10px">${x.k} <b style="font-family:var(--mono);color:${x.shift>3?'var(--warn)':'var(--txt)'}">${x.p.toFixed(0)}%</b><span style="color:var(--muted2);font-size:9px">(基準${x.base.toFixed(0)}${x.shift>=0?'+':''}${x.shift.toFixed(1)})</span></span>`).join('');
       document.getElementById('pb-rows').innerHTML += `<div style="margin-top:8px;padding:8px 10px;background:var(--bg);border:1px solid var(--bd);border-radius:8px">
         <div style="font-size:10px;color:var(--muted);margin-bottom:4px">🕐 日內型態｜今日${ip.bucket}（跳空${ip.todayGap>=0?'+':''}${ip.todayGap.toFixed(1)}%）→ 此股${ip.n}個同型開局日的收盤走向：</div>
@@ -481,55 +369,7 @@ function renderRiskMetrics(rm) {
   ).join('');
 }
 
-/* ══ 區塊 G：個股健康度體檢報告 ══════════════════════════════════════
-   把各層級結果轉成 A~F 評級，一眼看懂
-   ════════════════════════════════════════════════════════════════════ */
-function renderHealthReport(ctx) {
-  const card = document.getElementById('health-card');
-  card.style.display = 'block';
-  // ctx: {trend, formulas, riskMetrics, chip, marketScore, signals}
-  const grade = (score) => score >= 85 ? 'A+' : score >= 75 ? 'A' : score >= 65 ? 'B+' : score >= 55 ? 'B' : score >= 45 ? 'C' : score >= 35 ? 'D' : 'F';
-  const gcol = (g) => g.startsWith('A') ? 'var(--buy)' : g.startsWith('B') ? 'var(--acc)' : g.startsWith('C') ? 'var(--warn)' : 'var(--sell)';
-
-  // 各維度評分
-  const items = [];
-  // 趨勢
-  let trendScore = ctx.trend.cls === 'bull' ? 85 : ctx.trend.cls === 'bear' ? 30 : 55;
-  items.push({ name: '趨勢', grade: grade(trendScore) });
-  // 動能（用 formula fusion）
-  let momScore = ctx.formulas ? 50 + ctx.formulas.fusion.value / 2 : 50;
-  momScore = Math.max(0, Math.min(100, momScore));
-  items.push({ name: '動能', grade: grade(momScore) });
-  // 風險（回撤小、波動低 = 高分）
-  let riskScore = 70 + ctx.riskMetrics.maxDD / 2 - (ctx.riskMetrics.annualVol - 30) / 2;
-  riskScore = Math.max(0, Math.min(100, riskScore));
-  items.push({ name: '風險', grade: grade(riskScore) });
-  // 籌碼
-  let chipScore = 50;
-  if (chipUsable(ctx.chip)) {   // v182：不可用的籌碼不給等級（原本照樣評分）
-    if (ctx.chip.foreign5 > 0) chipScore += 15;
-    if (ctx.chip.trust5 > 0) chipScore += 15;
-    if (ctx.chip.foreignStreak >= 3) chipScore += 10;
-    if (ctx.chip.trustStreak >= 3) chipScore += 10;
-  } else chipScore = null;
-  if (chipScore != null) items.push({ name: '籌碼', grade: grade(Math.min(100, chipScore)) });
-  // 市場環境
-  if (ctx.marketScore) items.push({ name: '市場環境', grade: grade(ctx.marketScore.score) });
-
-  // 總評（平均）
-  const scoreMap = { 'A+': 95, 'A': 80, 'B+': 70, 'B': 60, 'C': 50, 'D': 40, 'F': 25 };
-  const avg = items.reduce((a, it) => a + scoreMap[it.grade], 0) / items.length;
-  const total = grade(avg);
-
-  document.getElementById('health-total').textContent = total;
-  document.getElementById('health-total').style.color = gcol(total);
-  document.getElementById('health-items').innerHTML = items.map(it =>
-    `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--bg);border:1px solid var(--bd);border-radius:8px;margin-bottom:6px">
-      <span style="font-size:13px;color:var(--muted)">${it.name}</span>
-      <span style="font-family:var(--mono);font-size:18px;font-weight:800;color:${gcol(it.grade)}">${it.grade}</span>
-    </div>`
-  ).join('');
-}
+/* v188 拿掉區塊 G「健康度體檢」：把趨勢橫幅、風險指標、籌碼卡、市場總分重新打一次分數，沒有新資訊 */
 
 /* ══ 行情溫度計：波段成熟度（初期/中期/尾端）═══════════════════════════
    解決「方向判對但進場在訊號尾端」的問題（2885追高/2313追空的真實教訓）。
@@ -694,14 +534,10 @@ function computeSetupQuality(D) {
     const touched = h[n - 1] > hi20 && c[n - 1] > hi20 * 0.98;   // 盤中觸及且收盤未大幅回落＝挑戰中
     if (brokeOut || touched) {
       const checks = [];
-      // v101防誤判：盤中查詢時今日量是「部分天」，直接比全日均量必偏低——依已開盤比例推估全日量
-      let volEff = v[n - 1], volNote = '';
-      try {
-        const ph = (D.currency === 'TWD' && typeof twMarketPhase === 'function') ? twMarketPhase() : null;
-        if (ph && ph.open && ph.elapsed >= 0.15) { volEff = v[n - 1] / ph.elapsed; volNote = `｜盤中推估全日量（已開盤${Math.round(ph.elapsed * 100)}%，收盤前為估計值）`; }
-        else if (ph && ph.open) { volNote = '｜開盤未滿40分鐘，量能不推估（雜訊過大），此項以昨日以前判讀'; }
-      } catch (e2) {}
-      checks.push({ ok: volEff > vol20 * 1.5, txt: `量能 ${volEff > 0 ? (volEff / vol20).toFixed(1) : 0}×20日均量（需>1.5×；19年3,934次驗證：帶量40.9% vs 無量34.5%）${volNote}` });
+      /* v187：拿掉 v101 的「盤中推估全日量」——v141 起盤中已去掉今天未完成的K棒，最後一根是昨天的完整量，
+         再除以已開盤比例會把它放大好幾倍（10:00 放大 4.5 倍），盤中幾乎每次突破都誤判成「帶量」 */
+      const volEff = v[n - 1];
+      checks.push({ ok: volEff > vol20 * 1.5, txt: `量能 ${volEff > 0 ? (volEff / vol20).toFixed(1) : 0}×20日均量（需>1.5×；19年3,934次驗證：帶量40.9% vs 無量34.5%）` });
       const range = h[n - 1] - l[n - 1] || 1;
       checks.push({ ok: (c[n - 1] - l[n - 1]) / range > 0.6, txt: '收在當日振幅上緣60%以上（收高=買方守住戰果，非只是勉強過半）' });
       checks.push({ ok: price - hi20 > atr * 0.5, txt: `突破幅度 ${(price - hi20).toFixed(2)}（需>0.5×ATR，貼著前高=易假突破）` });
@@ -767,14 +603,17 @@ function computeIntradayProfile(D) {
   const gb = (g) => g > 0.5 ? '開高' : g < -0.5 ? '開低' : '開平';
   const db = (d) => d > 0.5 ? '走高' : d < -0.5 ? '走低' : '盤整';
 
-  const todayGap = gapOf(n - 1);
+  /* v187 盤中已去掉今天未完成的K棒，最後一根是昨天——原本把昨天的開盤缺口標成「今日」。
+     盤中改用今天的開盤（D.open）對最後一根收盤，走向用現價；歷史統計就可以含最後一根 */
+  const live = !!D._intraday && D.open != null && D.price != null;
+  const todayGap = live ? (D.open - c[n - 1]) / c[n - 1] * 100 : gapOf(n - 1);
   const bucket = gb(todayGap);
-  const realized = db(dayOf(n - 1));   // 今日（或最近一日）到目前為止的實現走向
+  const realized = db(live ? (D.price - D.open) / D.open * 100 : dayOf(n - 1));   // 今日（或最近一日）到目前為止的實現走向
 
   // 此股歷史：同開局分布 vs 無條件基準（排除今日）
   const condN = { 走高: 0, 走低: 0, 盤整: 0 }; let cn = 0;
   const baseN = { 走高: 0, 走低: 0, 盤整: 0 }; let bn = 0;
-  for (let i = 1; i < n - 1; i++) {
+  for (let i = 1; i < (live ? n : n - 1); i++) {
     const dk = db(dayOf(i));
     baseN[dk]++; bn++;
     if (gb(gapOf(i)) === bucket) { condN[dk]++; cn++; }
@@ -861,11 +700,12 @@ function computeBreakoutStats(D) {
    ════════════════════════════════════════════════════════════════════ */
 function computeAmihud(D) {
   try {
-    const c = D.rawCloses || D.closes, v = D.volumes, n = c.length;
+    // v187 報酬用還原價（除權息日的價差不是真的漲跌，原本會在 20 日窗內一路拉高「不流動」）；成交金額用原始價
+    const c = D.closes, raw = D.rawCloses || D.closes, v = D.volumes, n = c.length;
     if (n < 150) return null;
     const illiq = [];
     for (let i = 1; i < n; i++) {
-      const dollar = c[i] * v[i];
+      const dollar = raw[i] * v[i];
       if (dollar <= 0) { illiq.push(null); continue; }
       illiq.push(Math.abs((c[i] - c[i - 1]) / c[i - 1] * 100) / (dollar / 1e8));   // 每億元成交推動的%
     }
@@ -906,27 +746,24 @@ function computeQualityTrend(D, days = 5) {
         rawCloses: (D.rawCloses || D.closes).slice(0, n),
         rawHighs: (D.rawHighs || D.highs).slice(0, n),
         rawLows: (D.rawLows || D.lows).slice(0, n),
+        prevClose: D.closes[n - 2],   // v187 勢能的量價分要用（原本沒給→「價漲」永遠不成立，上漲爆量被算成出貨）
         price: D.closes[n - 1],
       };
-      let shi = null, fus = null, rg = null;
+      let shi = null, rg = null;   // v188 FUSION 欄位隨公式引擎移除
       try { shi = computeShiPower(sub, 50); } catch (e) {}
-      try {
-        const sti = calcSTI(sub), mfd = calcMFD(sub), eco = calcECO(sub);
-        fus = calcFusion(sti, mfd, eco, calcCrashAlert(sub, sti, mfd, eco));
-      } catch (e) {}
       try { rg = computeRegime(sub); } catch (e) {}
       rows.push({
         offset: back, close: D.closes[n - 1],
         chgPct: n >= 2 ? (D.closes[n - 1] - D.closes[n - 2]) / D.closes[n - 2] * 100 : 0,
         longShi: shi ? shi.shi : null, shortShi: shi ? shi.shortShi : null,
-        fusion: fus ? fus.value : null, regime: rg ? rg.regime : null,
+        regime: rg ? rg.regime : null,
       });
     }
     // 變化摘要（首日 vs 末日）
     const a = rows[0], b = rows[rows.length - 1];
     const d = (x, y) => (x == null || y == null) ? null : y - x;
     return { rows, days,
-      dShort: d(a.shortShi, b.shortShi), dLong: d(a.longShi, b.longShi), dFusion: d(a.fusion, b.fusion),
+      dShort: d(a.shortShi, b.shortShi), dLong: d(a.longShi, b.longShi),
       regimeFlip: a.regime && b.regime && a.regime !== b.regime ? `${a.regime} → ${b.regime}` : null };
   } catch (e) { return null; }
 }
@@ -940,7 +777,7 @@ function renderQualityTrend(D) {
     let h = `<div style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
       <div style="font-size:11px;font-weight:700;margin-bottom:6px">📊 近${q.days}日素質演變（每日只用當日以前資料重算，防前視偏誤）</div>
       <table style="width:100%;font-size:10px;font-family:var(--mono);border-collapse:collapse">
-        <tr style="color:var(--muted2)"><td>日</td><td style="text-align:right">收盤</td><td style="text-align:right">漲跌%</td><td style="text-align:right">多勢能</td><td style="text-align:right">空勢能</td><td style="text-align:right">FUSION</td><td style="text-align:right">環境</td></tr>`;
+        <tr style="color:var(--muted2)"><td>日</td><td style="text-align:right">收盤</td><td style="text-align:right">漲跌%</td><td style="text-align:right">多勢能</td><td style="text-align:right">空勢能</td><td style="text-align:right">環境</td></tr>`;
     for (const r of q.rows) {
       const lbl = r.offset === 0 ? '今日' : `T-${r.offset}`;
       const chgCol = r.chgPct >= 0 ? 'var(--buy)' : 'var(--sell)';
@@ -950,12 +787,11 @@ function renderQualityTrend(D) {
         <td style="text-align:right;color:${chgCol}">${r.chgPct >= 0 ? '+' : ''}${r.chgPct.toFixed(1)}</td>
         <td style="text-align:right">${cell(r.longShi)}</td>
         <td style="text-align:right">${cell(r.shortShi)}</td>
-        <td style="text-align:right;color:${r.fusion == null ? 'var(--fg)' : r.fusion >= 0 ? 'var(--buy)' : 'var(--sell)'}">${r.fusion == null ? '—' : r.fusion.toFixed(0)}</td>
         <td style="text-align:right;font-size:9px;color:var(--muted)">${r.regime || '—'}</td></tr>`;
     }
     h += `</table>
       <div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.6">
-        ${q.days}日變化：多勢能 ${arrow(q.dLong)}｜空勢能 ${arrow(q.dShort)}｜FUSION ${arrow(q.dFusion)}
+        ${q.days}日變化：多勢能 ${arrow(q.dLong)}｜空勢能 ${arrow(q.dShort)}
         ${q.regimeFlip ? `<br><b style="color:var(--warn)">⚠️ 環境已翻轉：${q.regimeFlip}</b>——原本的進場理由可能已不成立` : ''}
       </div>
       <div style="font-size:9px;color:var(--muted2);margin-top:4px">用途：判斷「進場理由今天比幾天前更強還是更弱」。這是條件變化的事實，非漲跌預測。</div>

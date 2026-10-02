@@ -20,7 +20,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['db.js'] = 185; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['db.js'] = 187; } catch (e) {}
 
 const DB_NAME = 'stockRadarDB';
 // DB schema 版本獨立管理（schema 沒變就不用動；這裡固定 1）
@@ -40,6 +40,53 @@ function openDB() {
     req.onsuccess = e => { _db = e.target.result; resolve(_db); };
     req.onerror   = e => reject(e.target.error);
   });
+}
+
+/* ── v186 資料暫存（關掉 App 也還在）───────────────────────────────────
+   放在獨立的資料庫：交易日誌那個資料庫不動版本、不加資料表，升級不會碰到交易紀錄。
+   記憶體那層（各模組的 _xxxCache[code] = { d, t, until }）形狀不變，其他卡片照舊同步讀取。
+   暫存讀寫失敗只會變成「重新抓」，不影響功能；失敗原因記進錯誤記錄。 */
+const PC_DB = 'stockRadarCache', PC_MAX = 150;   // 約 30 檔 × 5 種資料
+let _pcdb = null;
+function pcOpen() {
+  return _pcdb || (_pcdb = new Promise((res, rej) => {
+    const req = indexedDB.open(PC_DB, 1);
+    req.onupgradeneeded = e => { e.target.result.createObjectStore('c', { keyPath: 'k' }); };
+    req.onsuccess = e => res(e.target.result);
+    req.onerror = e => { _pcdb = null; rej(e.target.error); };
+  }));
+}
+const pcLive = e => !!e && Date.now() < (e.until || e.t + CACHE_TTL) && (e.v == null || e.v === APP_VERSION);   // 升版後舊暫存作廢（修正資料錯誤的版本，不可再沿用舊的錯資料）
+const pcLog = (w, e) => { if (typeof ErrorLog !== 'undefined') ErrorLog.push('資料暫存' + w, e); };
+// 記憶體有就用；沒有就讀本機資料庫（App 重開後）；都沒有或已過期 → null（呼叫端去抓）
+async function pcGet(mem, code, kind) {
+  if (pcLive(mem[code])) return mem[code];
+  try {
+    const db = await pcOpen();
+    const e = await new Promise((res, rej) => { const r = db.transaction('c').objectStore('c').get(kind + ':' + code); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+    if (pcLive(e) && e.v === APP_VERSION) return (mem[code] = { d: e.d, t: e.t, until: e.until, v: e.v });
+  } catch (e) { pcLog('讀取', e); }
+  return null;
+}
+function pcSet(mem, code, kind, d, until) {
+  const t = Date.now(), ent = mem[code] = { d, t, until, v: APP_VERSION };
+  pcOpen().then(db => new Promise((res, rej) => {
+    const tx = db.transaction('c', 'readwrite'), st = tx.objectStore('c');
+    st.put({ k: kind + ':' + code, d, t, until, v: APP_VERSION });
+    // 超過上限才整批讀出、刪最早到期的（先刪已過期的）；平常只數筆數，不把整包資料讀進記憶體
+    const cnt = st.count(); cnt.onsuccess = () => { if (cnt.result <= PC_MAX) return;
+      const all = st.getAll(); all.onsuccess = () => { const a = all.result; a.sort((x, y) => x.until - y.until).slice(0, a.length - PC_MAX).forEach(x => st.delete(x.k)); }; };
+    tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+  })).catch(e => pcLog('寫入', e));
+  return ent;
+}
+// 「重新抓取」：清掉這一檔的全部暫存（共用的大盤與基準一起清，才是真的全部重抓）
+async function pcDrop(code) {
+  const keys = new Set(['px', 'margin', 'deep', 'fund', 'intel'].map(k => k + ':' + code).concat(['market:all', 'bench:tw', 'bench:us']));
+  try {
+    const db = await pcOpen();
+    await new Promise((res, rej) => { const tx = db.transaction('c', 'readwrite'); keys.forEach(k => tx.objectStore('c').delete(k)); tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
+  } catch (e) { pcLog('清除', e); }
 }
 
 /* ── settings（鍵值對：capital/risk/winrate/gasUrl/errorLog）─────────── */

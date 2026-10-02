@@ -15,7 +15,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['scan.js'] = 185; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['scan.js'] = 188; } catch (e) {}
 
 /* v115修：前端原送15檔/批，但 Code.gs（GAS後端）上限只取前10檔——
    使用GAS的人每批會默默遺失5檔（不成功也不算失敗，直接消失，總數對不上）。
@@ -99,7 +99,7 @@ function evalScanConditions(D, dir) {
   try { shi = computeShiPower(D, 50); } catch (e) {}
 
   // ① 環境：v138 實測順勢/逆勢/盤整期望值無差異，只保留高波動禁令（高波動放空每筆約−1.4~−1.8%）
-  if (regime && regime.regime === '高波動危險') fail.push('高波動危險態');
+  if (regime && regime.regime === '高波動危險' && dir === -1) fail.push('高波動危險態（19年實測放空每筆虧1.42%）');   // v188 做多不比平常差，不擋
   // ② 波段未到尾端（避免追殺魚尾／追高買在頭部）
   if (ms) {
     const sameDir = (dir === -1 && ms.dir === -1) || (dir === 1 && ms.dir === 1);
@@ -280,9 +280,9 @@ async function runScanInner() {
         if (deadTrack[item.code]) delete deadTrack[item.code];   // v165：這次抓到了就清除失敗紀錄
         /* v142：掃描也套用「盤中丟棄未完成K棒」（與個股查詢同一函式），
            否則同一時刻掃描用今日未收K、個股頁用前一日完成K，兩邊結論會不一致 */
-        const it = (typeof trimIntradayBar === 'function') ? trimIntradayBar(item) : item;
+        const it = (typeof trimIntradayBar === 'function') ? trimIntradayBar({ ...item, currency: /^\d/.test(item.code) ? 'TWD' : 'USD' }) : item;
         const D = {
-          code: it.code, currency: /^\d{4,6}$/.test(it.code) ? 'TWD' : 'USD',
+          code: it.code, currency: it.currency,   // v187：與個股頁同一個判斷（首字是數字＝台股；原本要全數字，00632R 這類 ETF 被當美股）
           closes: it.closes, highs: it.highs, lows: it.lows, volumes: it.volumes,
           opens: it.opens || undefined, price: it.price, lastDate: it.lastDate, _intraday: it._intraday,   // v184 量價判斷要知道最後一根是昨天（barPx）
           // v182：勢能分用「今天漲還是跌」判斷量價；原本沒給前一日收盤→ price > undefined 永遠 false，量增一律算成「量增價跌」

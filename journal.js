@@ -13,15 +13,15 @@
                                         偵測區塊），供貼給AI分析用
    ⚠️ 已知地雷／注意事項：
      - syncWinRateToMain是本檔案唯一「自動改寫」主頁數值的地方，僅回填
-       凱利公式的勝率欄；FUSION公式本體與逐股動態權重皆不受交易日誌
-       影響（AI協作交接提示詞.md已記錄此資料流備忘，勿誤解為自動學習）
+       凱利公式的勝率欄；其他分析不受交易日誌影響
+       （AI協作交接提示詞.md已記錄此資料流備忘，勿誤解為自動學習）
      - exportMarkdown的處分效應偵測(Shefrin&Statman 1985/Odean 1998)
        用holdDays分賺賠兩組比較，須≥3筆才計算，樣本不足時不應顯示
        （避免用2-3筆日誌下行為心理學結論）
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['journal.js'] = 185; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['journal.js'] = 188; } catch (e) {}
 
 /* ── 開啟 / 關閉面板 ─────────────────────────────────────────────────── */
 /* ── 分批進場 / 加碼工具 ──────────────────────────────────────────────
@@ -47,6 +47,9 @@ function removeBatchRow(id) {
   if (r) r.remove();
   calcBatch();
 }
+/* v187 進場時看得到的只到「前一個交易日收盤」：原本抓到進場日當天（含當天收盤），
+   盤中進場的單被記上收盤後才知道的分數，「公式分數 vs 結果」的統計帶著事後資訊 */
+const dayBefore = d => new Date(Date.parse(d + 'T00:00:00Z') - 864e5).toISOString().slice(0, 10);
 function getBatchData() {
   const rows = document.querySelectorAll('.batch-row');
   const batches = [];
@@ -217,51 +220,26 @@ async function addTradeFromForm() {
   // 出場原因自動推斷
   let exitReason = result === 'win' ? (judgment === 'wrong' ? 'holdback' : 'tp') : (judgment === 'wrong' ? 'sl' : 'sl');
 
-  // ── 自動抓「進場日當天」的公式分數（讓匯出能改公式）──
-  let entryFormulas = null;
+  /* ── v188 進場時的 A 級證據（取代原本的 STI/MFD/ECO/FUSION 公式分數——公式引擎已移除，理由見 app.js）──
+     只記有 19 年實證的三項：波段階段（尾端追單風險）、風報比（5日中位可達÷停損，與紀律門同算法）、高波動危險態。
+     只用進場日之前的K線（dayBefore），與當時畫面看到的一致 */
+  let entryEvidence = null;
   try {
-    if (GAS_URL && GAS_URL.indexOf('http') === 0 && typeof computeFormulas === 'function') {
-      const hr = await fetchT(`${GAS_URL}?action=histuntil&code=${encodeURIComponent(code)}&until=${entryDate}`);
+    if (GAS_URL && GAS_URL.indexOf('http') === 0) {
+      const hr = await fetchT(`${GAS_URL}?action=histuntil&code=${encodeURIComponent(code)}&until=${dayBefore(entryDate)}`);
       const hj = await hr.json();
       if (hj.ok && hj.closes) {
-        // 機率校正迴路：進場當下的貝氏預測（之後對照真實結果檢驗校準度）
-        let probWin = null;
-        try {
-          if (typeof computeBayesProb === 'function' && hj.highs && hj.lows && hj.volumes) {
-            const bp = computeBayesProb(hj, 5);
-            if (bp) probWin = Math.round((dir === 'long' ? bp.prob : 1 - bp.prob) * 100);
-          }
-        } catch (e2) { /* 略過 */ }
-        const f = computeFormulas(hj);
-        if (f) {
-          entryFormulas = {
-            probWin,
-            sti: Math.round(f.sti.value * 10) / 10,
-            mfd: Math.round(f.mfd.value * 100) / 100,
-            eco: Math.round(f.eco.value),
-            psy: f.psy ? Math.round(f.psy.value) : null,
-            fusion: f.fusion.value,
-            crash: f.crash.score
-          };
-          autoNote += `｜進場日公式 FUSION ${f.fusion.value>=0?'+':''}${f.fusion.value}`;
-          // 方向一致性：實戰數據證明逆公式進場 MAE 明顯較深（順公式-1.6% vs 逆公式最深-6%）
-          const fz = f.fusion.value;
-          if ((dir==='short' && fz>=20) || (dir==='long' && fz<=-20)) {
-            entryFormulas.align = '逆公式';
-            autoNote += `｜⚠️ 逆公式進場（FUSION與方向相反），歷史上這類單套牢較深`;
-          } else if ((dir==='short' && fz<=-20) || (dir==='long' && fz>=20)) {
-            entryFormulas.align = '順公式';
-          } else {
-            entryFormulas.align = '中性';
-          }
-        }
+        const Dh = { ...hj, code, currency: /^\d/.test(code) ? 'TWD' : 'USD' };
+        const ms = computeMoveStage(Dh), rg = computeRegime(Dh), pb = planBasis(Dh, dir === 'long' ? 'long' : 'short');
+        entryEvidence = { stage: ms ? ms.stage : null, maturity: ms ? ms.maturity : null, rr: pb.rr != null ? Math.round(pb.rr * 100) / 100 : null, highVol: rg ? rg.regime === '高波動危險' : null };
+        autoNote += `｜進場時：波段${entryEvidence.stage || '—'}、風報比${entryEvidence.rr != null ? entryEvidence.rr : '—'}${entryEvidence.highVol ? '、高波動危險' : ''}`;
       }
     }
   } catch (e) {
-    if (typeof ErrorLog !== 'undefined') ErrorLog.push('進場公式分數', e);
+    if (typeof ErrorLog !== 'undefined') ErrorLog.push('進場證據', e);
   }
 
-  // ── 分批進場：記錄每批的公式分數 + 分析加碼決策好壞 ──
+  // ── 分批進場：分析加碼決策好壞 ──
   const batches = (typeof getBatchData === 'function') ? getBatchData() : [];
   let batchRecords = null;
   if (batches.length >= 2) {
@@ -269,17 +247,6 @@ async function addTradeFromForm() {
     const sortedB = [...batches].sort((a,b)=>a.date<b.date?-1:1);
     for (let bi = 0; bi < sortedB.length; bi++) {
       const b = sortedB[bi];
-      let bf = null;
-      try {
-        if (GAS_URL && GAS_URL.indexOf('http') === 0 && typeof computeFormulas === 'function') {
-          const r = await fetchT(`${GAS_URL}?action=histuntil&code=${encodeURIComponent(code)}&until=${b.date}`);
-          const j = await r.json();
-          if (j.ok && j.closes) {
-            const f = computeFormulas(j);
-            if (f) bf = { fusion: f.fusion.value, sti: Math.round(f.sti.value*10)/10, crash: f.crash.score };
-          }
-        }
-      } catch (e) { /* 略過單批 */ }
       // 加碼決策分析：第2批之後，看是順勢加碼還是逆勢攤平
       let addJudge = '';
       if (bi > 0) {
@@ -290,7 +257,7 @@ async function addTradeFromForm() {
         const trendAdd = isLong ? higherPrice : !higherPrice;
         addJudge = trendAdd ? '順勢加碼' : '逆勢攤平';
       }
-      batchRecords.push({ date: b.date, price: b.price, qty: b.qty, fusion: bf?bf.fusion:null, addJudge });
+      batchRecords.push({ date: b.date, price: b.price, qty: b.qty, addJudge });
     }
     autoNote += `｜已記錄 ${batchRecords.length} 批加碼`;
   }
@@ -320,7 +287,7 @@ async function addTradeFromForm() {
     shares: isNaN(shares) ? null : shares,
     mae, mfe, plannedStop: isNaN(plannedStop) ? null : plannedStop,
     holdOn, exitReason, judgment, judgmentReason: reasons.join('、'),
-    entryFormulas,   // 進場日的公式分數
+    entryEvidence,   // v188 進場時的 A 級證據（舊單的 entryFormulas 保留在資料裡，不再分析）
     batchRecords,    // 分批加碼紀錄
     exitRecords,     // 分批出場紀錄
     sim: isSim       // 模擬單標記
@@ -599,59 +566,29 @@ async function exportMarkdown() {
     }
     md += `\n`;
 
-    // 四之二、★公式分數 vs 結果對照（AI 改公式的關鍵資料）
-    const withFormula = trades.filter(t => t.entryFormulas);
-    if (withFormula.length > 0) {
-      md += `## 四之二、進場時公式分數 vs 實際結果（★最重要：AI 據此調整公式門檻）\n\n`;
-      md += `| 進場日 | 代碼 | 類型 | STI | MFD | ECO | PSY | FUSION | 方向一致 | 預測勝率 | 崩跌分 | 實際盈虧% | MAE% | 判斷對錯 |\n`;
-      md += `|--------|------|------|-----|-----|-----|-----|--------|----------|----------|--------|-----------|------|----------|\n`;
-      const sortedF = [...withFormula].sort((a,b)=>(a.exitDate||a.date)<(b.exitDate||b.date)?1:-1);
-      for (const t of sortedF) {
-        const f = t.entryFormulas;
-        const psy = f.psy != null ? f.psy : '—';
-        const type = t.sim ? '🧪模擬' : '真實';
-        md += `| ${t.entryDate} | ${t.code} | ${type} | ${f.sti>=0?'+':''}${f.sti} | ${f.mfd>=0?'+':''}${f.mfd} | ${f.eco} | ${psy} | ${f.fusion>=0?'+':''}${f.fusion} | ${f.align||'—'} | ${f.probWin!=null?f.probWin+'%':'—'} | ${f.crash} | ${t.pnlPct>=0?'+':''}${t.pnlPct}% | ${t.mae!=null?t.mae:'—'} | ${t.judgment==='wrong'?'❌':'✅'} |\n`;
-      }
-      md += `\n`;
-      // 順公式 vs 逆公式 MAE 對照（方向一致性的量化證據）
-      const alignG = withFormula.filter(t=>t.entryFormulas.align==='順公式'&&t.mae!=null);
-      const againstG = withFormula.filter(t=>t.entryFormulas.align==='逆公式'&&t.mae!=null);
-      if (alignG.length || againstG.length) {
-        const avgMae = arr => arr.length ? (arr.reduce((a,t)=>a+Math.abs(t.mae),0)/arr.length).toFixed(2) : '—';
-        md += `**順公式 vs 逆公式（方向一致性統計）**\n\n`;
-        md += `| 類型 | 筆數 | 平均MAE深度 | 凹單數 |\n|------|------|------------|--------|\n`;
-        md += `| 順公式 | ${alignG.length} | -${avgMae(alignG)}% | ${alignG.filter(t=>t.judgment==='wrong').length} |\n`;
-        md += `| 逆公式 | ${againstG.length} | -${avgMae(againstG)}% | ${againstG.filter(t=>t.judgment==='wrong').length} |\n\n`;
-        md += `> 逆公式=進場方向與FUSION相反。若逆公式MAE明顯較深，代表應等公式同向再進場。\n\n`;
-      }
-
-      // 機率校準度（預測 vs 現實——避免假高分）
-      const withProb = withFormula.filter(t => t.entryFormulas.probWin != null);
-      if (withProb.length >= 3) {
-        const avgPred = withProb.reduce((a, t) => a + t.entryFormulas.probWin, 0) / withProb.length;
-        const actualWin = withProb.filter(t => t.result === 'win').length / withProb.length * 100;
-        md += `**機率校準度（Calibration）**\n\n`;
-        md += `| 進場時平均預測勝率 | 實際勝率 | 校準偏差 |\n|------|------|------|\n`;
-        md += `| ${avgPred.toFixed(0)}% | ${actualWin.toFixed(0)}% | ${Math.abs(avgPred-actualWin).toFixed(0)} 個百分點 |\n\n`;
-        md += `> 偏差<10=模型誠實可信；預測遠高於實際=假高分（過度自信），該調降信任；實際遠高於預測=模型保守，你的選股加了模型沒看到的優勢。\n\n`;
-      }
-      md += `> 💡 **這張表是優化公式的核心**：請分析「進場時的公式分數」與「實際盈虧」的關聯。\n`;
-      md += `> 🧪模擬單是純照系統判斷做的，最能反映公式準確度，優先分析模擬單的公式分數與結果關聯。\n`;
-      md += `> 例如：FUSION 分數高的進場是否真的勝率較高？某個門檻以上才進場能否提升真實勝率？\n`;
-      md += `> STI/MFD/ECO/PSY 哪個與獲利相關性最強？應該調高哪個的權重？崩跌分高時是否該避開？\n\n`;
-    } else {
-      md += `## 四之二、進場公式分數\n\n尚無含公式分數的交易紀錄。新版交易日誌會自動記錄進場日的 STI/MFD/ECO/FUSION，累積後此處會出現「公式分數 vs 結果」對照表，供 AI 優化公式門檻。\n\n`;
-    }
+    // 四之二、進場時的 A 級證據 vs 結果（v188 取代公式分數對照）
+    const withEv = trades.filter(t => t.entryEvidence);
+    md += `## 四之二、進場時的 A 級證據 vs 實際結果\n\n`;
+    if (withEv.length) {
+      const grp = (name, arr) => { const n = arr.length, w = n ? arr.filter(t => t.result === 'win').length / n * 100 : null;
+        return `| ${name} | ${n} | ${w == null ? '—' : w.toFixed(0) + '%'} | ${n ? (arr.reduce((a, t) => a + (+t.pnlPct || 0), 0) / n).toFixed(2) + '%' : '—'} |\n`; };
+      md += `| 進場時條件 | 筆數 | 勝率 | 平均報酬 |\n|---|---|---|---|\n`;
+      for (const st of ['初期', '中期', '尾端']) md += grp(`波段${st}`, withEv.filter(t => t.entryEvidence.stage === st));
+      md += grp('風報比 ≥ 1', withEv.filter(t => t.entryEvidence.rr != null && t.entryEvidence.rr >= 1));
+      md += grp('風報比 < 1', withEv.filter(t => t.entryEvidence.rr != null && t.entryEvidence.rr < 1));
+      md += grp('高波動危險態進場', withEv.filter(t => t.entryEvidence.highVol));
+      md += `\n> 三項都是本系統有 19 年實證的證據：尾端追單風報比差、風報比 <1 方向做對也賺得比停損少、高波動時期望值為負。各組筆數不到 ${TRADE_MIN} 筆時只供參考，不下結論。\n\n`;
+    } else md += `> 尚無資料。新增的交易會自動記錄進場時的波段階段、風報比與高波動狀態，累積後這裡會出現對照表。\n\n`;
     // 四之三、加碼決策分析（分批進場的交易）
     const withBatch = trades.filter(t => t.batchRecords && t.batchRecords.length >= 2);
     if (withBatch.length > 0) {
       md += `## 四之三、加碼決策分析（分批進場）\n\n`;
       md += `> 分析每次加碼是「順勢加碼」（對的方向繼續加）還是「逆勢攤平」（套牢後攤平成本，危險）。\n\n`;
-      md += `| 代碼 | 出場日 | 批次 | 進場日 | 價格 | 加碼判斷 | 進場FUSION | 最終盈虧% |\n`;
-      md += `|------|--------|------|--------|------|----------|-----------|----------|\n`;
+      md += `| 代碼 | 出場日 | 批次 | 進場日 | 價格 | 加碼判斷 | 最終盈虧% |\n`;
+      md += `|------|--------|------|--------|------|----------|----------|\n`;
       for (const t of withBatch) {
         t.batchRecords.forEach((b, i) => {
-          md += `| ${i===0?t.code:''} | ${i===0?(t.exitDate||t.date):''} | 第${i+1}批 | ${b.date} | ${b.price} | ${b.addJudge||'首批'} | ${b.fusion!=null?(b.fusion>=0?'+':'')+b.fusion:'—'} | ${i===0?(t.pnlPct>=0?'+':'')+t.pnlPct+'%':''} |\n`;
+          md += `| ${i===0?t.code:''} | ${i===0?(t.exitDate||t.date):''} | 第${i+1}批 | ${b.date} | ${b.price} | ${b.addJudge||'首批'} | ${i===0?(t.pnlPct>=0?'+':'')+t.pnlPct+'%':''} |\n`;
         });
       }
       md += `\n> 💡 重點分析：逆勢攤平的交易最終是賺是賠？順勢加碼的成功率如何？攤平是否常導致大虧？這能驗證你的加碼策略好壞。\n\n`;
@@ -689,18 +626,6 @@ async function exportMarkdown() {
     catch (e) { md += `> ❌ 讀不到資訊面快照：${e.message}\n\n`; }
     md += `## 四之七、資訊面校準（全部快照 vs 之後 5 日超額報酬）\n\n`;
     md += window._intelCalib ? calibMd(window._intelCalib) : '> 尚未執行。到設定頁按「🔬 資訊面校準」後再匯出，會一併附上。\n\n';
-
-    md += `## 五、目前系統使用的自創公式\n\n`;
-    md += `### STI 訊號張力指數（統計學）\n`;
-    md += `\`STI = Σ[wᵢ·tanh(zᵢ)] / Σwᵢ × 100\`，zᵢ 為 Z 分數標準化。子訊號權重：報酬動能 1.2、乖離 1.0、量能 0.8、波幅 0.6。\n\n`;
-    md += `### MFD 動量流變導數（微積分）\n`;
-    md += `\`MFD = α·(dP/dt) + β·(d²P/dt²)\`，α=1.0、β=3.0。衰竭門檻：加速度 < -0.15%。\n\n`;
-    md += `### ECO 熵能轉折指標（資訊論）\n`;
-    md += `\`ECO = (1 − H/Hmax)×100\`，H 為夏農熵，5 桶分布。成形門檻：ECO > 40。\n\n`;
-    md += `### 崩跌預警權重\n`;
-    md += `動能衰竭 +30、熵偏空 +25、量價背離 +20、STI轉空 +15、連漲過熱 +10。高風險門檻 60。\n\n`;
-    md += `### 回測加權參數\n`;
-    md += `預測天數 ${5} 天、大漲跌門檻 ±3%、最小樣本 3 筆。\n\n`;
 
     // 下載
     const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });

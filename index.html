@@ -116,6 +116,7 @@ try {
   <!-- v150：原本右下兩顆浮動鈕改為 App Bar 動作鈕（手機 App 慣例，畫面不被浮標擋住） -->
   <div class="hdr-actions">
     <div id="time-pill"></div>
+    <button id="refresh-btn" class="hdr-btn" onclick="forceRefresh()" title="重新抓取（不用暫存）" style="display:none">⟳</button>
     <button class="hdr-btn" onclick="openScan()" title="條件篩選器">🔍</button>
     <button class="hdr-btn" onclick="openJournal()" title="交易與設定">📒</button>
   </div>
@@ -182,17 +183,6 @@ try {
       <div id="bf-ma" style="margin-bottom:14px"></div>
       <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">觀勢 — 勢能分數組成</div>
       <div id="bf-breakdown" style="margin-bottom:16px"></div>
-      <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--bg);border:1px solid var(--bd);border-radius:10px;margin-bottom:14px">
-        <div style="text-align:center;min-width:60px">
-          <div style="font-size:9px;color:var(--muted);text-transform:uppercase">交易評分</div>
-          <div id="bf-tradescore" style="font-family:var(--mono);font-size:28px;font-weight:800;color:var(--acc)">—</div>
-        </div>
-        <div style="flex:1">
-          <div style="font-size:10px;color:var(--muted);margin-bottom:2px">綜合可行性（趨勢35+籌碼25+產業15+動能15+風控10）</div>
-          <div id="bf-tradeparts" style="font-size:11px;color:var(--txt);font-family:var(--mono)"></div>
-        </div>
-      </div>
-      <div id="bf-exit"></div>
       <div style="font-size:10px;color:var(--muted);margin-top:12px;line-height:1.6;padding-top:12px;border-top:1px solid var(--bd)">⚠️ 產業權重以 RS 相對強弱近似（無免費產業分類API）。整合孫子兵法原則與量化指標，僅供參考。「不戰而屈人之兵」——未達 C 級（60分）建議不進場。</div>
     </div>
   </div>
@@ -230,69 +220,13 @@ try {
       <div style="text-align:right;margin-top:6px"><button onclick="showHelp('autolearn')" style="background:none;border:none;color:var(--muted2);font-size:10px;cursor:pointer;padding:2px 4px">🧠 系統如何自我校準？</button></div>
     </div>
   </div>
-  <!-- 多維度共振確認 -->
-  <div id="resonance-card" style="display:none">
-    <div class="layer-title"><span class="layer-num" style="background:linear-gradient(135deg,#F59E0B,#10B981);color:#fff">共</span>多維度共振<span class="layer-sub">六大獨立維度的共識 — 共振才是高勝率</span><button onclick="showHelp('resonance')" class="help-btn" title="說明">ⓘ</button></div>
-    <div class="card"><div id="resonance-content"></div></div>
-  </div>
-  <!-- 專屬量化分數 -->
-  <div id="quant-card" style="display:none">
-    <div class="layer-title"><span class="layer-num" style="background:linear-gradient(135deg,#A855F7,#3B82F6);color:#fff">★</span>專屬量化分數<span class="layer-sub">回測這檔歷史 × 動態權重 × 韭菜反指標</span><button onclick="showHelp('quant')" class="help-btn" title="說明">ⓘ</button></div>
-    <div class="card">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
-        <div style="background:var(--bg);border:1px solid var(--buy);border-radius:12px;padding:16px;text-align:center">
-          <div style="font-size:11px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">📈 大漲機率分數</div>
-          <div id="q-up" style="font-family:var(--mono);font-size:38px;font-weight:800;color:var(--buy);line-height:1">—</div>
-          <div id="q-up-conf" style="font-size:10px;color:var(--muted);margin-top:4px">—</div>
-        </div>
-        <div style="background:var(--bg);border:1px solid var(--sell);border-radius:12px;padding:16px;text-align:center">
-          <div style="font-size:11px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">📉 大跌機率分數</div>
-          <div id="q-down" style="font-family:var(--mono);font-size:38px;font-weight:800;color:var(--sell);line-height:1">—</div>
-          <div id="q-down-conf" style="font-size:10px;color:var(--muted);margin-top:4px">—</div>
-        </div>
-      </div>
-      <div id="q-verdict" style="text-align:center;font-size:13px;font-weight:600;padding:10px;border-radius:10px;margin-bottom:8px">—</div>
-      <div id="q-evidence" style="font-size:10px;color:var(--muted);line-height:1.6;padding:8px 10px;background:var(--warn-d);border:1px dashed var(--warn);border-radius:8px;margin-bottom:14px"></div>
-      <div style="font-size:11px;color:var(--muted);letter-spacing:.5px;text-transform:uppercase;margin-bottom:8px">權重明細（命中率高者佔比重）</div>
-      <div id="q-contrib"></div>
-      <div id="q-contrarian" style="margin-top:12px"></div>
-      <div style="font-size:10px;color:var(--muted);margin-top:12px;line-height:1.6;padding-top:12px;border-top:1px solid var(--bd)">⚠️ 分數來自「這檔股票過去資料」回測，過去準不代表未來準（過擬合風險）。樣本不足者標「信心低」。本系統會隨新資料滾動更新，不是固定神奇公式。漲跌同等重視。</div>
-    </div>
-  </div>
 
-  <!-- 自創公式 -->
-  <div id="formula-card" style="display:none">
-    <div class="layer-title"><span class="layer-num" style="background:linear-gradient(135deg,#F0B429,#FF4D6D);color:#fff">∑</span>自創量化公式<span class="layer-sub">統計學 × 微積分 × 資訊熵 — 市面無，原創組合</span><button onclick="showHelp('fusion')" class="help-btn" title="說明">ⓘ</button></div>
-    <div class="card">
-      <!-- 融合總分 -->
-      <div id="fusion-box" style="text-align:center;padding:16px;border-radius:12px;margin-bottom:14px;border:2px solid var(--bd)">
-        <div style="font-size:11px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">FUSION 融合總分</div>
-        <div id="fusion-val" style="font-family:var(--mono);font-size:40px;font-weight:800;line-height:1">—</div>
-        <div id="fusion-label" style="font-size:14px;font-weight:700;margin-top:6px">—</div>
-      </div>
-      <!-- 崩跌預警 -->
-      <div id="crash-box" style="display:none;border-radius:12px;padding:14px;margin-bottom:14px"></div>
-      <!-- 三公式 -->
-      <div style="display:grid;grid-template-columns:1fr;gap:10px" id="formula-list"></div>
-      <div style="font-size:10px;color:var(--muted);margin-top:12px;line-height:1.6;padding-top:12px;border-top:1px solid var(--bd)">⚠️ 自創公式為原創數學組合，目標是短線方向判斷與大跌前警示，非保證準確。數學原理見 README。崩跌預警採多因子共振以降低假警報，但仍可能誤判，請配合停損紀律。</div>
-    </div>
-  </div>
 
   <div class="layer-title"><span class="layer-num" style="background:#64748b;color:#fff">0</span>大盤環境<span class="layer-sub">期貨/法人/PCR/美股隔夜 — 純數據參考，判斷你自己來</span><button onclick="showHelp('market')" class="help-btn" title="說明">ⓘ</button></div>
   <div class="card" id="market-card" style="display:none"><div class="risk-grid" id="market-grid"></div>
     <div style="font-size:10px;color:var(--muted);margin-top:10px;line-height:1.6">⚠️ 以上為期交所/Yahoo 盤後公開資料，反映「市場情緒傾向」，非即時、非精準預測。法人未平倉與美股隔夜僅供環境判斷，買賣決策仍以下方個股分層為主。</div>
   </div>
 
-  <!-- 市場環境總分（含VIX）-->
-  <div id="mktscore-card" style="display:none">
-    <div class="card" style="text-align:center">
-      <div style="font-size:11px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">🌡️ 市場環境總分 <button onclick="showHelp('mktscore')" class="help-btn" title="說明">ⓘ</button></div>
-      <div id="ms-score" style="font-family:var(--mono);font-size:40px;font-weight:800;line-height:1">—</div>
-      <div id="ms-label" style="font-size:16px;font-weight:700;margin-top:4px">—</div>
-      <div id="ms-vix" style="font-size:12px;color:var(--warn);margin-top:8px"></div>
-      <div id="ms-factors" style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.5"></div>
-    </div>
-  </div>
 
   <!-- 籌碼面 -->
   <div id="chip-card" style="display:none">
@@ -339,26 +273,7 @@ try {
     <div class="card"><div class="risk-grid" id="rm-grid"></div></div>
   </div>
 
-  <!-- 多週期回測 -->
-  <div id="multiperiod-card" style="display:none">
-    <div class="layer-title"><span class="layer-num" style="background:#8B5CF6;color:#fff">期</span>多週期勝率<span class="layer-sub">3/5/10/20天回測 — 適合哪種玩法</span><button onclick="showHelp('multiperiod')" class="help-btn" title="說明">ⓘ</button></div>
-    <div class="card">
-      <div id="mp-rows"></div>
-      <div id="mp-advice" style="font-size:12px;color:var(--buy);margin-top:10px;font-weight:600"></div>
-    </div>
-  </div>
 
-  <!-- 個股健康度 -->
-  <div id="health-card" style="display:none">
-    <div class="layer-title"><span class="layer-num" style="background:linear-gradient(135deg,#10B981,#3B82F6);color:#fff">檢</span>個股健康度<span class="layer-sub">體檢報告 — 一眼看懂</span><button onclick="showHelp('health')" class="help-btn" title="說明">ⓘ</button></div>
-    <div class="card">
-      <div style="text-align:center;margin-bottom:14px">
-        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">總評</div>
-        <div id="health-total" style="font-family:var(--mono);font-size:46px;font-weight:800;line-height:1">—</div>
-      </div>
-      <div id="health-items"></div>
-    </div>
-  </div>
 
   <div class="layer-title"><span class="layer-num ln3">3</span>心理偏誤檢查<span class="layer-sub">反人性 — 系統的靈魂</span><button onclick="showHelp('psych')" class="help-btn" title="說明">ⓘ</button></div>
   <div class="card" id="psych-card"><div id="psych-list"></div></div>
@@ -378,15 +293,6 @@ try {
     <div class="card"><div class="risk-grid" id="beta-grid"></div></div>
   </div>
 
-  <!-- 機率預測 -->
-  <div id="prob-card" style="display:none">
-    <div class="layer-title"><span class="layer-num" style="background:#10B981;color:#fff">%</span>機率預測<span class="layer-sub">歷史相似情境的漲跌機率 — 比買賣燈更精準</span><button onclick="showHelp('prob')" class="help-btn" title="說明">ⓘ</button></div>
-    <div class="card">
-      <div id="bayes-box"></div>
-      <div id="prob-dir" style="font-size:12px;color:var(--muted);margin-bottom:10px"></div>
-      <div id="prob-rows"></div>
-    </div>
-  </div>
 
   <!-- 支撐壓力 -->
   <div id="sr-card" style="display:none">
@@ -394,17 +300,7 @@ try {
     <div class="card"><div id="sr-content"></div></div>
   </div>
 
-  <!-- 量價異常雷達 -->
-  <div id="vpradar-card" style="display:none">
-    <div class="layer-title"><span class="layer-num" style="background:#EF4444;color:#fff">量</span>量價異常雷達<span class="layer-sub">出貨/動能不足偵測</span><button onclick="showHelp('vpradar')" class="help-btn" title="說明">ⓘ</button></div>
-    <div class="card"><div id="vpradar-list"></div></div>
-  </div>
 
-  <!-- 樣本外驗證 -->
-  <div id="oos-card" style="display:none">
-    <div class="layer-title"><span class="layer-num" style="background:linear-gradient(135deg,#0EA5E9,#6366F1);color:#fff">驗</span>樣本外驗證<span class="layer-sub">前70%訓練 · 後30%測試 — 誠實的準確率</span><button onclick="showHelp('oos')" class="help-btn" title="說明">ⓘ</button></div>
-    <div class="card"><div id="oos-content"></div></div>
-  </div>
 
   <!-- 基本面體檢 -->
   <div id="fundamental-card" style="display:none">
@@ -656,14 +552,11 @@ try {
 <script src="./help.js"></script>
 <script src="./db.js"></script>
 <script src="./market.js"></script>
-<script src="./quant.js"></script>
-<script src="./formula.js"></script>
 <script src="./enhance.js"></script>
 <script src="./advanced.js"></script>
 <script src="./smc.js"></script>
 <script src="./mainforce.js"></script>
 <script src="./mtf.js"></script>
-<script src="./resonance.js"></script>
 <script src="./bingfa.js"></script>
 <script src="./layout.js"></script>
 <script src="./journal.js"></script>

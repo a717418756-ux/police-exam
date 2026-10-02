@@ -11,7 +11,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 
 // ▼▼▼ 每次改版把這個數字 +1（例如 6 → 7），就會自動清除舊快取 ▼▼▼
-const APP_VERSION = 185;
+const APP_VERSION = 189;
 
 /* ── 快取存活時間（統一常數，v95）─────────────────────────────────────
    v95修：原本四個快取各自寫死不同TTL（股價5分/融資5分/大盤10分/縱深10分），
@@ -19,36 +19,8 @@ const APP_VERSION = 185;
    使用者反映「同時段查同一檔卻得到不同結果」，根因即在此。
    統一為單一常數後，所有資料層同進同出，結果具可重現性。
    ──────────────────────────────────────────────────────────────── */
-/* ── 台股盤中時鐘（v101）────────────────────────────────────────────
-   「奪先機」的前提是知道資訊時差：價量=T+0即時、法人籌碼=T+1盤後、
-   大戶持股=週更。盤中查詢時今日K線是未完成的（量只有部分天），
-   量能類檢查若拿部分日量比全日均量，必然偏低誤判——此工具讓各模組
-   知道現在是否盤中、已開盤多少比例，據以「推估全日量」防呆。
-   假設使用者在台灣時區（本專案使用者確定如此）。──────────────── */
-function twMarketPhase() {
-  /* v108修：原用 new Date().getHours()＝裝置本地時區——電腦若設非台北時區
-     （或使用者在國外），盤中判定會整個錯位，導致同一時刻手機說「盤中」、
-     電腦說「已收盤」，量能推估/先行足跡/盤中警示全部不同。
-     改為固定以台北時間(UTC+8)計算，與裝置時區設定無關。 */
-  /* v119修：原寫法 getTime() + getTimezoneOffset()*60000 + 8h 是重複校正——
-     getTime() 已是 UTC 毫秒，再加 offset 等於多轉一次時區。在台北裝置上會把
-     10:30 算成 02:30，導致「盤中」永遠判定為非盤中：v101 起的盤中量能推估、
-     先行足跡、盤中警示等功能，在實機上從未真正生效（容器為UTC故測不出）。
-     正確：UTC毫秒 + 8小時 = 台北時間。 */
-  /* v120修：v119 改用「Date.now()+8h」造出台北時間戳是對的，但下面卻用
-     getHours()/getDay()（本地時區方法）去讀——在台北裝置上等於再加8小時，
-     變成 UTC+16，台北10:30被讀成18:00，盤中判定依然全錯。
-     ★ 鐵律：用「+8h 的時間戳」時，一律搭配 getUTC* 系列方法讀取，
-       兩者必須成對，混用即錯。（worker.js 的 _tpeDateStr 已是此正確寫法） */
-  const d = new Date(Date.now() + 8 * 3600000);
-  const mins = d.getUTCHours() * 60 + d.getUTCMinutes();
-  const open = 9 * 60, close = 13 * 60 + 30;         // 09:00 ~ 13:30 台北時間
-  const isWeekday = d.getUTCDay() >= 1 && d.getUTCDay() <= 5;
-  if (!isWeekday || mins < open) return { open: false, elapsed: 0, phase: '未開盤' };
-  if (mins >= close) return { open: false, elapsed: 1, phase: '已收盤' };
-  return { open: true, elapsed: Math.max(0.05, (mins - open) / (close - open)), phase: '盤中' };
-}
-
+/* v187 拿掉 v101 的 twMarketPhase（盤中時鐘）：它的用途是「推估盤中全日量」，v141 起盤中已改用前一根完整K棒，
+   推估反而把完整量放大好幾倍；盤中判斷改用 inSession／SESS（交易所當地時間，台美都適用） */
 /* ── 倉位管理兩條鐵律（v106，Alexander Elder《Trading for a Living》）──
    2%原則：單筆交易最大風險 ≤ 總資金2%（一次錯不致命）
    6%原則：當月已實現虧損累計達6% → 本月停止開新倉（連錯不致命）
@@ -59,65 +31,44 @@ function twMarketPhase() {
    ──────────────────────────────────────────────────────────────── */
 const RISK_RULE = { perTrade: 2, monthly: 6 };
 
-/* ── 證據登記表（v133）─────────────────────────────────────────────────
-   本系統一路做了大量嚴格檢驗，但結果散落在各卡片的警語裡，缺一個統一的
-   「這項判斷到底可不可信」的權重來源——導致共識度把「已證偽的指標」
-   和「通過19年驗證的指標」當成等值票數在算，信心度因此失真。
-   這裡把所有檢驗結果登記成單一真相表，供綜合研判加權使用。
+/* ── 證據分級規矩（v133）───────────────────────────────────────────────
      tier A：大樣本或樣本外檢驗通過，可作決策依據
      tier B：描述性/工具性，不宣稱方向，但對判斷有輔助價值
-     tier X：檢驗未通過，已除權——不計入信心，僅保留畫面描述
-   ★ 新增任何分析功能時，必須在此登記其證據等級，未登記者一律視為 B。
+     tier X：檢驗未通過——不計分（v188 起直接刪除，不再留在畫面上）
+     tier U：資料可用但判讀未經回測——只顯示、不計分
+   ★ 新增任何分析功能時，先在下方「證據等級登記」寫明等級與依據；沒有依據的不可拿來擋單或給分。
    ★ 任何等級變動都必須有可重現的檢驗數據支持，不可憑感覺調整。
    ──────────────────────────────────────────────────────────────── */
-/* 某維度是否可計分：只有登記且權重>0 才算數（X＝已證偽、U＝未驗證，皆為0） */
-function evScorable(k) { try { const e = EVIDENCE[k]; return !!(e && e.w > 0); } catch (e) { return false; } }
 /* v163：各前端檔案的「應有版本」。實際版本由各檔自己宣告到 window.SR_FV，
    app.js 啟動時比對，不符就直接點名是哪個檔沒更新——
    以前只能靠「畫面文字怎麼還是舊的」去猜，這種事發生過不只一次。 */
 const FILE_VERS = {
-  'help.js': 179, 'db.js': 185, 'market.js': 163, 'quant.js': 163, 'formula.js': 163, 'enhance.js': 185, 'advanced.js': 185, 'smc.js': 163, 'mainforce.js': 185, 'mtf.js': 163, 'resonance.js': 183, 'bingfa.js': 185, 'layout.js': 176, 'journal.js': 185, 'scan.js': 185, 'intel.js': 185, 'app.js': 185
+  'help.js': 188, 'db.js': 187, 'market.js': 188, 'enhance.js': 188, 'advanced.js': 188, 'smc.js': 188, 'mainforce.js': 188, 'mtf.js': 188, 'bingfa.js': 189, 'layout.js': 188, 'journal.js': 188, 'scan.js': 188, 'intel.js': 189, 'app.js': 188
 };
 
-const EVIDENCE = {
-  regime:      { tier: 'X', w: 0,   note: 'v138 實測：順勢/逆勢期望值無差異（19年23,226筆），不再投方向票；僅保留高波動禁令的風控用途' },
-  breakout:    { tier: 'A', w: 1.0, note: '19年3,934次：成功率38.4%，帶量40.9% vs 無量34.5%' },
-  riskReward:  { tier: 'A', w: 1.0, note: 'MFE實證：中位可達幅度÷停損距離，決定期望值正負' },
-  moveStage:   { tier: 'A', w: 0.9, note: '逐股波段百分位；尾端追單風險實證' },
-  crowding:    { tier: 'A', w: 0.9, note: '多源直測（當沖/融資/券資比/借券），非推估' },
-  amihud:      { tier: 'B', w: 0.6, note: 'Amihud 2002流動性；風險維度非方向' },
-  smartStop:   { tier: 'B', w: 0.6, note: '逐股假跌破率；停損擺放工具' },
-  chartLevel:  { tier: 'B', w: 0.5, note: '線位工具，提供可下單價位，非方向預測' },
-  intentAlpha: { tier: 'B', w: 0.5, note: '意圖判定經逐股α閘控後才投票；全域α≈0' },
-  behavior:    { tier: 'B', w: 0.5, note: '行為推理鏈：證據整合，含共線折減' },
-  quantScore:  { tier: 'X', w: 0,   note: '樣本外α=-4.4（反指標）；大跌分從未觸發，已除權' },
-  probCard:    { tier: 'X', w: 0,   note: 'LogLoss 6檔5檔劣於基準，無資訊量，已除權' },
-  bayesProb:   { tier: 'X', w: 0,   note: '極端區間嚴重偏離（宣稱10~20%時實際64%），已壓縮並除權' },
-  intentDir:   { tier: 'X', w: 0,   note: '19年7,908事件：全域方向α≈0，出貨為反指標，已除權' },
-  /* v158 新增兩個「U＝未驗證」維度。它們不是被證偽（那是X），而是從來沒生效過，
-     所以也從來沒被回測驗證：
-       twFutures — 端點網址打錯，期交所回的是API目錄頁HTML，foreignNet 從未被設定
-       pcr       — 欄名寫死成 PutCallRatioOfOpenInterest，實際是 PutCallOIRatio%，恆為 0
-     資料管線已修好，但「外資期貨淨空就偏空」「PCR>120 是反指標」這兩個判讀規則
-     在本專案的19年樣本裡一次都沒驗證過。依本專案規矩：沒驗過的不給分，只顯示。
-     要改成計分，把 w 調成 >0 即可（並請先跑回測）。 */
-  twFutures:   { tier: 'U', w: 0,   note: '外資台指期淨未平倉：資料已修復（v158），判讀規則未經回測，暫不計分僅顯示' },
-  pcr:         { tier: 'U', w: 0,   note: '選擇權PCR：資料已修復（v155），反指標規則未經回測，暫不計分僅顯示' },
-  intel:       { tier: 'U', w: 0,   note: '情報面（新聞/PTT/重大訊息→AI事件→事件研究CAR）：v168新增，未經回測只顯示；後端綁KV時每日存快照，累積後才能做walk-forward' },
-};
+/* 證據等級登記（文件；各規則直接寫在使用它的地方）
+     A 高波動禁止放空          24檔19年：放空每筆 −1.42%（t −6.6）；做多 −0.40% 不比平常差，只提醒減量
+     A 追突破／盤中追跳空       全市場2,136檔19年：突破 −1.54%/筆（隨便進場 −0.87%）；跳空7~9.5%帶量 −1.79%——提醒
+     A 月營收驚奇（revSur）     全市場2,125檔19年：SUR≥2 之後6月超額 +3.4%、≤−2 為 −3.8%（t≈±3，前後段一致）——紀律門、橫幅
+     A 風報比、此股中位可達停利  MFE實證；1:2／1:3 的10日達成率只有10.5%／3.9%
+     B 行情溫度計、Amihud、智慧停損、圖形線位——只當風險提醒
+     X 環境順逆勢、主力意圖方向、擁擠度、行為鏈、融資接刀——實測不顯著，只提醒
+     U 外資台指期、選擇權PCR、情報面新聞與AI方向：未經回測——只顯示、不計分（月營收例外，見上）
+   v188 刪除：專屬量化分數、機率／貝氏、多週期回測、樣本外驗證、STI/MFD/ECO/崩跌/FUSION、健康度、市場總分、多維共振。 */
 
-/* v139 條件式期望值：backtest_conditional.js 實測（24檔 2006~2026，隔日開盤進場、同K先停損、跳空開盤成交、
+/* 條件式期望值：backtest_conditional.js 實測（24檔 2006~2026，隔日開盤進場、同K先停損、跳空開盤成交、
    進出各1檔、手續費6折＋稅＋融券費；出場固定 1×ATR 停損／1.5×ATR 目標／≤10日）。值＝[每筆淨%, 筆數]。
+   v188 盤勢改用標準 Wilder ADX 重跑（與畫面的市場狀態同一算法）。20 格無一通過 t≥3＋前後段＋除權息季＋過半股票為正。
    型態×盤勢樣本<30 的格子不列，查不到時退回該型態「全部」。更新方式：重跑腳本後覆寫本表。 */
 const COND_EV = {
-  base: { 1: { 全部: [-0.83, 23226], 多頭: [-0.79, 6684], 空頭: [-0.83, 5110], 盤整: [-0.89, 7556], 過渡: [-0.94, 3078], 高波動: [-0.40, 798] },
-         '-1': { 全部: [-0.96, 23226], 多頭: [-0.97, 6684], 空頭: [-0.94, 5110], 盤整: [-0.93, 7556], 過渡: [-0.95, 3078], 高波動: [-1.42, 798] } },
+  base: { 1: { 全部: [-0.83, 23226], 多頭: [-0.80, 5126], 空頭: [-0.86, 3599], 盤整: [-0.88, 9044], 過渡: [-0.83, 4659], 高波動: [-0.40, 798] },
+         '-1': { 全部: [-0.96, 23226], 多頭: [-0.96, 5126], 空頭: [-0.92, 3599], 盤整: [-0.91, 9044], 過渡: [-1.03, 4659], 高波動: [-1.42, 798] } },
   setups: {
-    '突破20日高':   { dir: 1,  全部: [-0.99, 3721], 多頭: [-1.12, 1889], 空頭: [-1.17, 104], 盤整: [-0.64, 1252], 過渡: [-1.33, 476] },
-    '多頭排列拉回': { dir: 1,  全部: [-0.80, 4187], 多頭: [-0.73, 2368], 空頭: [-1.00, 155], 盤整: [-0.88, 1141], 過渡: [-1.05, 409], 高波動: [-0.37, 114] },
-    '空頭排列反彈': { dir: -1, 全部: [-0.96, 3606], 多頭: [-0.80, 183], 空頭: [-0.92, 1701], 盤整: [-0.97, 1136], 過渡: [-0.83, 406], 高波動: [-1.78, 180] },
-    '跌破20日低':   { dir: -1, 全部: [-0.90, 3316], 多頭: [-0.80, 128], 空頭: [-0.90, 1464], 盤整: [-0.74, 1115], 過渡: [-0.98, 426], 高波動: [-1.81, 183] },
-    '假突破回落':   { dir: -1, 全部: [-0.83, 1466], 多頭: [-0.78, 819], 空頭: [-0.53, 45], 盤整: [-0.98, 383], 過渡: [-0.77, 199] },
+    '突破20日高':   { dir: 1,  全部: [-0.99, 3721], 多頭: [-1.05, 1482], 盤整: [-0.87, 1473], 過渡: [-1.05, 741] },
+    '多頭排列拉回': { dir: 1,  全部: [-0.80, 4187], 多頭: [-0.77, 1975], 空頭: [+0.02, 91], 盤整: [-0.90, 1292], 過渡: [-0.89, 715], 高波動: [-0.37, 114] },
+    '空頭排列反彈': { dir: -1, 全部: [-0.96, 3606], 多頭: [-1.21, 66], 空頭: [-0.89, 1337], 盤整: [-0.95, 1346], 過渡: [-0.89, 677], 高波動: [-1.78, 180] },
+    '跌破20日低':   { dir: -1, 全部: [-0.90, 3316], 空頭: [-0.81, 1088], 盤整: [-0.78, 1333], 過渡: [-1.06, 683], 高波動: [-1.81, 183] },
+    '假突破回落':   { dir: -1, 全部: [-0.83, 1466], 多頭: [-0.66, 690], 盤整: [-0.85, 417], 過渡: [-1.17, 326] },
   },
 };
 
@@ -177,6 +128,70 @@ function checkDataFreshness(dataDate, lagDays) {
 }
 
 const CACHE_TTL = 300000;   // 5分鐘：所有資料層統一（股價/融資/大盤/主力縱深/基本面）
+
+/* ── v186 資料暫存的有效期：看資料本身的日期，不看「抓了多久」──────────────
+   資料已經是最新那一天的 → 留到它「可能變新」的那一刻（開盤、16:00 盤後資料、FinMind 21:00）；
+   該有新的卻還沒有（還沒公布、抓取不完整、國定假日）→ 30 分鐘後再試；盤中股價照舊 5 分鐘。
+   時刻用交易所當地時間算（美股用美東時區，夏令時間由瀏覽器處理），不靠裝置時區。
+   ⚠️ 只認得週末，不認得國定假日：假日時會每 30 分鐘多抓一次、拿到一樣的資料——只多花流量，不會錯 */
+const CACHE_RETRY = 1800000;
+const TZ_TW = 'Asia/Taipei', TZ_US = 'America/New_York';
+function zoneParts(t, tz) {   // → { y, mo, d, wd(0=日), min（當地當日分鐘）, ymd }
+  const p = {}; new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', weekday: 'short' })
+    .formatToParts(new Date(t)).forEach(x => { p[x.type] = x.value; });
+  return { y: +p.year, mo: +p.month, d: +p.day, wd: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(p.weekday), min: +p.hour * 60 + +p.minute, ymd: p.year + p.month + p.day };
+}
+function zoneWallToUtc(y, mo, d, min, tz) {   // 當地時間 → UTC 毫秒（兩次校正，夏令時間切換日也對）
+  const g = Date.UTC(y, mo - 1, d, 0, min), off = t => { const p = zoneParts(t, tz); return Date.UTC(p.y, p.mo - 1, p.d, 0, p.min) - Math.floor(t / 60000) * 60000; };
+  const u = g - off(g); return g - off(u) === u ? u : g - off(u);
+}
+function nextWeekdayAt(t, tz, min) {   // t 之後第一個「週一～五的當地 min 分」
+  const p = zoneParts(t, tz);
+  for (let k = 0; k < 8; k++) {
+    const day = new Date(Date.UTC(p.y, p.mo - 1, p.d + k)), wd = day.getUTCDay();
+    if (wd === 0 || wd === 6) continue;
+    const u = zoneWallToUtc(day.getUTCFullYear(), day.getUTCMonth() + 1, day.getUTCDate(), min, tz);
+    if (u > t) return u;
+  }
+}
+function lastWeekdayFrom(t, tz, min) {   // 「當地 min 分之後才算這一天」的最近一個週一～五（YYYYMMDD）
+  const p = zoneParts(t, tz);
+  for (let k = p.min >= min ? 0 : 1; k < 8; k++) {
+    const day = new Date(Date.UTC(p.y, p.mo - 1, p.d - k)), wd = day.getUTCDay();
+    if (wd !== 0 && wd !== 6) return day.toISOString().slice(0, 10).replace(/-/g, '');
+  }
+}
+const inSession = (t, tz, open, close) => { const p = zoneParts(t, tz); return p.wd >= 1 && p.wd <= 5 && p.min >= open && p.min < close; };
+// 台股 09:00～14:00（與 trimIntradayBar 同一段）；美股 09:30～16:30（收盤後半小時內報價仍可能修正）
+const SESS = { tw: [TZ_TW, 540, 840], us: [TZ_US, 570, 990] };
+function cacheUntil(kind, d, t, us) {
+  const retry = t + CACHE_RETRY, [tz, open, close] = SESS[us ? 'us' : 'tw'];
+  const ymd = x => String(x || '').replace(/-/g, '');
+  if (kind === 'intel') return t + 3600000;   // 新聞一天內也會變：1 小時（卡片有「重新抓取」）
+  if (kind === 'market') {   // 大盤含台美兩地即時報價：任一邊在盤中就 5 分鐘
+    if (inSession(t, ...SESS.tw) || inSession(t, ...SESS.us)) return t + CACHE_TTL;
+    return Math.min(retry, nextWeekdayAt(t, TZ_TW, SESS.tw[1]), nextWeekdayAt(t, TZ_US, SESS.us[1]));
+  }
+  if (kind === 'px') {   // 股價（個股、大盤基準）；台股個股另含法人
+    if (inSession(t, tz, open, close)) return t + CACHE_TTL;
+    if (ymd(d.lastDate) < lastWeekdayFrom(t, tz, close)) return retry;   // 收盤後該有今天的K棒卻還沒有
+    const u = nextWeekdayAt(t, tz, open);
+    if (us || !d.chip) return u;
+    /* 法人用週曆判斷「今天的該不該有了」：T86 尚未公布時證交所回「沒有資料」，後端把它當休市、expected 退回昨天，
+       chipUsable 會說「完整」——若信它，16:00 後查到的昨天法人會一路留到隔天開盤 */
+    if (typeof chipUsable === 'function' && !chipUsable(d.chip) || ymd(d.chip.dataDate) < lastWeekdayFrom(t, TZ_TW, 960)) return retry;
+    return Math.min(u, nextWeekdayAt(t, TZ_TW, 960));   // 16:00 起當天法人可能出來
+  }
+  if (kind === 'post') {   // 台股盤後資料（融資、估值）：d = { date, ok }
+    if (!d.ok || ymd(d.date) < lastWeekdayFrom(t, TZ_TW, 960)) return retry;
+    return nextWeekdayAt(t, TZ_TW, 960);
+  }
+  if (kind === 'finmind') {   // FinMind 籌碼：官方標示 20:00～21:00 更新；d = { date, ok }
+    if (!d.ok || (d.date && ymd(d.date) < lastWeekdayFrom(t, TZ_TW, 1260))) return retry;
+    return nextWeekdayAt(t, TZ_TW, 1260);
+  }
+  return t + CACHE_TTL;
+}
 
 /* ── 前端超時保護（v96）──────────────────────────────────────────────
    v96修「查詢突然變很慢（原10秒→數分鐘）」：全系統原本零超時保護，

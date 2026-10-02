@@ -17,14 +17,20 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['market.js'] = 163; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['market.js'] = 188; } catch (e) {}
 
+/* v186 原本每查一檔都重抓一次大盤（期交所＋美股隔夜＋多檔報價）。
+   台美任一邊在盤中 5 分鐘；兩邊都收盤時留到下一個開盤（最多 30 分鐘），有來源失敗的只留 5 分鐘 */
+let _mktCache = {};
 async function fetchMarket() {
   if (!GAS_URL || GAS_URL.indexOf('http') !== 0) return null;
+  const hit = await pcGet(_mktCache, 'all', 'market');
+  if (hit) return hit.d;
   try {
     const r = await fetchT(`${GAS_URL}?action=market`);
     if (!r.ok) return null;
     const j = await r.json();
+    if (j.ok) pcSet(_mktCache, 'all', 'market', j, (j.sourceErrors || []).length ? Date.now() + CACHE_TTL : cacheUntil('market', j, Date.now()));
     return j.ok ? j : null;
   } catch (e) {
     if (typeof ErrorLog !== 'undefined') ErrorLog.push('fetchMarket', e);
@@ -66,8 +72,10 @@ function renderMarket(m) {
   const bw = (m.tw && m.tw.breadth) ? m.tw.breadth : null;
   if (bw && bw.total) {
     const upPct = Math.round(bw.up / bw.total * 100);
-    const idxChg = (m.tw && m.tw.index && m.tw.index.changePct != null) ? m.tw.index.changePct : null;
-    let tone = '', desc = `${bw.total}個類股：漲${bw.up}／跌${bw.dn}${bw.flat ? '／平' + bw.flat : ''}`;
+    /* v187 盤中：類股廣度是前一交易日收盤後公布的，加權漲跌卻是即時的——兩天比在一起會誤報假強／假弱，盤中不比 */
+    const live = inSession(Date.now(), ...SESS.tw);
+    const idxChg = !live && m.tw && m.tw.index && m.tw.index.changePct != null ? m.tw.index.changePct : null;
+    let tone = '', desc = `${live ? '前一交易日 ' : ''}${bw.total}個類股：漲${bw.up}／跌${bw.dn}${bw.flat ? '／平' + bw.flat : ''}`;
     if (idxChg != null && idxChg > 0.3 && upPct < 40) { tone = ''; desc += `——⚠️ 加權漲但僅${upPct}%類股上漲＝權值股獨撐的「假強」，中小型普跌，追多風險高`; }
     else if (idxChg != null && idxChg < -0.3 && upPct > 60) { tone = 'good'; desc += `——加權跌但${upPct}%類股上漲＝權值股拖累的「假弱」，個股其實偏強`; }
     else if (upPct >= 65) { tone = 'good'; desc += `——普漲格局，市場參與度健康`; }
@@ -86,6 +94,10 @@ function renderMarket(m) {
   usItem('費城半導體 SOX', '🔌', us.sox, '對台積電/聯發科等連動高');
   usItem('那斯達克', '💻', us.nasdaq, '對台股科技股連動');
   usItem('標普 500', '📊', us.sp500, '美股大盤氣氛');
+  // v188 VIX 原值移到這裡（原本在「市場環境總分」卡，那張卡的「偏多」永遠到不了，已移除）
+  if (us.vix && us.vix.price != null) boxes.push({ cls: us.vix.price >= 30 ? '' : 'good', label: '😨 VIX 恐慌指數',
+    value: fmt(us.vix.price), valCls: us.vix.price >= 30 ? 'sell' : us.vix.price >= 20 ? 'warn' : 'buy',
+    sub: `${us.vix.changePct != null ? (us.vix.changePct >= 0 ? '+' : '') + us.vix.changePct.toFixed(1) + '%' : '漲跌—'}｜≥30 市場恐慌、<15 過度安逸（慣用分界，非本系統回測）` });
 
   // 總體因子：美元指數 + 美債殖利率（外資匯出壓力偵測）
   if (us.dxy && us.dxy.price != null) {

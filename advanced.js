@@ -3,11 +3,10 @@
    ──────────────────────────────────────────────────────────────────
    A. RS Rating 相對強弱評級（vs 大盤，O'Neil 法）
    B. Beta / Alpha（個股 vs 大盤回歸）
-   C. 機率預測（取代買賣燈，改顯示上漲機率%）
-   D. 支撐壓力自動辨識
-   E. 量價異常雷達
-   F. 市場情緒儀表板（融資融券+VIX+PCR 合成）
-   依賴：app.js($/fmt/fmtV)、quant.js(signalsAtIndex)
+   D. 支撐壓力自動辨識（含定錨、圖形線位）
+   基本面體檢
+   （v188 拿掉 C 機率預測、E 量價雷達、樣本外驗證——理由見各自原位置的註解）
+   依賴：app.js($/fmt/fmtV)
    資料限制：產業分類/籌碼集中度無免費API，以近似法或標註
    ──────────────────────────────────────────────────────────────────
    後續新增函式（v79起）：
@@ -33,25 +32,26 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['advanced.js'] = 185; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['advanced.js'] = 188; } catch (e) {}
 
 /* ── 大盤基準快取（避免每檔都重抓）─────────────────────────────────── */
-let _benchCache = {};   // key → { c: closes, t }（v177：台美各自計時，原本共用一個時間戳，查一檔美股會讓台股基準「看起來」仍新鮮）
+let _benchCache = {};   // key → { d: { closes, lastDate }, t, until }（v177：台美各自計時；v186 有效期看資料日期，見 cacheUntil）
+/* v183：個股在盤中會去掉今天未完成的K棒（trimIntradayBar），大盤原本沒去——兩條序列從尾端對齊時
+   差了一天，盤中的 Beta/Alpha 全部錯位（實測 2330 的 Beta 0.65 變 0.06）。用同一個規則去掉。
+   v186：暫存存原始序列，每次取用時依「當下」去掉（暫存可能是盤中抓的、收盤後才用） */
+const benchTrim = (j, us) => trimIntradayBar({ closes: j.closes.slice(), lastDate: j.lastDate, currency: us ? 'USD' : 'TWD' }).closes;
 async function fetchBenchmark(isTW) {
   const key = isTW ? 'tw' : 'us';
-  // 快取 10 分鐘
-  const hit = _benchCache[key];
-  if (hit && Date.now() - hit.t < CACHE_TTL) return hit.c;
+  const hit = await pcGet(_benchCache, key, 'bench');
+  if (hit) return benchTrim(hit.d, !isTW);
   if (!GAS_URL || GAS_URL.indexOf('http') !== 0) return null;
   try {
     const r = await fetchT(`${GAS_URL}?action=benchmark&market=${key}`);
     const j = await r.json();
     if (j.ok && j.closes) {
-      /* v183：個股在盤中會去掉今天未完成的K棒（trimIntradayBar），大盤原本沒去——兩條序列從尾端對齊時
-         差了一天，盤中的 Beta/Alpha 全部錯位（實測 2330 的 Beta 0.65 變 0.06）。用同一個規則去掉 */
-      const c = trimIntradayBar({ closes: j.closes.slice(), lastDate: j.lastDate }).closes;
-      _benchCache[key] = { c, t: Date.now() };
-      return c;
+      const d = { closes: j.closes, lastDate: j.lastDate };
+      pcSet(_benchCache, key, 'bench', d, cacheUntil('px', d, Date.now(), !isTW));
+      return benchTrim(d, !isTW);
     }
   } catch (e) {
     if (typeof ErrorLog !== 'undefined') ErrorLog.push('fetchBenchmark', e);
@@ -160,132 +160,7 @@ function renderBetaAlpha(ba) {
   ).join('');
 }
 
-/* ══ C. 機率預測（取代買賣燈）════════════════════════════════════════
-   用多週期回測的上漲機率，直接顯示 % 而非買賣燈
-   ════════════════════════════════════════════════════════════════════ */
-/* ══ C-2. 機率品質檢驗（Log Loss，v125）══════════════════════════════════
-   問題：C區塊直接顯示「上漲機率68%」，但機率若未經校準檢驗，就是假精確——
-   使用者會把沒有資訊量的數字當成決策依據。
-   做法：用對數損失（Log Loss，即 -[y·ln(p)+(1-y)·ln(1-p)] 的平均）做樣本外
-   檢驗——這是機率預測品質的標準嚴格評分法（嚴格真實評分規則，說謊會被懲罰）。
-   前60%為訓練期建立機率規則、後40%驗證，與「永遠猜基準率」比較：
-     模型LL < 基準LL ＝ 機率有資訊量，可參考
-     模型LL ≥ 基準LL ＝ 機率不如亂猜，必須明確告知使用者不可據此決策
-   ⚠️ 實測18檔中多數劣於基準（平均0.7065 vs 0.6847），故此卡預設標示警語。
-   ════════════════════════════════════════════════════════════════════ */
-function computeProbLogLoss(D, horizon) {
-  try {
-    const c = D.closes, h = D.highs, l = D.lows, v = D.volumes, n = c.length;
-    const H = horizon || 5;
-    if (n < 260) return null;
-    const split = Math.floor(n * 0.6);
-    const preds = [];
-    for (let i = split; i < n - H; i++) {
-      const sig = signalsAtIndex(c, h, l, v, i);
-      if (!sig) continue;
-      const vals = Object.values(sig);
-      const buys = vals.filter(s => s === 'buy').length, sells = vals.filter(s => s === 'sell').length;
-      if (buys === sells) continue;
-      const bull = buys > sells;
-      let up = 0, tot = 0;
-      for (let k = 60; k < split - H; k++) {
-        const s2 = signalsAtIndex(c, h, l, v, k);
-        if (!s2) continue;
-        const v2 = Object.values(s2), b2 = v2.filter(s => s === 'buy').length, e2 = v2.filter(s => s === 'sell').length;
-        if ((bull && b2 > e2) || (!bull && e2 > b2)) { tot++; if (((c[k + H] - c[k]) / c[k] > 0) === bull) up++; }
-      }
-      if (tot < 20) continue;
-      const p = Math.min(0.99, Math.max(0.01, up / tot));
-      const actualUp = (c[i + H] - c[i]) / c[i] > 0;
-      preds.push({ p, bull, y: bull ? (actualUp ? 1 : 0) : (actualUp ? 0 : 1) });
-    }
-    if (preds.length < 50) return null;
-    let bUp = 0, bTot = 0;
-    for (let k = 60; k < split - H; k++) { bTot++; if ((c[k + H] - c[k]) / c[k] > 0) bUp++; }
-    const base = Math.min(0.99, Math.max(0.01, bUp / bTot));
-    const ll = (fn) => -preds.reduce((acc, x) => acc + (x.y * Math.log(fn(x)) + (1 - x.y) * Math.log(1 - fn(x))), 0) / preds.length;
-    // v183：看空的預測 y=1 代表「跌了」，基準也要用「跌的機率」1−base；原本一律拿「漲的機率」比，看空預測的基準是錯的
-    const modelLL = ll(x => x.p), baseLL = ll(x => x.bull ? base : 1 - base);
-    return { modelLL, baseLL, samples: preds.length, informative: modelLL < baseLL, skill: (baseLL - modelLL) / baseLL * 100 };
-  } catch (e) { return null; }
-}
-
-function computeProbability(D) {
-  const periods = [5, 10, 20];
-  const c = D.closes, h = D.highs, l = D.lows, v = D.volumes;
-  const n = c.length;
-  const results = [];
-  // 當前訊號只算一次（原本誤放在迴圈內，每根K棒重複計算 → 效能浪費）
-  const curSigOnce = signalsAtIndex(c, h, l, v, n-1);
-  const curBuysN = curSigOnce ? Object.values(curSigOnce).filter(s=>s==='buy').length : 0;
-  const curSellsN = curSigOnce ? Object.values(curSigOnce).filter(s=>s==='sell').length : 0;
-  const curBull = curBuysN > curSellsN;
-  if (!curSigOnce) return null;   // v184：K棒不足算不出當前訊號（原本落到下面被標成「多空訊號數相同」）
-  // v183：多空訊號數相同時沒有方向可比——原本會當成「偏空」去算，卡片卻標「盤整機率」
-  if (curBuysN === curSellsN) return { results: periods.map(horizon => ({ horizon, prob: null, samples: 0 })), direction: 'neutral' };
-  for (const horizon of periods) {
-    let upCount = 0, total = 0;
-    for (let i = 60; i < n - horizon; i++) {
-      const sig = signalsAtIndex(c, h, l, v, i);
-      if (!sig) continue;
-      const vals = Object.values(sig);
-      const buys = vals.filter(s => s === 'buy').length;
-      const sells = vals.filter(s => s === 'sell').length;
-      // 只統計與當前同向的歷史情境
-      if ((curBull && buys > sells) || (!curBull && sells > buys)) {
-        total++;
-        const fut = (c[i+horizon] - c[i]) / c[i];
-        if (curBull ? fut > 0 : fut < 0) upCount++;
-      }
-    }
-    const prob = total >= 5 ? upCount/total : null;  // 最小樣本 3→5：3筆算出的機率統計上沒意義
-    results.push({ horizon, prob, samples: total });
-  }
-  // 當前方向
-  return { results, direction: curBull ? 'up' : 'down' };
-}
-
-function renderProbability(p, D) {
-  const card = document.getElementById('prob-card');
-  if (p && p.direction === 'neutral') {
-    card.style.display = 'block';
-    document.getElementById('prob-dir').textContent = '當前多空訊號數相同，沒有方向可比，不計算機率';
-    document.getElementById('prob-rows').innerHTML = '';
-    return;
-  }
-  if (!p || p.results.every(r => r.prob === null)) { card.style.display = 'none'; return; }
-  card.style.display = 'block';
-  const dirText = p.direction === 'up' ? '上漲' : p.direction === 'down' ? '下跌' : '盤整';
-  document.getElementById('prob-dir').textContent = `當前訊號偏「${dirText}」，歷史相似情境的${dirText}機率：`;
-  const rows = p.results.map(r => {
-    const pct = r.prob != null ? (r.prob*100).toFixed(0)+'%' : '樣本不足';
-    const col = r.prob == null ? 'var(--muted)' : r.prob >= 0.6 ? 'var(--buy)' : r.prob >= 0.5 ? 'var(--warn)' : 'var(--sell)';
-    return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--bd)">
-      <span style="font-family:var(--mono);font-size:13px;width:46px">${r.horizon}日</span>
-      <div style="flex:1;height:8px;background:var(--bd);border-radius:99px;overflow:hidden"><div style="height:100%;width:${r.prob!=null?r.prob*100:0}%;background:${col}"></div></div>
-      <span style="font-family:var(--mono);font-size:15px;font-weight:700;color:${col};width:54px;text-align:right">${pct}</span>
-      <span style="font-size:9px;color:var(--muted);width:48px;text-align:right">${r.samples}樣本</span>
-    </div>`;
-  }).join('');
-  /* v125：機率必須附上品質檢驗，否則就是假精確。實測多數個股的訊號機率
-     劣於「永遠猜基準率」（LogLoss 0.7065 vs 0.6847），此時必須明說不可用。 */
-  let qualityHtml = '';
-  try {
-    // v183：原本讀 window._lastD——這時它還是「上一檔」（app.js 稍後才更新），品質檢驗驗的是別的股票
-    const q = typeof computeProbLogLoss === 'function' ? computeProbLogLoss(D, 5) : null;
-    if (q) {
-      const col = q.informative ? 'var(--buy)' : 'var(--sell)';
-      qualityHtml = `<div style="margin-top:10px;padding:8px 10px;background:${col}10;border:1px solid ${col}50;border-radius:8px;font-size:10px;color:var(--muted);line-height:1.6">
-        <b style="color:${col}">${q.informative ? '✓ 機率通過品質檢驗' : '⚠️ 機率未通過品質檢驗'}</b>（對數損失 Log Loss 樣本外驗證，${q.samples}樣本）<br>
-        模型 ${q.modelLL.toFixed(4)} vs 永遠猜基準率 ${q.baseLL.toFixed(4)}｜技巧分 ${q.skill >= 0 ? '+' : ''}${q.skill.toFixed(1)}%<br>
-        ${q.informative
-          ? '此股的訊號機率確實優於亂猜，可作為參考之一（仍非保證）。'
-          : '<b>此股的訊號機率不如「永遠猜基準率」——上方數字沒有資訊量，不應據此決策。</b>請改用紀律門、風報比、突破統計等有實證的維度。'}
-      </div>`;
-    }
-  } catch (e) {}
-  document.getElementById('prob-rows').innerHTML = rows + qualityHtml;
-}
+/* v188 拿掉 C「機率預測」與 C-2「機率品質檢驗」：9 訊號投票的歷史命中率，LogLoss 劣於「直接用基準漲跌率」（X 級） */
 
 /* ══ D-alt. 定錨效應（Anchoring Bias，與D支撐壓力互補）═══════════════════════════════════════
    行為金融學：投資人會用「整數關卡」與「歷史高低點」當心理錨點，而非理性評估。
@@ -403,141 +278,8 @@ function renderSupportResistance(sr, D) {
   } catch (e) { /* 略過，不影響主卡片 */ }
 }
 
-/* ══ E. 量價異常雷達 ══════════════════════════════════════════════════ */
-function computeVolPriceRadar(D) {
-  const c = D.closes, v = D.volumes, h = D.highs;
-  const alerts = [];
-  if (v.length < 6) return alerts;
-
-  const vr = v[v.length-1] / (v.slice(-6,-1).reduce((a,b)=>a+b,0)/5);
-  // v183：盤中最後一根量是昨天的（今天未完成的K棒已去掉），漲跌也要用昨天那根，量與價才是同一天
-  const chgPct = (barPx(D) - barPrev(D)) / barPrev(D) * 100;
-
-  // 量增價未漲 → 出貨疑慮
-  if (vr > 2.5 && Math.abs(chgPct) < 1.5) {
-    alerts.push({ type:'warn', icon:'⚠️', title:`量增 ${vr.toFixed(1)}倍 但僅漲跌 ${chgPct.toFixed(1)}%`,
-      desc:'爆量卻沒推動股價，可能是高檔出貨或換手，留意主力動向' });
-  }
-  // 量縮創高 → 上攻動能不足
-  const recentHigh = Math.max(...h.slice(-20, -1));
-  if (barPx(D) > recentHigh && vr < 0.8) {   // v184 創高與量縮看同一根K棒
-    alerts.push({ type:'warn', icon:'⚠️', title:'量縮創新高',
-      desc:'價格創高但量能萎縮，買盤接手意願低，上攻動能不足，留意假突破' });
-  }
-  // 放量大漲 → 健康攻擊
-  if (vr > 1.8 && chgPct > 3) {
-    alerts.push({ type:'good', icon:'🚀', title:`放量大漲 ${chgPct.toFixed(1)}%（量 ${vr.toFixed(1)}倍）`,
-      desc:'量價齊揚，資金認同，屬健康攻擊型態' });
-  }
-  // 窒息量 → 可能變盤
-  if (vr < 0.5) {
-    alerts.push({ type:'warn', icon:'😴', title:`窒息量（僅均量 ${(vr*100).toFixed(0)}%）`,
-      desc:'成交極度萎縮，多空觀望，常為變盤前兆，留意次日方向' });
-  }
-  if (alerts.length === 0) {
-    alerts.push({ type:'good', icon:'✅', title:'量價關係正常', desc:'目前無明顯量價背離或異常訊號' });
-  }
-  return alerts;
-}
-
-function renderVolPriceRadar(alerts) {
-  const card = document.getElementById('vpradar-card');
-  card.style.display = 'block';
-  document.getElementById('vpradar-list').innerHTML = alerts.map(a =>
-    `<div class="psych-alert ${a.type==='good'?'ok':'fire'}"><span class="pa-icon">${a.icon}</span><div class="pa-body"><div class="pa-title ${a.type==='good'?'ok':'fire'}">${a.title}</div><div class="pa-desc">${a.desc}</div></div></div>`
-  ).join('');
-}
-
-/* ══ 樣本外驗證（Out-of-Sample Validation）══════════════════════════
-   回答「這檔股票的訊號準確率可不可信」的誠實方法：
-   前70%歷史當「訓練段」、後30%當「測試段」（模型沒看過的資料）。
-   訓練段命中率高但測試段掉很多 = 過擬合（歷史內漂亮、未來失效）。
-   這是量化機構與散戶曲線擬合者的分水嶺。
-   ════════════════════════════════════════════════════════════════════ */
-function computeOOSValidation(D, horizon = 5) {
-  const c = D.closes, h = D.highs, l = D.lows, v = D.volumes, n = c.length;
-  if (n < 250) return null;  // 2年資料才夠切
-  const split = Math.floor(n * 0.7);
-
-  const evalRange = (from, to) => {
-    let hit = 0, tot = 0;
-    for (let i = from; i < to - horizon; i++) {
-      const sig = signalsAtIndex(c, h, l, v, i);
-      if (!sig) continue;
-      const vals = Object.values(sig);
-      const buys = vals.filter(s => s === 'buy').length;
-      const sells = vals.filter(s => s === 'sell').length;
-      if (buys === sells) continue;  // 無方向不計
-      const dir = buys > sells ? 1 : -1;
-      tot++;
-      const fut = c[i + horizon] - c[i];
-      if ((dir === 1 && fut > 0) || (dir === -1 && fut < 0)) hit++;
-    }
-    return { rate: tot ? hit / tot : null, n: tot };
-  };
-
-  const train = evalRange(60, split);
-  const test = evalRange(split, n);
-  if (train.rate == null || test.rate == null) return null;
-
-  const drop = (train.rate - test.rate) * 100;
-  let verdict, vClass;
-  if (test.n < 20) { verdict = '測試樣本不足，無法下結論'; vClass = 'warn'; }
-  else if (test.rate >= 0.55 && drop <= 10) { verdict = '樣本外仍有效——此股的技術訊號有實際參考價值'; vClass = 'buy'; }
-  else if (drop > 12) { verdict = '過擬合警訊——歷史內漂亮但沒看過的資料上失效，此股技術訊號別重壓'; vClass = 'sell'; }
-  else if (test.rate >= 0.45 && test.rate < 0.55) { verdict = '樣本外接近擲硬幣——此股技術訊號參考價值低，決策改倚重籌碼/主力/融資維度'; vClass = 'warn'; }
-  else if (test.rate < 0.45) { verdict = '樣本外反向——此股訊號甚至略帶反指標性質，多空判斷需極度保守'; vClass = 'sell'; }
-  else { verdict = '樣本外普通——訊號可參考但需其他維度共振確認'; vClass = 'warn'; }
-
-  // Walk-Forward：3個滾動窗（比單一70/30切分更嚴謹，避免「切點剛好落在好時機」的偶然性）
-  // 2年資料切成4段，依序 [60%訓練→接續20%測試] 滾動3次
-  let wf = null;
-  if (n >= 400) {
-    const segLen = Math.floor((n - 60) / 4);
-    const windows = [];
-    for (let w = 0; w < 3; w++) {
-      const trainFrom = 60 + w * segLen, trainTo = trainFrom + segLen * 2;
-      const testTo = trainTo + segLen;
-      if (testTo > n) break;
-      const tr = evalRange(trainFrom, trainTo), te = evalRange(trainTo, testTo);
-      if (tr.rate != null && te.rate != null && te.n >= 5) windows.push({ train: tr.rate, test: te.rate, n: te.n });
-    }
-    if (windows.length >= 2) {
-      const avgTest = windows.reduce((a, x) => a + x.test, 0) / windows.length;
-      const consistent = windows.every(x => x.test >= 0.40);  // 沒有任何一段崩到反指標區
-      wf = { windows, avgTest, consistent };
-    }
-  }
-
-  return { train, test, drop, verdict, vClass, horizon, wf };
-}
-
-function renderOOS(D) {
-  const card = document.getElementById('oos-card');
-  if (!card) return;
-  const o = computeOOSValidation(D);
-  if (!o) { card.style.display = 'none'; return; }
-  card.style.display = 'block';
-  const colMap = { buy: 'var(--buy)', warn: 'var(--warn)', sell: 'var(--sell)' };
-  const col = colMap[o.vClass];
-  const bar = (label, r, c2) => `
-    <div style="display:flex;align-items:center;gap:10px;padding:6px 0">
-      <span style="font-size:11px;width:110px;color:var(--muted)">${label}</span>
-      <div style="flex:1;height:8px;background:var(--bd);border-radius:99px;overflow:hidden"><div style="height:100%;width:${(r.rate*100).toFixed(0)}%;background:${c2}"></div></div>
-      <span style="font-family:var(--mono);font-size:13px;font-weight:700;color:${c2};width:46px;text-align:right">${(r.rate*100).toFixed(1)}%</span>
-      <span style="font-size:9px;color:var(--muted2);width:52px;text-align:right">${r.n}樣本</span>
-    </div>`;
-  document.getElementById('oos-content').innerHTML = `
-    ${bar('訓練段（前70%歷史）', o.train, 'var(--acc)')}
-    ${bar('測試段（後30%未見過）', o.test, col)}
-    <div style="margin-top:10px;padding:10px 12px;background:${col}10;border:1px solid ${col}50;border-radius:9px;font-size:12px;font-weight:600;color:${col};line-height:1.6">${o.verdict}</div>
-    ${o.wf ? `
-    <div style="margin-top:12px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Walk-Forward 滾動驗證（${o.wf.windows.length}個時段，比單一切分更嚴謹）</div>
-    ${o.wf.windows.map((w,i)=>`<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:11px;color:var(--muted)"><span style="width:50px">時段${i+1}</span><span style="font-family:var(--mono);color:${w.test>=0.5?'var(--buy)':'var(--sell)'}">${(w.test*100).toFixed(0)}%</span><span style="color:var(--muted2)">(${w.n}樣本)</span></div>`).join('')}
-    <div style="font-size:11px;color:${o.wf.consistent?'var(--buy)':'var(--warn)'};margin-top:4px">${o.wf.consistent?'✓ 各時段皆未崩至反指標區間，訊號較穩健':'⚠️ 部分時段測試命中率過低，訊號穩健度不足'}（平均 ${(o.wf.avgTest*100).toFixed(1)}%）</div>
-    ` : ''}
-    <div style="font-size:10px;color:var(--muted2);margin-top:8px;line-height:1.6">💡 訓練段=用來「學」的歷史；測試段=模型沒看過的近期資料，最接近「未來」。兩段差距小且測試段>55% 才代表訊號真的有預測力（${o.horizon}日方向命中率，含各50%的隨機基準）。這是誠實的準確率，不是樣本內的漂亮數字。</div>`;
-}
+/* v188 拿掉 E「量價雷達」（87.5% 時間顯示「正常」，窒息量／放量與成交量格、主力足跡重複）與「樣本外驗證」
+   （驗的是 X 級的 9 訊號投票，測試期命中率中位數 0.50，卻會對使用者說「樣本外仍有效」） */
 
 /* ══ 基本面體檢（台股：估值 + 月營收）════════════════════════════════
    定位：背景濾網，不是進出場訊號。波段層級的用途：
@@ -549,19 +291,21 @@ async function loadFundamentalCard(D) {
   const card = document.getElementById('fundamental-card');
   if (!card) return;
   if (D.currency !== 'TWD') { card.style.display = 'none'; return; }
-  let f = null;
-  const hit = _fundCache[D.code];
-  if (hit && Date.now() - hit.t < CACHE_TTL) f = hit.d;
+  let f = null, why = '';
+  const hit = await pcGet(_fundCache, D.code, 'fund');   // v186 估值是盤後資料：當天的到了就留到下一個 16:00
+  if (hit) f = hit.d;
   else {
     try {
       const r = await fetchT(`${GAS_URL}?action=fundamental&code=${encodeURIComponent(D.code)}`);
       const j = await r.json();
-      if (j.ok) { f = j; _fundCache[D.code] = { d: j, t: Date.now() }; }
-    } catch (e) { if (typeof ErrorLog !== 'undefined') ErrorLog.push('基本面', e); }
+      if (j.ok) { f = j; pcSet(_fundCache, D.code, 'fund', j, cacheUntil('post', { date: j.valDate, ok: !!j.valDate && !j.valErr && !j.revErr }, Date.now())); }
+      else why = j.error || '後端沒有回傳原因';
+    } catch (e) { why = String(e && e.message || e); if (typeof ErrorLog !== 'undefined') ErrorLog.push('基本面', e); }
   }
   if (window._activeCode && window._activeCode !== D.code) return;  // 已換股，丟棄遲到結果
-  if (!f) { card.style.display = 'none'; return; }
   card.style.display = 'block';
+  // v187 拿不到要講原因（原本整張卡默默消失：上櫃股看不出是「沒資料」還是「來源不支援」）
+  if (!f) { document.getElementById('fundamental-content').innerHTML = `<div style="font-size:12px;color:var(--warn);line-height:1.6">⚠️ 基本面取得失敗：${escI(why)}（估值表只涵蓋上市股；上櫃股的營收來源尚未用真實回應驗證過）</div>`; return; }
 
   // 判讀（空方交易者視角）
   const notes = [];
@@ -583,6 +327,7 @@ async function loadFundamentalCard(D) {
   let html = `<div class="risk-grid">
     ${box('📈 月營收 YoY', f.revYoY != null ? (f.revYoY >= 0 ? '+' : '') + f.revYoY.toFixed(1) + '%' : '—', f.revMonth ? '資料月份 ' + f.revMonth : '去年同月比')}
     ${f.valErr ? `<div style="grid-column:1/-1;font-size:10px;color:var(--warn);margin-top:2px">⚠️ 估值抓不到：${escI(f.valErr)}</div>` : ''}
+    ${f.revErr ? `<div style="grid-column:1/-1;font-size:10px;color:var(--warn);margin-top:2px">⚠️ 月營收抓不到：${escI(f.revErr)}</div>` : ''}
     ${f.valDate ? `<div style="grid-column:1/-1;font-size:9px;color:var(--muted2);margin-top:2px">估值(PE/PB/殖利率)資料日：${String(f.valDate).slice(4,6)}/${String(f.valDate).slice(6,8)}${(() => { try { const fr = (typeof checkDataFreshness === 'function') ? checkDataFreshness(f.valDate, 0) : null; return (fr && fr.stale) ? ` <span style="color:var(--sell)">⚠️ 落後約${fr.gapDays}個交易日</span>` : ''; } catch (e) { return ''; } })()}</div>` : ''}
     ${box('📊 月營收 MoM', f.revMoM != null ? (f.revMoM >= 0 ? '+' : '') + f.revMoM.toFixed(1) + '%' : '—', '上月比較')}
     ${box('💰 本益比', f.pe != null && f.pe > 0 ? f.pe.toFixed(1) : (f.pe === 0 ? '虧損' : '—'), 'PE')}
@@ -666,11 +411,11 @@ function computeChartPatterns(D) {
   const conf = t => t ? `另有${t}次回到線上確認` : '只由兩個轉折點連成、尚未經第三次觸碰確認';
   if (upLine) {
     const v = lineVal(upLine.a, upLine.b, n - 1);
-    if (v > 0 && v < price * 1.3) out.push({ kind: '上升趨勢線', level: v, note: `${conf(upLine.t)}，${nearTxt(v)}。跌破此線=結構轉弱訊號，也是多單停損參考位（注意：人人看得到的線，破線常先掃停損再反轉）` });
+    if (v > 0 && v < price * 1.3) out.push({ kind: '上升趨勢線', level: v, confirmed: upLine.t > 0, note: `${conf(upLine.t)}，${nearTxt(v)}。跌破此線=結構轉弱訊號，也是多單停損參考位（注意：人人看得到的線，破線常先掃停損再反轉）` });
   }
   if (dnLine) {
     const v = lineVal(dnLine.a, dnLine.b, n - 1);
-    if (v > 0 && v > price * 0.7) out.push({ kind: '下降趨勢線', level: v, note: `${conf(dnLine.t)}，${nearTxt(v)}。帶量站上此線=結構轉強訊號（突破需量能配合，無量突破多為假突破）` });
+    if (v > 0 && v > price * 0.7) out.push({ kind: '下降趨勢線', level: v, confirmed: dnLine.t > 0, note: `${conf(dnLine.t)}，${nearTxt(v)}。帶量站上此線=結構轉強訊號（突破需量能配合，無量突破多為假突破）` });
   }
   // ── 通道：趨勢線+對側平行線 ──
   if (upLine) {
@@ -678,7 +423,7 @@ function computeChartPatterns(D) {
     let maxDev = 0;
     for (let i = upLine.a.i; i < n; i++) { const d = h[i] - (upLine.a.p + slope * (i - upLine.a.i)); if (d > maxDev) maxDev = d; }
     const top = lineVal(upLine.a, upLine.b, n - 1) + maxDev;
-    if (maxDev > 0 && top > price) out.push({ kind: '上升通道頂', level: top, note: `通道上緣（壓力），觸及常見獲利了結；通道操作=下緣買上緣賣，突破上緣才是加速` });
+    if (maxDev > 0 && top > price) out.push({ kind: '上升通道頂', level: top, confirmed: upLine.t > 0, note: `通道上緣（壓力），觸及常見獲利了結；通道操作=下緣買上緣賣，突破上緣才是加速` });
   }
 
   // ── 箱型整理：近40日高低點各自「走平」（斜率相對價格<0.05%/日）──

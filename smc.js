@@ -1,28 +1,22 @@
 /* ══════════════════════════════════════════════════════════════════════
-   smc.js — VWAP + 市場結構(BOS/CHoCH) + 過熱反指標
+   smc.js — VWAP + 市場結構(BOS/CHoCH)
    ──────────────────────────────────────────────────────────────────
    A. VWAP 移動成交量加權均價（機構成本線）
    B. BOS 結構突破 / CHoCH 性格轉變（聰明錢結構，純數學）
-   C. 過熱反指標（用硬數據抓「新聞狂熱」效果，比抓新聞可靠）
-   依賴：app.js($/fmt)、formula.js
+   依賴：app.js($/fmt)
    ──────────────────────────────────────────────────────────────────
    函式清單：
      computeVWAP          — 移動成交量加權均價
      computeStructure      — BOS結構突破/CHoCH性格轉變（供意圖引擎Wyckoff測試引用）
-     computeLiquidityPools — 流動性池（潛在停損聚集區，與圖形線位概念相近）
-     computeOverheat        — 過熱反指標
      renderSMC              — 卡片渲染
    ⚠️ 已知地雷／注意事項：
      - computeStructure的BOS/CHoCH判定被mainforce.js意圖引擎引用作為
        Wyckoff測試證據之一，修改突破/跌破的判定邏輯會連動影響主力
        行為分類，建議改動後重跑意圖引擎的合成情境測試
-     - computeLiquidityPools與advanced.js的computeChartPatterns概念
-       重疊（皆為潛在停損聚集區），若要合併須先確認兩者的觸碰容差
-       定義是否一致，避免同一價位算出兩種不同的「聚集區」結論
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['smc.js'] = 163; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['smc.js'] = 188; } catch (e) {}
 
 /* ══ A. VWAP 移動成交量加權均價 ════════════════════════════════════════
    VWAP = Σ(典型價×量) / Σ量，典型價=(高+低+收)/3
@@ -108,102 +102,17 @@ function computeStructure(D) {
   };
 }
 
-/* ══ B2. EQH/EQL 流動性池（停損聚集地圖）═══════════════════════════
-   多個 swing 高點擠在 0.4% 內 = EQH（上方流動性池：多單停損+突破買單堆積）
-   價格像磁鐵一樣會被吸去掃這些池子——掃完常反轉（Liquidity Sweep）
-   ════════════════════════════════════════════════════════════════════ */
-function computeLiquidityPools(D) {
-  // 停損聚集區是散戶/主力都盯著的原始價位，不用還原價
-  const h = D.rawHighs || D.highs, l = D.rawLows || D.lows, c = D.rawCloses || D.closes, n = c.length;
-  const N = Math.min(80, n);
-  const hs = h.slice(-N), ls = l.slice(-N);
-  const swH = [], swL = [];
-  for (let i = 2; i < N - 2; i++) {
-    if (hs[i] > hs[i-1] && hs[i] > hs[i-2] && hs[i] > hs[i+1] && hs[i] > hs[i+2]) swH.push(hs[i]);
-    if (ls[i] < ls[i-1] && ls[i] < ls[i-2] && ls[i] < ls[i+1] && ls[i] < ls[i+2]) swL.push(ls[i]);
-  }
-  const cluster = (arr) => {
-    const sorted = [...arr].sort((a, b) => a - b);
-    const out = [];
-    let grp = [];
-    for (const v of sorted) {
-      if (!grp.length || (v - grp[0]) / grp[0] <= 0.004) grp.push(v);
-      else { if (grp.length >= 2) out.push({ price: grp.reduce((a, b) => a + b, 0) / grp.length, touches: grp.length }); grp = [v]; }
-    }
-    if (grp.length >= 2) out.push({ price: grp.reduce((a, b) => a + b, 0) / grp.length, touches: grp.length });
-    return out;
-  };
-  const price = D.rawCloses ? D.rawCloses[D.rawCloses.length - 1] : D.price;
-  const eqh = cluster(swH).filter(x => x.price > price).sort((a, b) => a.price - b.price)[0] || null;
-  const eql = cluster(swL).filter(x => x.price < price).sort((a, b) => b.price - a.price)[0] || null;
-  return { eqh, eql };
-}
-
-/* ══ C. 過熱反指標（用硬數據抓「新聞狂熱」效果）════════════════════════
-   新聞狂熱必反映在數據：爆量+連漲+乖離大+融資暴增+PCR極端
-   用這些抓「群眾過熱」，比抓不可靠的新聞情緒準
-   ════════════════════════════════════════════════════════════════════ */
-function computeOverheat(D, formulas, market) {
-  const c = D.closes, v = D.volumes;
-  const price = D.price;
-  let heat = 0; const reasons = [];
-
-  // 連漲天數
-  let upStreak = 0;
-  for (let i = c.length-1; i > 0; i--) { if (c[i] > c[i-1]) upStreak++; else break; }
-  if (upStreak >= 6) { heat += 25; reasons.push(`連漲 ${upStreak} 天（散戶FOMO追高）`); }
-  else if (upStreak >= 4) { heat += 12; reasons.push(`連漲 ${upStreak} 天`); }
-
-  // 乖離過大
-  const ma20 = c.slice(-20).reduce((a,b)=>a+b,0) / Math.min(20, c.length);
-  const bias = (price - ma20) / ma20 * 100;
-  if (bias > 12) { heat += 25; reasons.push(`正乖離 +${bias.toFixed(0)}%（離均線過遠，過熱）`); }
-  else if (bias > 8) { heat += 12; reasons.push(`正乖離 +${bias.toFixed(0)}%`); }
-
-  // 爆量
-  if (v.length >= 6) {
-    const vr = v[v.length-1] / (v.slice(-6,-1).reduce((a,b)=>a+b,0)/5);
-    if (vr > 2.5) { heat += 20; reasons.push(`爆量 ${vr.toFixed(1)} 倍（情緒亢奮）`); }
-  }
-
-  // 加速趕頂（拋物線末端＝泡沫破裂前兆）：近5日漲幅為前5日的1.8倍以上
-  if (c.length >= 11) {
-    const r1 = (c[c.length-1] - c[c.length-6]) / c[c.length-6] * 100;
-    const r0 = (c[c.length-6] - c[c.length-11]) / c[c.length-11] * 100;
-    if (r0 > 1 && r1 > r0 * 1.8 && r1 > 6) {
-      heat += 20; reasons.push(`加速趕頂：近5日+${r1.toFixed(1)}% 是前5日(${r0.toFixed(1)}%)的${(r1/r0).toFixed(1)}倍（拋物線末端，泡沫破裂前常見）`);
-    }
-  }
-
-  // PSY 心理偏離（若有）
-  if (formulas && formulas.psy && formulas.psy.value >= 75) {
-    heat += 20; reasons.push(`心理偏離指數 ${formulas.psy.value}（過度貪婪）`);
-  }
-
-  // PCR 極端（大盤）
-  if (market && market.taifex && market.taifex.pcrOI && typeof evScorable === 'function' && evScorable('pcr')) {   // v158：同上，未驗證不計分
-    const pcr = market.taifex.pcrOI;
-    if (pcr < 70) { heat += 15; reasons.push(`大盤 PCR ${pcr.toFixed(0)}%（市場過度樂觀）`); }
-  }
-
-  heat = Math.min(100, heat);
-  let level, advice;
-  if (heat >= 60) { level = 'high'; advice = '🔥 市場過熱（等同新聞狂熱），反指標偏空：追高風險大，宜減碼或等回檔，勿在亢奮時進場'; }
-  else if (heat >= 35) { level = 'mid'; advice = '⚠️ 情緒偏熱：留意追高風險，可分批不要重壓'; }
-  else { level = 'low'; advice = '情緒正常，無過熱跡象'; }
-
-  return { heat, level, advice, reasons };
-}
+/* v188 拿掉「流動性池 EQH/EQL」（60～75% 的時候就落在支撐壓力卡已列的價位 1% 內，重複）
+   與「過熱反指標」（連漲／乖離與心理卡重複，PSY 已併入 RSI，PCR 未經驗證不計分）。 */
 
 /* ── 渲染 ──────────────────────────────────────────────────────────── */
-function renderSMC(D, formulas, market) {
+function renderSMC(D) {
   const card = document.getElementById('smc-card');
   if (!card) return;
   card.style.display = 'block';
 
   const vwap = computeVWAP(D, 20);
   const struct = computeStructure(D);
-  const overheat = computeOverheat(D, formulas, market);
 
   const cur = D.currency === 'TWD' ? '' : '$';
   const sigCol = s => s === 'buy' ? 'var(--buy)' : s === 'sell' ? 'var(--sell)' : 'var(--warn)';
@@ -225,29 +134,6 @@ function renderSMC(D, formulas, market) {
     html += `<div style="font-size:11px;color:var(--muted)">前高 ${struct.lastHigh?cur+fmt(struct.lastHigh):'—'}　前低 ${struct.lastLow?cur+fmt(struct.lastLow):'—'}　目前在區間內</div>`;
   }
   html += `</div>`;
-
-  // 流動性池（停損聚集地圖）
-  try {
-    const lp = computeLiquidityPools(D);
-    if (lp.eqh || lp.eql) {
-      html += `<div style="padding:12px;background:var(--bg);border:1px solid var(--bd);border-radius:10px;margin-bottom:10px">
-        <div style="font-size:12px;font-weight:700;margin-bottom:6px">🧲 流動性池（停損聚集區）</div>`;
-      if (lp.eqh) html += `<div style="font-size:11px;color:var(--muted);line-height:1.6">上方 EQH <b style="color:var(--sell);font-family:var(--mono)">${cur}${fmt(lp.eqh.price)}</b>（${lp.eqh.touches}次等高）——空單停損+突破追單堆積處，價格易被磁吸去掃一把再走。<b>空單停損別掛在這，掛在其上方緩衝區外</b></div>`;
-      if (lp.eql) html += `<div style="font-size:11px;color:var(--muted);line-height:1.6;margin-top:4px">下方 EQL <b style="color:var(--buy);font-family:var(--mono)">${cur}${fmt(lp.eql.price)}</b>（${lp.eql.touches}次等低）——多單停損堆積處，假跌破掃完常反彈（洗盤位）</div>`;
-      html += `</div>`;
-    }
-  } catch (e) { /* 略過 */ }
-
-  // 過熱反指標
-  const ohCol = overheat.level==='high'?'var(--sell)':overheat.level==='mid'?'var(--warn)':'var(--muted)';
-  html += `<div style="padding:12px;background:${overheat.level==='high'?'var(--sell-d)':'var(--bg)'};border:1px solid ${overheat.level==='high'?'var(--sell)':'var(--bd)'};border-radius:10px">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-      <span style="font-size:12px;font-weight:700;color:${ohCol}">🌡️ 過熱反指標</span>
-      <span style="font-family:var(--mono);font-size:18px;font-weight:800;color:${ohCol}">${overheat.heat}</span>
-    </div>
-    <div style="font-size:11px;color:var(--muted);line-height:1.6;margin-bottom:${overheat.reasons.length?'6px':'0'}">${overheat.advice}</div>
-    ${overheat.reasons.length?`<div style="font-size:10px;color:var(--muted2);line-height:1.6">觸發：${overheat.reasons.join('、')}</div>`:''}
-  </div>`;
 
   document.getElementById('smc-content').innerHTML = html;
 }
