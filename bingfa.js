@@ -54,7 +54,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 189; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 191; } catch (e) {}
 
 /* v159：marginChg5 名為「5日變化」，但後端資料不足 6 筆時是拿現有最舊那筆當基準，
    實際可能只跨 2~3 天。2 天漲 4% 與 5 天漲 4% 意義完全不同，直接套同一個門檻
@@ -359,14 +359,25 @@ function renderVerdictBanner(shi, D, regime, mtf) {
           ${best < 0 ? '<b>兩邊皆為負：不交易（期望值 0）是數學上最好的選擇。</b>若仍要做，視為付費換經驗——最小部位、當沖稅率或議價手續費，並嚴守紀律門與停損。' : '有非負格子，但仍須通過紀律門與停損檢查。'}
           <br><span style="color:var(--muted2)">出場固定為 1×ATR 停損／1.5×ATR 目標／最多10日。</span></div>`;
       }
-      const rv = revSur(D);
-      if (rv) {
-        const big = Math.abs(rv.sur) >= 2, e = rv.sur > 0 ? REV_EV.up : REV_EV.dn, col = !big ? 'var(--muted)' : rv.sur > 0 ? 'var(--buy)' : 'var(--sell)';
+      const mid = midFactors(D);
+      if (mid) {
+        const sg = x => `${x > 0 ? '+' : ''}${x}%`, row = (lbl, val, k) => { const q = midQ(val[0], MID_EV[k].cut);
+          return `${lbl} ${val[1]}｜約全市場第 ${Math.round(midPct(val[0], MID_EV[k].cut) * 100)} 百分位（第 ${q + 1}／5 組）→ 該組之後3個月平均超額 <b>${sg(MID_EV[k].ex[q])}</b>`; };
+        const pctS = x => `${x >= 0 ? '+' : ''}${(x * 100).toFixed(1)}%`;
+        let body;
+        if (mid.why) body = `不計算：${mid.why}`;
+        else {
+          const lines = [row('距52週高點', [mid.hi52, pctS(mid.hi52 - 1)], 'hi52')];
+          if (mid.sur != null) lines.push(row(`${mid.ym % 100}月營收驚奇`, [mid.sur, `${mid.sur >= 0 ? '+' : ''}${mid.sur.toFixed(1)}`], 'sur'));
+          if (mid.rev3 != null) lines.push(row('近3月營收年增', [mid.rev3, pctS(mid.rev3)], 'rev3'));
+          if (mid.qual != null) lines.push(row(`盈餘品質（近四季現金流−淨利，至${mid.qq}）`, [mid.qual, `${pctS(mid.qual)}／總資產`], 'qual'));
+          if (mid.sur == null) lines.push('月營收、財報：等情報面載入（或此股沒有可比的資料）——合成分數要有營收驚奇才算');
+          else { const q = midQ(mid.comp, MID_EV.comp.cut); lines.push(`<b>四者等權合成：第 ${q + 1}／5 組 → 該組之後3個月平均超額 ${sg(MID_EV.comp.ex[q])}</b>（最高組減最低組 +4.7%，2007~14、2015~19、2020~ 三段都成立${mid.qual == null ? '；此股沒有可用的四季財報，盈餘品質以中間值計' : ''}）`); }
+          body = lines.join('<br>');
+        }
         judgeEl.innerHTML += `<div style="margin-top:8px;padding:9px 11px;background:var(--bg);border:1px solid var(--bd);border-radius:9px;font-size:10px;color:var(--muted);line-height:1.7">
-          <div style="font-size:12px;font-weight:700;color:${col};margin-bottom:4px">📊 中期基本面：${Math.floor(rv.ym / 100)}/${rv.ym % 100} 月營收驚奇 ${rv.sur >= 0 ? '+' : ''}${rv.sur.toFixed(1)}</div>
-          ${big ? `營收明顯${rv.sur > 0 ? '優' : '差'}於自己過去 12 個月的常態。全市場 2,125 檔 19 年回測：這種情況之後 3 個月平均${rv.sur > 0 ? '領先' : '落後'}大盤 ${Math.abs(e.m3)}%、6 個月 ${Math.abs(e.m6)}%（2017 前後都成立）——<b>中期方向偏${rv.sur > 0 ? '多' : '空'}</b>。`
-            : '在常態範圍內（|驚奇|&lt;2）：基本面沒有新訊號，回測顯示這區間之後表現接近平均。'}
-          <br><span style="color:var(--muted2)">持有期以月計，與上方短線期望值是不同尺度；只含現存股票，實際效果可能略小。</span></div>`;
+          <div style="font-size:12px;font-weight:700;color:var(--txt);margin-bottom:4px">📊 中期因子（之後 3 個月，全市場 2,125 檔 19 年回測）</div>${body}
+          <br><span style="color:var(--muted2)">持有期以月計，與上方短線期望值是不同尺度；位置用歷史分組門檻換算，是大約值；只含現存股票，實際效果可能略小。</span></div>`;
       }
     } catch (e) { judgeEl.innerHTML = ''; }
   }
@@ -475,13 +486,40 @@ async function checkBingfaWarning() {
    查 COND_EV 取「同盤勢×同型態」的19年實測每筆淨期望值；無型態時用同盤勢任意日基準。 */
 /* v188 盤中追跳空：全市場 2,136 檔 2006~2026，開盤跳空 7%~9.5%、當日量 ≥50 日均量 3 倍時開盤買進，每筆 −1.79%（271 筆，t −3.6，勝率 19%）。
    只在台股盤中判斷（回測就是在跳空當天開盤進場）；盤中的量還沒收完，已經達到 3 倍才算（只會少報，不會多報） */
-/* v189 月營收驚奇（全市場 2,125 檔 2006~2026 每月回測，research_fundamental.js）：SUR≥2 之後 3／6 個月超額 +2.25%／+3.41%，
-   SUR≤−2 為 −2.01%／−3.82%，|t|≥3、2017 前後都成立；五等分高減低 6 個月 +5.95%（t 6.2）。這是數個月的持有期，不是短線訊號。
-   資料來自情報面（FinMind 月營收）；情報面還沒到或失敗時回傳 null，不顯示 */
-const REV_EV = { up: { m3: 2.25, m6: 3.41 }, dn: { m3: -2.01, m6: -3.82 } };
-function revSur(D) {
-  const c = typeof _intelCache !== 'undefined' && D && _intelCache[D.code], rv = c && c.d && c.d.revenue;
-  return rv && rv.sur != null ? rv : null;
+/* v190 中期因子（全市場 2,125 檔 2007~2026 每月回測，research_factors.js --composite；之後 3 個月超額、每月五等分）：
+   近52週高點（高減低 +3.4%，t 3.1）、月營收驚奇（+4.0%，t 8.6）、近3月營收年增（+2.0%，t 3.2），三者等權合成 +4.4%（t 5.4），
+   2007~14／2015~19／2020~ 三段都成立。cut＝各月分組界線的中位數（平台一次只看一檔，用它內插出大約的全市場位置）；
+   ex＝五組由低到高的平均 3 個月超額（%）。殖利率只算股價時 t 0.1（原本是股息補法造成的假象），不採用。
+   v191 加入盈餘品質（research_finance.js --composite）：扣掉前三者後仍 +2.8%（t 3.8）；四者等權合成高減低 +4.7%（t 5.9），
+   三段 +3.4%／+4.5%／+6.4%（財報 2014 年起才有，之前以中間值計，與平台缺值處理相同） */
+const MID_EV = {
+  hi52: { cut: [0.717, 0.807, 0.869, 0.934], ex: [-1.57, -0.87, -0.04, 0.62, 1.86] },
+  sur: { cut: [-1.01, -0.39, 0.25, 1.12], ex: [-2.06, -0.74, -0.10, 0.99, 1.93] },
+  rev3: { cut: [-0.076, 0.031, 0.129, 0.311], ex: [-1.57, -0.24, 0.36, 1.04, 0.41] },
+  qual: { cut: [-0.0193, 0.0130, 0.0386, 0.0717], ex: [-0.83, -0.48, -0.01, 0.41, 1.00] },
+  comp: { cut: [-0.146, -0.042, 0.048, 0.145], ex: [-2.23, -1.07, -0.10, 0.94, 2.44] },
+};
+function midPct(v, cut) {   // 0~1：分界點對應 20/40/60/80 百分位，之間線性內插，兩端外推到 0／1 為止
+  if (v <= cut[0]) return Math.max(0, 0.2 - (cut[0] - v) / (cut[1] - cut[0]) * 0.2);
+  if (v >= cut[3]) return Math.min(1, 0.8 + (v - cut[3]) / (cut[3] - cut[2]) * 0.2);
+  for (let k = 0; k < 3; k++) if (v < cut[k + 1]) return 0.2 * (k + 1) + (v - cut[k]) / (cut[k + 1] - cut[k]) * 0.2;
+}
+const midQ = (v, cut) => cut.filter(c => v >= c).length;   // 第幾組（0＝最低 20%，4＝最高 20%）
+/* 與回測同樣的排除：只有台股、日均成交值 ≥2,000 萬、近一年沒有單日漲跌 >11%（減資、分割讓原始價失真）。
+   營收兩項與盈餘品質來自情報面（FinMind）；只能經由這個函式讀，新聞／AI 方向不准進分數 */
+function midFactors(D) {
+  if (!D || D.currency !== 'TWD') return null;
+  const c = D.rawCloses || D.closes, v = D.volumes, n = c.length;
+  if (n < 253) return { why: '資料不足一年' };
+  let val = 0; for (let k = n - 20; k < n; k++) val += c[k] * v[k];
+  if (val / 20 < 2e7) return { why: '日均成交值不到 2,000 萬，回測沒有涵蓋' };
+  for (let k = n - 252; k < n; k++) if (Math.abs(c[k] / c[k - 1] - 1) > 0.11) return { why: '近一年有單日漲跌超過 11%（減資、分割等，原始價失真）' };
+  const hi52 = c[n - 1] / Math.max(...c.slice(n - 252));
+  const ic = typeof _intelCache !== 'undefined' && _intelCache[D.code], rv = ic && ic.d && ic.d.revenue, ql = ic && ic.d && ic.d.quality;
+  const sur = rv && rv.sur != null ? rv.sur : null, rev3 = rv && rv.rev3 != null ? rv.rev3 : null, qual = ql ? ql.acc : null;
+  const r = (x, k) => x == null ? 0 : midPct(x, MID_EV[k].cut) - 0.5;   // 回測：缺值＝中間
+  return { hi52, sur, rev3, qual, qq: ql ? ql.q : null, ym: rv ? rv.ym : null,
+    comp: sur == null ? null : (r(hi52, 'hi52') + r(sur, 'sur') + r(rev3, 'rev3') + r(qual, 'qual')) / 4 };   // 回測：合成需要 52週高點與營收驚奇
 }
 function gapChase(D) {
   if (!D || !D._intraday || D.currency !== 'TWD' || !(D.open > 0) || !(D.volume > 0)) return null;
@@ -676,9 +714,9 @@ function computeTradeGate(ctx) {
       if (dir === -1 && marginSpanOK(deep.lend) && deep.lend.chg5 >= 8) pass.push(`法人借券空單增 +${deep.lend.chg5}%（機構隊友）`);
       if (dir === -1 && marginSpanOK(deep.lend) && deep.lend.chg5 <= -8) warn.push(`法人借券回補中（${deep.lend.chg5}%）：空方主力撤退，別戀戰`);
     }
-    const rv = revSur(D);   // v189 月營收驚奇：有回測證據的中期方向（見 REV_EV）
-    if (rv && Math.abs(rv.sur) >= 2) { const e = rv.sur > 0 ? REV_EV.up : REV_EV.dn;
-      ((rv.sur > 0 ? 1 : -1) === dir ? pass : warn).push(`月營收驚奇 ${rv.sur > 0 ? '+' : ''}${rv.sur.toFixed(1)}（${rv.ym % 100}月）：全市場19年，之後6個月平均超額 ${e.m6 > 0 ? '+' : ''}${e.m6}%——此方向${(rv.sur > 0 ? 1 : -1) === dir ? '順風' : '逆風'}（中期，非短線）`); }
+    const mid = midFactors(D);   // v190 中期因子合成：最高／最低 20% 才列（中間三組超額接近 0）
+    if (mid && mid.comp != null) { const q = midQ(mid.comp, MID_EV.comp.cut), ex = MID_EV.comp.ex[q];
+      if (q === 4 || q === 0) ((q === 4 ? 1 : -1) === dir ? pass : warn).push(`中期因子${q === 4 ? '最強' : '最弱'} 20%（52週高點＋營收＋盈餘品質）：全市場19年，之後3個月平均超額 ${ex > 0 ? '+' : ''}${ex}%——此方向${(q === 4 ? 1 : -1) === dir ? '順風' : '逆風'}（中期，非短線）`); }
     // 風報比：與執行計畫同一套算法（此股 5 日中位可達 ÷ 停損距離）
     try { const pb = planBasis(D, dir === 1 ? 'long' : 'short');
       if (pb.rr != null && pb.rr < 1) warn.push(`風報比 ${pb.rr.toFixed(2)} < 1：此股5日中位可達 ${pb.pickT.medPct.toFixed(1)}% 小於停損距離 ${(pb.dist / pb.entry * 100).toFixed(1)}%，方向做對也賺得比停損少`); } catch (e) {}
