@@ -109,13 +109,15 @@ function logicTests() {
     ok('線位警示：K 棒真的碰到確認過的線才亮（不是現價接近就亮）', /lo <= p\.level && p\.level <= hi/.test(bf) && !/Math\.abs\(px - p\.level\)/.test(bf));
     ok('go()：趨勢／風險／心理／訊號／大盤卡各自 try，單卡壞掉不拖垮整頁', ['趨勢卡', '風險卡', '心理卡', '訊號卡', '大盤卡'].every(k => ap.includes(`ErrorLog.push('${k}',err)`)));
     { const ev = bf.match(/const MID_EV = \{[\s\S]*?\n\};/)[0];
-      const MF = new Function('_intelCache', ev + grab(bf, 'midPct') + 'const midQ = (v, cut) => cut.filter(c => v >= c).length;' + grab(bf, 'midFactors') + ';return { midPct, midQ, midFactors, MID_EV };')({ X: { d: { revenue: { ym: 202608, sur: 1.12, rev3: 0.311 }, quality: { acc: 0.0717, q: '2026Q2' } } } });
+      const MF = new Function('_intelCache', 'pcLive', ev + grab(bf, 'midPct') + 'const midQ = (v, cut) => cut.filter(c => v >= c).length;' + grab(bf, 'midFactors') + ';return { midPct, midQ, midFactors, MID_EV };')({ X: { d: { revenue: { ym: 202608, sur: 1.12, rev3: 0.311 }, quality: { acc: 0.0717, q: '2026Q2' } } } }, e => !!e);
       const mkD = (f, o = {}) => ({ code: 'X', currency: 'TWD', closes: Array.from({ length: 300 }, (_, i) => f(i)), volumes: Array(300).fill(1e6), ...o });
       const up = MF.midFactors(mkD(i => 50 + i * 0.05)), cut = MF.MID_EV.hi52.cut;
       ok('中期因子：門檻內插（分界點＝20/40/60/80 百分位，兩端夾在 0~1）、分組', Math.abs(MF.midPct(cut[1], cut) - 0.4) < 1e-9 && MF.midPct(0, cut) === 0 && MF.midPct(9, cut) === 1 && MF.midQ(cut[3], cut) === 4 && MF.midQ(cut[0] - 1e-9, cut) === 0);
       ok('中期因子：創一年新高＋營收驚奇、營收成長、盈餘品質都在最高組界線→四者合成 (0.5+0.3×3)/4、最高組', Math.abs(up.hi52 - 1) < 1e-12 && Math.abs(up.comp - (0.5 + 0.3 * 3) / 4) < 1e-9 && up.qq === '2026Q2' && MF.midQ(up.comp, MF.MID_EV.comp.cut) === 4, JSON.stringify(up));
       ok('中期因子：與回測同樣的排除（成交值不足、近一年單日漲跌>11%、美股、不足一年）', /2,000 萬/.test(MF.midFactors(mkD(i => 10, { volumes: Array(300).fill(1e5) })).why)
         && /11%/.test(MF.midFactors(mkD(i => i === 200 ? 60 : 50)).why) && MF.midFactors(mkD(i => 50, { currency: 'USD' })) === null && /一年/.test(MF.midFactors({ ...mkD(i => 50), closes: Array(200).fill(50) }).why)); }
+    ok('分析方向：中期合成五組→偏空～偏多，只有最強／最弱 20% 才給方向；執行計畫先看中期因子、沒有才用勢能（標明未經回測）', /const MID_DIR = \['偏空', '略偏空', '中性', '略偏多', '偏多'\]/.test(bf) && /side: q === 4 \? 'long' : q === 0 \? 'short' : null/.test(bf)
+      && /const want = md && md\.side \? md\.side :/.test(bf) && /勢能等級（未經回測，僅供參考）/.test(bf) && /🧭 分析方向：中期/.test(bf));
     ok('中期因子進紀律門（只有最高／最低 20%）與橫幅；情報面到了就重繪', /const mid = midFactors\(D\);   \/\/ v190/.test(bf) && /q === 4 \|\| q === 0/.test(bf) && /📊 中期因子/.test(bf)
       && /refreshAsyncDependents\(D\.code\);[^\n]*\n  try \{ box\.innerHTML = renderIntel/.test(fs.readFileSync(path.join(ROOT, 'intel.js'), 'utf8')));
     ok('VIX 漲跌缺值時不炸、顯示「—」', /us\.vix\.changePct != null \?/.test(mk));
@@ -800,7 +802,7 @@ async function browserTests() {
     const got = await pg.waitForFunction(() => /營收驚奇 \+19\.6/.test((document.getElementById('vb-judgement') || {}).innerText || ''), null, { timeout: 15000 }).then(() => true, () => false);
     const e2e = await pg.evaluate(() => (document.getElementById('vb-judgement') || {}).innerText || '');
     ok('中期因子端到端：情報面到了→橫幅顯示52週高點、營收驚奇（最高組）與三者合成', got && /距52週高點 [-+]\d/.test(e2e) && /8月營收驚奇 \+19\.6｜約全市場第 100 百分位（第 5／5 組）→ 該組之後3個月平均超額 \+1\.93%/.test(e2e)
-      && /四者等權合成：第 \d／5 組/.test(e2e), e2e.slice(e2e.indexOf('📊'), e2e.indexOf('📊') + 200)); }
+      && /四者等權合成：第 \d／5 組/.test(e2e) && /🧭 分析方向：中期(偏空|略偏空|中性|略偏多|偏多)/.test(e2e) && /短線風險：做多 🟡未禁止/.test(e2e), e2e.slice(e2e.indexOf('📊'), e2e.indexOf('📊') + 200)); }
   // v177 兩次查詢重疊（Enter／最近查詢／掃描不經過停用的按鈕）：先查的晚回來，不可把它的卡片畫進後查那檔
   slowCode = codes[1];
   await pg.evaluate(async ([a, c2]) => { GAS_URL = 'https://selftest.local/exec'; Object.keys(_stockCache).forEach(k => delete _stockCache[k]); await new Promise(async r => { const tx = (await pcOpen()).transaction('c', 'readwrite'); tx.objectStore('c').clear(); tx.oncomplete = r; });
@@ -963,7 +965,7 @@ function intelFrontTests() {
   // v190 唯一例外：月營收（全市場回測★）只能經由 bingfa.js 的 midFactors() 讀 revenue 欄位；新聞／AI 方向仍不准進分數
   const noRev = src => src.replace(/function midFactors\(D\) \{[\s\S]*?\n\}/, '');
   const leak = others.filter(f => /intelVerdict|\.tilt\b|_intelCache/.test(noRev(fs.readFileSync(path.join(ROOT, f), 'utf8'))));
-  ok('其他模組沒有讀情報結果（確保不會偷偷進分數；只有 midFactors 可讀月營收與財報）', leak.length === 0 && /ic = typeof _intelCache[^\n]*rv = ic && ic\.d && ic\.d\.revenue, ql = ic && ic\.d && ic\.d\.quality;/.test(fs.readFileSync(path.join(ROOT, 'bingfa.js'), 'utf8')), leak.join(','));
+  ok('其他模組沒有讀情報結果（確保不會偷偷進分數；只有 midFactors 可讀月營收與財報）', leak.length === 0 && /ic = typeof _intelCache !== 'undefined' && pcLive\(_intelCache\[D\.code\]\)[^\n]*rv = ic && ic\.d && ic\.d\.revenue, ql = ic && ic\.d && ic\.d\.quality;/.test(fs.readFileSync(path.join(ROOT, 'bingfa.js'), 'utf8')), leak.join(','));
 }
 
 /* ── 第三部分：後端資料正確性（worker.js 與 Code.gs 都要驗）──────────────
@@ -1812,6 +1814,9 @@ async function backendTests() {
       const st = W2.revSurprise(stable);
       ok('月營收：年增率高但一向這麼高→驚奇度在常態內', st && st.yoy > 0.2 && Math.abs(st.sur) < 2 && st.seen === '', st && `${st.yoy} ${st.sur}`);
       ok('月營收：歷史不足 12 個月→不算驚奇度（不用太少的樣本亂算）', W2.revSurprise(rr.slice(-20)).sur === null && W2.revSurprise(rr.slice(-20)).n === 7);
+      { const gap = IT.revRows(''); gap.splice(27, 1);   // 最新月份的去年同月缺資料 → 改用前一個有年增率的月份（不讓整檔失效）
+        const a = W2.revSurprise(gap), b = new Function(fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8') + '\nreturn revSurprise;')()(gap);
+        ok('月營收：最新月份沒有去年同月時，用最新一個有年增率的月份（兩個後端相同）', a && a.ym === 202607 && b && b.ym === 202607 && Math.abs(a.sur - b.sur) < 1e-12, JSON.stringify([a && a.ym, b && b.ym])); }
       ok('月營收：沒有去年同月→回 null（不硬算）', W2.revSurprise(rr.slice(-6)) === null && W2.revSurprise([]) === null);
       const ep2 = h => Math.floor((NOW - h * H) / 1000);
       IT.pttPush = `<div class="r-list-container"><div class="r-ent"><div class="nrec"><span class="hl f1">爆</span></div><div class="title"><a href="/bbs/Stock/M.${ep2(1)}.A.111.html">[標的] 2330 台積電 多</a></div></div>

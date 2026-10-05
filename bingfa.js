@@ -54,7 +54,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 191; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 192; } catch (e) {}
 
 /* v159：marginChg5 名為「5日變化」，但後端資料不足 6 筆時是拿現有最舊那筆當基準，
    實際可能只跨 2~3 天。2 天漲 4% 與 5 天漲 4% 意義完全不同，直接套同一個門檻
@@ -346,6 +346,21 @@ function renderVerdictBanner(shi, D, regime, mtf) {
       /* v188 拿掉「綜合研判：○○條件較集中（信心 N）」：能投方向票的只剩行為結構（權重 0.5／總權重≥2.9），
          |傾向| 最多 0.17，永遠低於門檻 0.25——實測 100% 都是「證據分散」，是一行不會變的字 */
       judgeEl.innerHTML = '';
+      /* v192 🧭 分析方向：把有回測證據的兩件事整合成一句——中期方向（四因子合成，以月計）＋短線風險（紀律門）。
+         勢能等級、行為鏈等未經回測的不進這一句 */
+      const mid0 = midFactors(D), md = midDirection(mid0);
+      if (mid0 && !mid0.why) {
+        const gt = computeTradeGate({ D, regime, mtf, shi }), side = x => x.fail.length ? `🔴禁止（${x.fail[0].split('：')[0]}）` : `🟡未禁止${x.warn.length ? `，提醒 ${x.warn.length} 項` : ''}`;
+        const sg = x => `${x > 0 ? '+' : ''}${x}%`;
+        const act = !md ? '等情報面的月營收資料，才能算出中期方向（目前只有 52 週高點一項）。'
+          : md.q === 4 ? '中期有利：可列入持有／分批佈局名單，以「月」為單位評估；短線進場價位與停損照下方執行計畫。'
+          : md.q === 0 ? `中期不利：持有者考慮減碼、不宜新買；放空另看紀律門${gt.short.fail.length ? '（目前禁止放空）' : ''}與券源。`
+          : `中期沒有明顯優勢（中間三組之後 3 個月平均 ${sg(MID_EV.comp.ex[1])}～${sg(MID_EV.comp.ex[3])}）：不以中期理由進出，短線只做風控。`;
+        const col = !md ? 'var(--muted)' : md.q >= 3 ? 'var(--buy)' : md.q <= 1 ? 'var(--sell)' : 'var(--muted)';
+        judgeEl.innerHTML += `<div style="margin-top:8px;padding:9px 11px;background:var(--bg);border:1px solid ${col};border-radius:9px;font-size:11px;color:var(--muted);line-height:1.8">
+          <div style="font-size:13px;font-weight:800;color:${col}">🧭 分析方向：中期${md ? md.label : '待定'}</div>
+          ${md ? `中期（約 3 個月）：四因子合成第 ${md.q + 1}／5 組，歷史上這組之後 3 個月平均超額 <b>${sg(md.ex)}</b><br>` : ''}短線風險：做多 ${side(gt.long)}｜做空 ${side(gt.short)}<br><b>怎麼用：</b>${act}</div>`;
+      }
       const cev = computeCondEV(D);
       if (cev) {
         const pc = v => `${v[0] >= 0 ? '+' : ''}${v[0].toFixed(2)}%/筆（${v[1].toLocaleString()}筆）`;
@@ -511,15 +526,22 @@ function midFactors(D) {
   if (!D || D.currency !== 'TWD') return null;
   const c = D.rawCloses || D.closes, v = D.volumes, n = c.length;
   if (n < 253) return { why: '資料不足一年' };
-  let val = 0; for (let k = n - 20; k < n; k++) val += c[k] * v[k];
+  let val = 0; for (let k = n - 20; k < n; k++) val += c[k] * (v[k] || 0);
   if (val / 20 < 2e7) return { why: '日均成交值不到 2,000 萬，回測沒有涵蓋' };
   for (let k = n - 252; k < n; k++) if (Math.abs(c[k] / c[k - 1] - 1) > 0.11) return { why: '近一年有單日漲跌超過 11%（減資、分割等，原始價失真）' };
   const hi52 = c[n - 1] / Math.max(...c.slice(n - 252));
-  const ic = typeof _intelCache !== 'undefined' && _intelCache[D.code], rv = ic && ic.d && ic.d.revenue, ql = ic && ic.d && ic.d.quality;
+  const ic = typeof _intelCache !== 'undefined' && pcLive(_intelCache[D.code]) && _intelCache[D.code], rv = ic && ic.d && ic.d.revenue, ql = ic && ic.d && ic.d.quality;   // 過期的情報面不用
   const sur = rv && rv.sur != null ? rv.sur : null, rev3 = rv && rv.rev3 != null ? rv.rev3 : null, qual = ql ? ql.acc : null;
   const r = (x, k) => x == null ? 0 : midPct(x, MID_EV[k].cut) - 0.5;   // 回測：缺值＝中間
   return { hi52, sur, rev3, qual, qq: ql ? ql.q : null, ym: rv ? rv.ym : null,
     comp: sur == null ? null : (r(hi52, 'hi52') + r(sur, 'sur') + r(rev3, 'rev3') + r(qual, 'qual')) / 4 };   // 回測：合成需要 52週高點與營收驚奇
+}
+/* v192 把中期因子合成翻成一句方向（五組的歷史 3 個月超額見 MID_EV.comp.ex）；沒有營收驚奇就沒有合成，回 null */
+const MID_DIR = ['偏空', '略偏空', '中性', '略偏多', '偏多'];
+function midDirection(mid) {
+  if (!mid || mid.why || mid.comp == null) return null;
+  const q = midQ(mid.comp, MID_EV.comp.cut);
+  return { q, label: MID_DIR[q], ex: MID_EV.comp.ex[q], side: q === 4 ? 'long' : q === 0 ? 'short' : null };
 }
 function gapChase(D) {
   if (!D || !D._intraday || D.currency !== 'TWD' || !(D.open > 0) || !(D.volume > 0)) return null;
@@ -841,11 +863,12 @@ function renderTradeGate(ctx) {
   // ── 🎯 執行計畫（化繁為簡：做哪邊/幾張/停損/停利/時間停損）──
   try {
     const D = ctx.D;
-    /* v188 做哪一邊由勢能等級決定（A/B 做多、空A/空B 做空），該邊被禁止就不給。
-       紀律門沒有「可出手」這一級了，所以計畫一律是試單：風險預算減半（沒有任何條件經回測證明有正期望值） */
-    const sh = ctx.shi;
-    const want = !sh ? null : (sh.grade === 'A' || sh.grade === 'B') ? 'long' : (sh.shortGrade === 'A' || sh.shortGrade === 'B') ? 'short' : null;
+    /* v192 做哪一邊：先看有回測證據的中期因子（最強／最弱 20%），沒有中期訊號時才退回勢能等級（A/B 做多、空A/空B 做空，未經回測）。
+       該邊被禁止就不給；計畫一律是試單：風險預算減半 */
+    const sh = ctx.shi, md = midDirection(midFactors(D));
+    const want = md && md.side ? md.side : !sh ? null : (sh.grade === 'A' || sh.grade === 'B') ? 'long' : (sh.shortGrade === 'A' || sh.shortGrade === 'B') ? 'short' : null;
     const planSide = want && g[want].vClass !== 'no' ? want : null;
+    const basis = md && md.side ? `方向依據：中期因子${md.side === 'long' ? '最強' : '最弱'} 20%（回測 3 個月 ${md.ex > 0 ? '+' : ''}${md.ex}%）` : '方向依據：勢能等級（未經回測，僅供參考）';
 
     if (!planSide) {
       html += `<div style="padding:12px;text-align:center;background:var(--bg);border:1px dashed var(--bd);border-radius:10px;margin-bottom:10px;font-size:13px;font-weight:700;color:var(--muted)">⛔ 今日此標的無戰事<div style="font-size:11px;font-weight:400;color:var(--muted2);margin-top:3px">不出手，就是最精準的打擊</div></div>`;
@@ -905,7 +928,7 @@ function renderTradeGate(ctx) {
         </div>`;
       } else {
         html += `<div style="border:2px solid ${pc};border-radius:12px;padding:12px;margin-bottom:10px;background:${pc}0a">
-        <div style="font-size:13px;font-weight:800;color:${pc};margin-bottom:8px">🎯 執行計畫 — ${planSide==='long'?'做多':'做空'}（試單，風險減半）</div>
+        <div style="font-size:13px;font-weight:800;color:${pc};margin-bottom:8px">🎯 執行計畫 — ${planSide==='long'?'做多':'做空'}（試單，風險減半）<div style="font-size:10px;font-weight:400;color:var(--muted)">${basis}</div></div>
         <div style="background:var(--bg);border:1px solid ${pc}40;border-radius:10px;padding:10px;margin-bottom:8px">
           <div style="font-size:9px;color:var(--muted2);margin-bottom:6px">這筆交易只需要記住三個數字（依執行順序）${D._intraday ? '｜盤中：以下價位以前一交易日收盤為基準，實際下單請用現價與結構位微調' : ''}</div>
           <div style="display:flex;align-items:center;justify-content:space-between;gap:4px;font-family:var(--mono)">
