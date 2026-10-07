@@ -54,7 +54,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 193; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 194; } catch (e) {}
 
 /* v159：marginChg5 名為「5日變化」，但後端資料不足 6 筆時是拿現有最舊那筆當基準，
    實際可能只跨 2~3 天。2 天漲 4% 與 5 天漲 4% 意義完全不同，直接套同一個門檻
@@ -227,6 +227,7 @@ function renderVerdictBanner(shi, D, regime, mtf) {
   try { const cp = D && D.chip; if (cp && !chipUsable(cp)) addW(1, '📉', `籌碼資料不完整${cp.fieldMiss ? '（證交所欄位對不上）' : ''}${cp.missDates && cp.missDates.length ? `（缺 ${cp.missDates.map(x => String(x).slice(4, 6) + '/' + String(x).slice(6, 8)).join('、')}）` : ''}：籌碼分已改中性、不參與方向判斷——請重新查詢一次，抓齊再看籌碼結論`); } catch (e) {}
   try { if (regime && regime.regime === '高波動危險') addW(1, '🌪', '環境「高波動危險」：19年實測此時放空每筆虧1.42%（禁止放空）；做多不比平常差，但波動大，部位減半'); } catch (e) {}
   try { const ve = volEvent(D); if (ve) addW(2, '📊', `${D._intraday ? '昨日' : '今日'}${VOL_EV[ve]}`); } catch (e) {}
+  try { const pv = pvSummary(D); if (pv) addW(2, '📊', `${D._intraday ? '昨日' : '今日'}量價狀態${pv.txt}`); } catch (e) {}
   try { const gc = gapChase(D); if (gc != null) addW(2, '🚀', `開盤跳空 +${gc.toFixed(1)}% 且已爆量：全市場19年實測，這種時候開盤追進每筆−1.79%、勝率19%——不追`); } catch (e) {}
   try { if (ms && ms.stage === '尾端') addW(2, '🌡', `行情「${ms.dirTxt}·尾端」（成熟度${ms.maturity}）：本段已走完此股歷史${ms.magPctl}%波段——順向追單風報比差，等回檔/反彈找位`); } catch (e) {}
   try { if (syn && syn.conflict && syn.conflict.length) addW(3, '⚡', `行為衝突：${syn.conflict[0]}`); } catch (e) {}
@@ -351,7 +352,7 @@ function renderVerdictBanner(shi, D, regime, mtf) {
          勢能等級、行為鏈等未經回測的不進這一句 */
       const mid0 = midFactors(D), md = midDirection(mid0);
       if (mid0 && !mid0.why) {
-        const gt = computeTradeGate({ D, regime, mtf, shi }), side = x => x.fail.length ? `🔴禁止（${x.fail[0].split('：')[0]}）` : `🟡未禁止${x.warn.length ? `，提醒 ${x.warn.length} 項` : ''}`;
+        const gt = computeTradeGate({ D, regime, mtf, shi }), pv = pvSummary(D), side = x => x.fail.length ? `🔴禁止（${x.fail[0].split('：')[0]}）` : `🟡未禁止${x.warn.length ? `，提醒 ${x.warn.length} 項` : ''}`;
         const sg = x => `${x > 0 ? '+' : ''}${x}%`;
         const act = !md ? '等情報面的月營收資料，才能算出中期方向（目前只有 52 週高點一項）。'
           : md.q === 4 ? '中期有利：可列入持有／分批佈局名單，以「月」為單位評估；短線進場價位與停損照下方執行計畫。'
@@ -360,7 +361,7 @@ function renderVerdictBanner(shi, D, regime, mtf) {
         const col = !md ? 'var(--muted)' : md.q >= 3 ? 'var(--buy)' : md.q <= 1 ? 'var(--sell)' : 'var(--muted)';
         judgeEl.innerHTML += `<div style="margin-top:8px;padding:9px 11px;background:var(--bg);border:1px solid ${col};border-radius:9px;font-size:11px;color:var(--muted);line-height:1.8">
           <div style="font-size:13px;font-weight:800;color:${col}">🧭 分析方向：中期${md ? md.label : '待定'}</div>
-          ${md ? `中期（約 3 個月）：四因子合成第 ${md.q + 1}／5 組，歷史上這組之後 3 個月平均超額 <b>${sg(md.ex)}</b><br>` : ''}短線風險：做多 ${side(gt.long)}｜做空 ${side(gt.short)}<br><b>怎麼用：</b>${act}</div>`;
+          ${md ? `中期（約 3 個月）：四因子合成第 ${md.q + 1}／5 組，歷史上這組之後 3 個月平均超額 <b>${sg(md.ex)}</b><br>` : ''}${pv ? `量價（約 1~3 個月）：${pv.side > 0 ? '偏多' : '做多不利'}，中期組別的影響比它大（細節見下方警示）<br>` : ''}短線風險：做多 ${side(gt.long)}｜做空 ${side(gt.short)}<br><b>怎麼用：</b>${act}</div>`;
       }
       const cev = computeCondEV(D);
       if (cev) {
@@ -573,6 +574,64 @@ function volEvent(D) {
   }
   return null;
 }
+/* v194 量價狀態（research_patterns.js，全市場 2,101 檔 2006~2026，226 萬事件，隔日開盤進場、減全市場平均）：
+   每天依 漲跌×量比×前20日走勢×距52週高低×收盤位置 分 1,260 格；2014 前發現、2015~19 與 2020~ 兩段確認通過 50 格（隨機打亂對照 0 格）。
+   再扣掉「同一天、同樣52週位置」的平均，20 日仍 |t|≥3 且三段同向的才收：常見說法 3 項＋掃描 14 格。欄位：[名稱, 扣52週位置後20日%, t]
+   v194 與中期因子交叉（research_combo.js，240 萬股票日）：
+   · 扣掉中期合成後，負面 16 種合計只再差 20 日 −0.33%（t −5.6）、60 日 −0.41%；創52週新高且爆量仍 +1.54%（t 5.6）、60 日 +2.05%——三段同向
+   · 中期最強 20% 避開負面量價日進場，只好 0.23%（t −1.8，不顯著）——「方向看中期、時機看量價」不成立，量價不能推翻中期
+   · 負面量價日當天，中期最強組仍贏最弱組 20 日 +1.54%、60 日 +4.15%（t 8.7）
+   PV_MID：負面量價狀態出現時，各中期組別之後 [20日, 60日] 超額；ALL＝同組所有日子 */
+const PV_EV = {
+  N0: ['增量不漲（量≥2倍、漲跌<1%）', -0.31, -3.6],
+  N4: ['創52週新高且爆量（量≥2倍、漲≥3%）', 0.73, 4.5],
+  N7: ['跌深後爆量收高（前20日跌≥10%、量≥2倍、收在高檔）', -0.80, -3.7],
+  C877: ['漲1~3%·量≥3倍·前20日漲≥10%·52週中間·收中', -1.78, -5.3],
+  C662: ['平盤±1%·量2~3倍·前20日漲≥10%·52週中間·收低', -1.40, -4.9],
+  C575: ['平盤±1%·量<0.5倍·一般·近52週低·收低', -1.08, -4.3],
+  C624: ['平盤±1%·量1~2倍·前20日漲≥10%·52週中間·收高', -1.23, -4.4],
+  C867: ['漲1~3%·量≥3倍·盤整·52週中間·收高', -0.86, -4.2],
+  C574: ['平盤±1%·量<0.5倍·一般·近52週低·收中', -0.83, -3.1],
+  C804: ['漲1~3%·量1~2倍·前20日漲≥10%·52週中間·收高', -0.87, -3.6],
+  C1048: ['漲3~7%·量≥3倍·盤整·52週中間·收中', -0.80, -4.2],
+  C1047: ['漲3~7%·量≥3倍·盤整·52週中間·收高', -0.67, -4.7],
+  C769: ['漲1~3%·量0.5~1倍·前20日漲≥10%·52週中間·收中', -0.63, -3.0],
+  C966: ['漲3~7%·量0.5~1倍·一般·52週中間·收高', -0.73, -4.1],
+  C1002: ['漲3~7%·量1~2倍·一般·52週中間·收高', -0.52, -3.2],
+  C563: ['平盤±1%·量<0.5倍·前20日跌≥10%·52週中間·收低', -0.52, -3.6],
+  C608: ['平盤±1%·量0.5~1倍·一般·52週中間·收低', -0.31, -3.1],
+};
+const PV_MID = { NEG: [[-1.56, -3.13], [-1.05, -1.89], [-0.65, -1.12], [-0.29, 0.32], [0.17, 1.27]], ALL: [[-1.01, -2.45], [-0.69, -1.36], [-0.38, -0.55], [-0.03, 0.50], [0.45, 1.55]] };
+function pvState(D) {   // 最近一根完整 K 棒符合的量價狀態（與回測同一套分格與排除）
+  if (!D || D.currency !== 'TWD') return [];
+  const c = D.rawCloses || D.closes, h = D.rawHighs || D.highs, l = D.rawLows || D.lows, v = D.volumes, n = c.length, i = n - 1;
+  if (n < 253) return [];
+  let val = 0, vs = 0, hi20 = -1, lo20 = Infinity;
+  for (let k = i - 19; k <= i; k++) val += c[k] * (v[k] || 0);
+  if (val / 20 < 2e7) return [];
+  for (let k = i - 59; k <= i; k++) if (Math.abs(c[k] / c[k - 1] - 1) > 0.11) return [];
+  for (let k = i - 20; k < i; k++) { vs += v[k] || 0; hi20 = Math.max(hi20, h[k]); lo20 = Math.min(lo20, l[k]); }
+  const r = c[i] / c[i - 1] - 1, vr = v[i] / (vs / 20), rg = h[i] - l[i], cp = rg > 0 ? (c[i] - l[i]) / rg : 0.5;
+  if (!(vr > 0)) return [];
+  const r20 = c[i - 1] / c[i - 21] - 1, tr = (hi20 - lo20) / lo20 <= 0.15 ? 0 : r20 >= 0.1 ? 1 : r20 <= -0.1 ? 2 : 3;
+  const w = c.slice(i - 251), hi = c[i] / Math.max(...w), pos = hi >= 0.95 ? 0 : c[i] <= Math.min(...w) * 1.05 ? 2 : 1;
+  const bin = (x, b) => b.filter(t => x >= t).length;
+  const keys = ['C' + ((((bin(r, [-0.07, -0.03, -0.01, 0.01, 0.03, 0.07]) * 5 + bin(vr, [0.5, 1, 2, 3])) * 4 + tr) * 3 + pos) * 3 + (cp > 0.7 ? 0 : cp < 0.3 ? 2 : 1))];
+  if (vr >= 2 && Math.abs(r) < 0.01) keys.push('N0');
+  if (hi >= 0.999 && vr >= 2 && r >= 0.03) keys.push('N4');
+  if (tr === 2 && vr >= 2 && cp > 0.7) keys.push('N7');
+  return keys.filter(k => PV_EV[k]).map(k => PV_EV[k]);
+}
+/* 量價狀態一句話：有中期組別就用交叉表（中期比量價重要），沒有就用扣52週位置後的數字。side：1 偏多、−1 做多不利 */
+function pvSummary(D) {
+  const hits = pvState(D); if (!hits.length) return null;
+  const sg = x => `${x > 0 ? '+' : ''}${x}%`, md = midDirection(midFactors(D)), neg = hits.filter(e => e[1] < 0), pos = hits.filter(e => e[1] > 0), out = [];
+  if (pos.length) out.push(`「${pos.map(e => e[0]).join('、')}」：全市場19年，扣掉中期因子後之後20日仍 +1.54%、60日 +2.05%（t 5.6，三段都成立）——偏多`);
+  if (neg.length) { const nm = `「${neg.map(e => e[0]).join('、')}」`;
+    out.push(md ? `${nm}：此股中期第 ${md.q + 1}／5 組，同組遇到這類量價狀態之後20日 ${sg(PV_MID.NEG[md.q][0])}、60日 ${sg(PV_MID.NEG[md.q][1])}（同組所有日子 ${sg(PV_MID.ALL[md.q][0])}／${sg(PV_MID.ALL[md.q][1])}）——扣掉中期因子只再差約 0.3%，小於來回成本，不改變中期方向，只是別追`
+      : `${nm}：全市場19年，扣掉52週位置後之後20日仍 ${sg(Math.min(...neg.map(e => e[1])))}——做多不利（中期組別未算出，無法再細分）`); }
+  return { side: pos.length ? 1 : -1, txt: out.join('；') };
+}
 function gapChase(D) {
   if (!D || !D._intraday || D.currency !== 'TWD' || !(D.open > 0) || !(D.volume > 0)) return null;
   const c = D.closes, v = D.volumes, n = c.length; if (n < 50) return null;
@@ -771,6 +830,8 @@ function computeTradeGate(ctx) {
     const mid = midFactors(D);   // v190 中期因子合成：最高／最低 20% 才列（中間三組超額接近 0）
     if (mid && mid.comp != null) { const q = midQ(mid.comp, MID_EV.comp.cut), ex = MID_EV.comp.ex[q];
       if (q === 4 || q === 0) ((q === 4 ? 1 : -1) === dir ? pass : warn).push(`中期因子${q === 4 ? '最強' : '最弱'} 20%（52週高點＋營收＋盈餘品質）：全市場19年，之後3個月平均超額 ${ex > 0 ? '+' : ''}${ex}%——此方向${(q === 4 ? 1 : -1) === dir ? '順風' : '逆風'}（中期，非短線）`); }
+    const pv = pvSummary(D);   // v194 量價狀態：偏多的做多列順風、放空列提醒；負面的只提醒做多（扣掉中期因子後只差 0.3%，不當放空理由）
+    if (pv && (pv.side === 1 || dir === 1)) (pv.side === dir ? pass : warn).push(`量價狀態${pv.txt}`);
     // 風報比：與執行計畫同一套算法（此股 5 日中位可達 ÷ 停損距離）
     try { const pb = planBasis(D, dir === 1 ? 'long' : 'short');
       if (pb.rr != null && pb.rr < 1) warn.push(`風報比 ${pb.rr.toFixed(2)} < 1：此股5日中位可達 ${pb.pickT.medPct.toFixed(1)}% 小於停損距離 ${(pb.dist / pb.entry * 100).toFixed(1)}%，方向做對也賺得比停損少`); } catch (e) {}

@@ -125,6 +125,24 @@ function logicTests() {
         && VE(mk(i => i < 90 ? 100 : i < 95 ? 94 : i < 99 ? 97 : 100.5, i => i === 90 ? 4e6 : i >= 95 ? 2.2e6 : 1e6)) === null);
       ok('量價事件：與回測相同的排除（美股、成交值不足、近60日有>11%單日漲跌）', VE(mk(i => i === 99 ? 106 : flat(i), i => i === 99 ? 3e6 : 1e6, { currency: 'USD' })) === null
         && VE(mk(i => i === 99 ? 106 : flat(i) / 50, i => i === 99 ? 3e6 : 1e6)) === null && VE(mk(i => i === 99 ? 106 : i === 60 ? 115 : flat(i), i => i === 99 ? 3e6 : 1e6)) === null); }
+    { const PV = new Function(bf.match(/const PV_EV = \{[\s\S]*?\n\};/)[0] + grab(bf, 'pvState') + ';return pvState;')();
+      const mk = (f, vol, o = {}) => { const c = Array.from({ length: 300 }, (_, i) => f(i)); return { currency: 'TWD', rawCloses: c, rawHighs: c.map(x => x * 1.01), rawLows: c.map(x => x * 0.99), volumes: Array.from({ length: 300 }, (_, i) => vol(i)), ...o }; };
+      // 一年內高 120、低 80，近期盤整 100：最後一天漲 2%、量 3.5 倍、收在高檔 → 漲1~3%·量≥3倍·盤整·52週中間·收高（C867）
+      const s1 = mk(i => i < 100 ? 120 : i < 150 ? 80 : i === 299 ? 102 : 100 + (i % 2) * 0.5, i => i === 299 ? 3.5e6 : 1e6);
+      s1.rawHighs[299] = 102.1; s1.rawLows[299] = 100;
+      const r1 = PV(s1);
+      // 創一年新高、漲 4%、量 2.5 倍 → 常見說法「創52週新高且爆量」（N4，唯一偏多）
+      const s2 = mk(i => i === 299 ? 104 : 100, i => i === 299 ? 2.5e6 : 1e6), r2 = PV(s2);
+      ok('量價狀態：與回測同一套分格（漲跌×量比×前20日走勢×52週位置×收盤位置）與常見說法', r1.length === 1 && r1[0][0] === '漲1~3%·量≥3倍·盤整·52週中間·收高' && r2.some(e => /創52週新高且爆量/.test(e[0]) && e[1] > 0), JSON.stringify([r1, r2]));
+      ok('量價狀態：與回測相同的排除（美股、不足一年、成交值不足、近60日單日>11%）', PV({ ...s1, currency: 'USD' }).length === 0 && PV(mk(i => 100, i => 1e6, { rawCloses: Array(200).fill(100) })).length === 0
+        && PV({ ...s1, volumes: s1.volumes.map(x => x / 100) }).length === 0 && PV({ ...s1, rawCloses: s1.rawCloses.map((x, i) => i === 270 ? 115 : x) }).length === 0);
+      const SUM = new Function('pvState', 'midDirection', 'midFactors', bf.match(/const PV_MID = \{[^\n]*\n/)[0] + grab(bf, 'pvSummary') + ';return pvSummary;');
+      const neg = [PV(s1)[0]], posv = [['創52週新高且爆量（量≥2倍、漲≥3%）', 0.73, 4.5]];
+      const a = SUM(() => neg, () => ({ q: 4 }), () => ({}))({}), b = SUM(() => neg, () => null, () => ({}))({}), c = SUM(() => posv, () => ({ q: 0 }), () => ({}))({});
+      ok('量價狀態＋中期因子：有中期組別就用交叉表（最強組遇到負面量價 20日 +0.17%、60日 +1.27%，不改變中期方向）；沒有就用扣52週位置的數字；新高爆量偏多', a.side === -1 && /中期第 5／5 組/.test(a.txt) && /\+0\.17%、60日 \+1\.27%/.test(a.txt) && /不改變中期方向/.test(a.txt)
+        && b.side === -1 && /扣掉52週位置後之後20日仍 -0\.86%/.test(b.txt) && c.side === 1 && /\+1\.54%/.test(c.txt) && SUM(() => [], () => null, () => null)({}) === null, JSON.stringify([a, b, c]));
+      ok('量價狀態進橫幅、🧭分析方向與紀律門（偏多：做多順風／放空提醒；負面：只提醒做多）', /const pv = pvSummary\(D\); if \(pv\) addW\(2, '📊'/.test(bf) && /pv \? `量價（約 1~3 個月）/.test(bf)
+        && /if \(pv && \(pv\.side === 1 \|\| dir === 1\)\) \(pv\.side === dir \? pass : warn\)/.test(bf)); }
     ok('量價事件進紀律門（做多提醒）與橫幅', /const ve = volEvent\(D\);\n      if \(ve\) warn\.push\(VOL_EV\[ve\]\);/.test(bf) && /addW\(2, '📊', `\$\{D\._intraday \? '昨日' : '今日'\}\$\{VOL_EV\[ve\]\}`\)/.test(bf));
     ok('分析方向：中期合成五組→偏空～偏多，只有最強／最弱 20% 才給方向；執行計畫先看中期因子、沒有才用勢能（標明未經回測）', /const MID_DIR = \['偏空', '略偏空', '中性', '略偏多', '偏多'\]/.test(bf) && /side: q === 4 \? 'long' : q === 0 \? 'short' : null/.test(bf)
       && /const want = md && md\.side \? md\.side :/.test(bf) && /勢能等級（未經回測，僅供參考）/.test(bf) && /🧭 分析方向：中期/.test(bf));
