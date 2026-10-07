@@ -54,7 +54,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 192; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 193; } catch (e) {}
 
 /* v159：marginChg5 名為「5日變化」，但後端資料不足 6 筆時是拿現有最舊那筆當基準，
    實際可能只跨 2~3 天。2 天漲 4% 與 5 天漲 4% 意義完全不同，直接套同一個門檻
@@ -226,6 +226,7 @@ function renderVerdictBanner(shi, D, regime, mtf) {
   // v184 用全站同一個「籌碼可用」標準（原本漏了欄位對不上 fieldMiss：籌碼分已改中性，橫幅卻不警告）
   try { const cp = D && D.chip; if (cp && !chipUsable(cp)) addW(1, '📉', `籌碼資料不完整${cp.fieldMiss ? '（證交所欄位對不上）' : ''}${cp.missDates && cp.missDates.length ? `（缺 ${cp.missDates.map(x => String(x).slice(4, 6) + '/' + String(x).slice(6, 8)).join('、')}）` : ''}：籌碼分已改中性、不參與方向判斷——請重新查詢一次，抓齊再看籌碼結論`); } catch (e) {}
   try { if (regime && regime.regime === '高波動危險') addW(1, '🌪', '環境「高波動危險」：19年實測此時放空每筆虧1.42%（禁止放空）；做多不比平常差，但波動大，部位減半'); } catch (e) {}
+  try { const ve = volEvent(D); if (ve) addW(2, '📊', `${D._intraday ? '昨日' : '今日'}${VOL_EV[ve]}`); } catch (e) {}
   try { const gc = gapChase(D); if (gc != null) addW(2, '🚀', `開盤跳空 +${gc.toFixed(1)}% 且已爆量：全市場19年實測，這種時候開盤追進每筆−1.79%、勝率19%——不追`); } catch (e) {}
   try { if (ms && ms.stage === '尾端') addW(2, '🌡', `行情「${ms.dirTxt}·尾端」（成熟度${ms.maturity}）：本段已走完此股歷史${ms.magPctl}%波段——順向追單風報比差，等回檔/反彈找位`); } catch (e) {}
   try { if (syn && syn.conflict && syn.conflict.length) addW(3, '⚡', `行為衝突：${syn.conflict[0]}`); } catch (e) {}
@@ -543,6 +544,35 @@ function midDirection(mid) {
   const q = midQ(mid.comp, MID_EV.comp.cut);
   return { q, label: MID_DIR[q], ex: MID_EV.comp.ex[q], side: q === 4 ? 'long' : q === 0 ? 'short' : null };
 }
+/* v193 量價事件（research_volume.js，全市場 2,123 檔 2006~2026，隔日開盤進場、減全市場平均、同日事件先平均）：
+   B1 盤整後爆量大漲（前20日高低差≤15%、漲≥5%、量≥3倍）13,161 次：之後 5／20／60 日 −0.63／−0.78／−1.14%，t −8.5／−5.8／−4.5，三段都為負
+   A1 爆量大跌（跌≥5%、量≥3倍）7,439 次：之後 1~5 日 −0.26～−0.50%（t −3.5～−5.9），10 日後不顯著；之後量能仍高於平常（不是縮量）
+   A2 A1 之後 2~20 日內第一次帶量反彈（漲≥3%、量≥2倍）3,545 次：之後 1／3 日 −0.46／−0.41%，5 日後不顯著
+   對照：同樣漲跌但沒爆量的，隔日進場 20 日後都不顯著——「量」才是關鍵。法人／融資拆分都沒有 |t|≥3 的差距，不另外提示。
+   只看最近一根完整 K 棒（回測就是事件隔日開盤進場）；排除與回測相同（台股、日均成交值≥2000萬、近60日無單日>11%） */
+const VOL_EV = {
+  B1: '盤整後爆量大漲：全市場19年13,161次，隔日開盤追進之後20日平均落後0.78%、60日落後1.14%（三段時間都為負）——追價不利',
+  A1: '爆量大跌：全市場19年7,439次，隔日進場之後1~5日平均再落後0.3~0.5%（10日後不顯著）——短線先別接刀',
+  A2: '爆量大跌後的第一根帶量反彈：全市場19年3,545次，隔日追進之後1~3日平均落後0.4~0.5%——反彈多半只到這裡',
+};
+function volEvent(D) {
+  if (!D || D.currency !== 'TWD') return null;
+  const c = D.rawCloses || D.closes, h = D.rawHighs || D.highs, l = D.rawLows || D.lows, v = D.volumes, n = c.length, i = n - 1;
+  if (n < 62) return null;
+  let val = 0; for (let k = i - 19; k <= i; k++) val += c[k] * (v[k] || 0);
+  if (val / 20 < 2e7) return null;
+  for (let k = i - 59; k <= i; k++) if (Math.abs(c[k] / c[k - 1] - 1) > 0.11) return null;
+  const base = j => { let s = 0; for (let k = j - 20; k < j; k++) s += v[k] || 0; return s / 20; }, r = j => c[j] / c[j - 1] - 1;
+  const crash = j => r(j) <= -0.05 && v[j] >= 3 * base(j);
+  let hi = -1, lo = Infinity; for (let k = i - 20; k < i; k++) { hi = Math.max(hi, h[k]); lo = Math.min(lo, l[k]); }
+  if ((hi - lo) / lo <= 0.15 && r(i) >= 0.05 && v[i] >= 3 * base(i)) return 'B1';
+  if (crash(i)) return 'A1';
+  for (let j = i - 2; j >= i - 20; j--) if (crash(j)) {   // 最近一次爆量大跌之後的第一根帶量反彈，剛好是最後一根
+    const b = base(j); for (let k = j + 2; k <= i; k++) if (r(k) >= 0.03 && v[k] >= 2 * b) return k === i ? 'A2' : null;
+    return null;
+  }
+  return null;
+}
 function gapChase(D) {
   if (!D || !D._intraday || D.currency !== 'TWD' || !(D.open > 0) || !(D.volume > 0)) return null;
   const c = D.closes, v = D.volumes, n = c.length; if (n < 50) return null;
@@ -707,6 +737,8 @@ function computeTradeGate(ctx) {
       }
     } else {
       // v188 由「禁止」改「提醒」：真實融資資料回放，此象限後 10 日超額 +0.2%（不比其他時候差），原本擋掉 10.5% 的做多
+      const ve = volEvent(D);
+      if (ve) warn.push(VOL_EV[ve]);
       const gc = gapChase(D);
       if (gc != null) warn.push(`開盤跳空 +${gc.toFixed(1)}% 且已爆量：全市場19年，跳空7~9.5%帶量時開盤追進每筆−1.79%（271筆，勝率19%）——不追`);
       if (marginQuadrant(margin, D) === 'knife') warn.push('融資增+價跌（散戶接刀象限）：別跟散戶一起接（實測後續不比平常差，僅提醒）');

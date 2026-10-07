@@ -116,6 +116,16 @@ function logicTests() {
       ok('中期因子：創一年新高＋營收驚奇、營收成長、盈餘品質都在最高組界線→四者合成 (0.5+0.3×3)/4、最高組', Math.abs(up.hi52 - 1) < 1e-12 && Math.abs(up.comp - (0.5 + 0.3 * 3) / 4) < 1e-9 && up.qq === '2026Q2' && MF.midQ(up.comp, MF.MID_EV.comp.cut) === 4, JSON.stringify(up));
       ok('中期因子：與回測同樣的排除（成交值不足、近一年單日漲跌>11%、美股、不足一年）', /2,000 萬/.test(MF.midFactors(mkD(i => 10, { volumes: Array(300).fill(1e5) })).why)
         && /11%/.test(MF.midFactors(mkD(i => i === 200 ? 60 : 50)).why) && MF.midFactors(mkD(i => 50, { currency: 'USD' })) === null && /一年/.test(MF.midFactors({ ...mkD(i => 50), closes: Array(200).fill(50) }).why)); }
+    { const VE = new Function(bf.match(/const VOL_EV = \{[\s\S]*?\n\};/)[0] + grab(bf, 'volEvent') + ';return volEvent;')();
+      const mk = (f, vol, o = {}) => { const c = Array.from({ length: 100 }, (_, i) => f(i)); return { currency: 'TWD', rawCloses: c, rawHighs: c.map(x => x * 1.01), rawLows: c.map(x => x * 0.99), volumes: Array.from({ length: 100 }, (_, i) => vol(i)), ...o }; };
+      const flat = i => 100 + (i % 2), V = i => 1e6;
+      ok('量價事件：盤整後爆量大漲（漲≥5%、量≥3倍、前20日高低差≤15%）', VE(mk(i => i === 99 ? 106 : flat(i), i => i === 99 ? 3e6 : 1e6)) === 'B1' && VE(mk(i => i === 99 ? 106 : flat(i), i => i === 99 ? 2.9e6 : 1e6)) === null);
+      ok('量價事件：爆量大跌；之後第一根帶量反彈（只認最後一根就是第一根）', VE(mk(i => i === 99 ? 94 : 100, i => i === 99 ? 3e6 : 1e6)) === 'A1'
+        && VE(mk(i => i < 90 ? 100 : i < 99 ? 94 : 97, i => i === 90 ? 4e6 : i === 99 ? 2.2e6 : 1e6)) === 'A2'
+        && VE(mk(i => i < 90 ? 100 : i < 95 ? 94 : i < 99 ? 97 : 100.5, i => i === 90 ? 4e6 : i >= 95 ? 2.2e6 : 1e6)) === null);
+      ok('量價事件：與回測相同的排除（美股、成交值不足、近60日有>11%單日漲跌）', VE(mk(i => i === 99 ? 106 : flat(i), i => i === 99 ? 3e6 : 1e6, { currency: 'USD' })) === null
+        && VE(mk(i => i === 99 ? 106 : flat(i) / 50, i => i === 99 ? 3e6 : 1e6)) === null && VE(mk(i => i === 99 ? 106 : i === 60 ? 115 : flat(i), i => i === 99 ? 3e6 : 1e6)) === null); }
+    ok('量價事件進紀律門（做多提醒）與橫幅', /const ve = volEvent\(D\);\n      if \(ve\) warn\.push\(VOL_EV\[ve\]\);/.test(bf) && /addW\(2, '📊', `\$\{D\._intraday \? '昨日' : '今日'\}\$\{VOL_EV\[ve\]\}`\)/.test(bf));
     ok('分析方向：中期合成五組→偏空～偏多，只有最強／最弱 20% 才給方向；執行計畫先看中期因子、沒有才用勢能（標明未經回測）', /const MID_DIR = \['偏空', '略偏空', '中性', '略偏多', '偏多'\]/.test(bf) && /side: q === 4 \? 'long' : q === 0 \? 'short' : null/.test(bf)
       && /const want = md && md\.side \? md\.side :/.test(bf) && /勢能等級（未經回測，僅供參考）/.test(bf) && /🧭 分析方向：中期/.test(bf));
     ok('中期因子進紀律門（只有最高／最低 20%）與橫幅；情報面到了就重繪', /const mid = midFactors\(D\);   \/\/ v190/.test(bf) && /q === 4 \|\| q === 0/.test(bf) && /📊 中期因子/.test(bf)
