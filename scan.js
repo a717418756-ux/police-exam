@@ -1,21 +1,17 @@
 /* ══════════════════════════════════════════════════════════════════════
    scan.js — 條件篩選器（v110）
    ──────────────────────────────────────────────────────────────────
-   ★ 定位：不是「推薦會漲/會跌的股票」——19年24檔7,908事件已證方向不可預測，
-     任何宣稱能選出「會漲的股票」的功能都是在說謊。
-     本功能做的是：把你自己的觀察池逐檔跑完整分析引擎，依「風控與時機」
-     條件（本系統唯一有實證的車道）排序，回答的是：
-        「這些股票裡，哪幾檔『現在進場的條件結構』比較好？」
-     而不是「哪一檔會漲」。最後決定與下單仍然是你。
+   ★ 定位（v195）：依有全市場回測的中期因子排序——回答「這些股票裡，哪幾檔屬於歷史上之後3個月表現較好／較差的那一組」。
+     是分組的歷史平均，不是個股預測；短線型態（勢能、主力意圖等）回測都沒有方向優勢，不進排序。最後決定與下單仍然是你。
    ──────────────────────────────────────────────────────────────────
    運作方式：後端 action=scan 批次取K線（20檔/批）→ 前端逐檔跑既有引擎
-   （Regime/溫度計/突破統計/Amihud/急跌/勢能）→ 條件計分 → 排序顯示。
+   （盤勢、中期因子、量價狀態、量價事件）→ 依中期分組的歷史超額排序。
    所有引擎都是純前端計算，掃描不需要額外的籌碼API（太重且T+1）。
-   ⚠️ 條件分數 ≠ 勝率 ≠ 預測。它是「通過幾項風控條件」的計數。
+   ⚠️ 排序值是「該組歷史平均」，不是此股的預測。
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['scan.js'] = 188; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['scan.js'] = 195; } catch (e) {}
 
 /* v115修：前端原送15檔/批，但 Code.gs（GAS後端）上限只取前10檔——
    使用GAS的人每批會默默遺失5檔（不成功也不算失敗，直接消失，總數對不上）。
@@ -88,47 +84,22 @@ function prefilterStock(D) {
   } catch (e) { return { pass: false, why: '前置檢查失敗' }; }
 }
 
+/* v195 只用有回測的條件：中期因子（查過情報面的股票用四因子合成，否則只用52週高點）該組之後3個月的歷史超額排序；
+   高波動禁止放空；量價狀態、量價事件列為逆風。原本的尾端、Amihud、急跌階段、此股突破率、勢能都沒有回測，移出掃描（個股頁卡片仍在） */
 function evalScanConditions(D, dir) {
-  const pass = [], fail = [];
-  let regime = null, ms = null, bs = null, am = null, cp = null, shi = null;
+  const pass = [], fail = [], info = [];
+  let regime = null, ex = null, hard = false;
   try { regime = computeRegime(D); } catch (e) {}
-  try { ms = computeMoveStage(D); } catch (e) {}
-  try { bs = computeBreakoutStats(D); } catch (e) {}
-  try { am = computeAmihud(D); } catch (e) {}
-  try { cp = computeCrashPhase(D); } catch (e) {}
-  try { shi = computeShiPower(D, 50); } catch (e) {}
-
-  // ① 環境：v138 實測順勢/逆勢/盤整期望值無差異，只保留高波動禁令（高波動放空每筆約−1.4~−1.8%）
-  if (regime && regime.regime === '高波動危險' && dir === -1) fail.push('高波動危險態（19年實測放空每筆虧1.42%）');   // v188 做多不比平常差，不擋
-  // ② 波段未到尾端（避免追殺魚尾／追高買在頭部）
-  if (ms) {
-    const sameDir = (dir === -1 && ms.dir === -1) || (dir === 1 && ms.dir === 1);
-    if (sameDir && ms.maturity >= 70) fail.push(`同向波段已走${ms.maturity.toFixed(0)}%（尾端，追單風險高）`);
-    else if (sameDir) pass.push(`波段成熟度${ms.maturity.toFixed(0)}%（尚有空間）`);
-  }
-  // ③ 流動性（Amihud）：稀薄=滑價與跳空放大器
-  if (am) {
-    if (am.level === '稀薄') fail.push(`流動性稀薄（第${Math.round(am.pct)}分位，滑價風險）`);
-    else pass.push(`流動性${am.level}（第${Math.round(am.pct)}分位）`);
-  }
-  // ④ 急跌階段：末端不追（19年實證跌深處偏反彈）
-  if (cp) {
-    if (cp.phase === '急跌末端' && dir === -1) fail.push('急跌末端出現承接棒（追空=撿人家出完的）');
-    else if (cp.phase === '急跌進行' && dir === -1) pass.push('急跌進行中（空單魚身段）');
-  }
-  // ⑤ 此股突破可靠度（做空時：假突破率高＝空方有利；做多時反之）
-  if (bs && bs.tier === 'high') {
-    if (dir === -1 && bs.all.rate < 40) pass.push(`此股突破成功率僅${bs.all.rate.toFixed(0)}%（易假突破，對空方有利）`);
-    else if (dir === 1 && bs.all.rate >= 48) pass.push(`此股突破成功率${bs.all.rate.toFixed(0)}%（優於台股38.4%基準）`);
-    else if (dir === 1 && bs.all.rate < 38) fail.push(`此股突破成功率僅${bs.all.rate.toFixed(0)}%（追突破期望值為負）`);
-  }
-  // ⑥ 勢能方向一致（結構性條件，非方向預測）
-  if (shi) {
-    const s = dir === -1 ? shi.shortShi : shi.shi;
-    if (s >= 60) pass.push(`${dir === -1 ? '空' : '多'}方勢能${s}`);
-    else if (s < 40) fail.push(`${dir === -1 ? '空' : '多'}方勢能僅${s}（條件不足）`);
-  }
-  return { pass, fail, score: pass.length - fail.length, regime, ms, bs, am, cp, shi };
+  if (regime && regime.regime === '高波動危險' && dir === -1) { fail.push('高波動危險態（19年實測放空每筆虧1.42%，禁止放空）'); hard = true; }
+  const mid = midFactors(D);
+  if (mid && !mid.why) {
+    const k = mid.comp != null ? 'comp' : 'hi52', q = midQ(mid[k], MID_EV[k].cut); ex = MID_EV[k].ex[q];
+    (q === 4 || q === 0 ? (ex * dir > 0 ? pass : fail) : info).push(   // 中間三組超額接近 0，不算順逆風
+      `${k === 'comp' ? '中期四因子合成' : `距52週高點 ${((mid.hi52 - 1) * 100).toFixed(1)}%（月營收未載入，只看這一項）`}：第 ${q + 1}／5 組，該組之後3個月平均超額 ${ex > 0 ? '+' : ''}${ex}%`);
+  } else info.push(mid ? `中期因子不計算：${mid.why}` : '美股沒有中期因子回測');
+  try { const pv = pvSummary(D); if (pv && (pv.side === 1 || dir === 1)) (pv.side === dir ? pass : fail).push(`量價狀態${pv.txt}`); } catch (e) {}
+  try { const ve = volEvent(D); if (ve && dir === 1) fail.push(VOL_EV[ve]); } catch (e) {}
+  return { pass, fail, info, ex, score: hard ? -99 : ex == null ? -50 : ex * dir };
 }
 
 /* 掃描主流程：分批取K線 → 逐檔評估 → 排序顯示 */
@@ -340,7 +311,7 @@ function renderScanResult(rows, dir, secs, deadTrack) {
         </div>` : ''}
       </div>`;
     })()}
-    <div style="font-size:10px;color:var(--muted2);margin-top:4px">依「通過條件數 − 未通過數」排序。<b>這不是漲跌預測</b>——19年7,908事件已證方向不可測；此處排的是「目前進場的條件結構」，最終仍須逐檔開啟完整分析與紀律門確認。</div>
+    <div style="font-size:10px;color:var(--muted2);margin-top:4px">依中期因子分組的歷史 3 個月超額排序（只有 52 週高點時用它；查過個股頁的情報面就用四因子合成）。<b>這是分組平均，不是此股的預測</b>，最終仍須逐檔開啟完整分析與紀律門確認。</div>
   </div>`;
 
   // v165：明講這次自動略過了哪幾檔死代碼，並提供一鍵復原（不要讓它變成另一種靜默）
@@ -352,14 +323,15 @@ function renderScanResult(rows, dir, secs, deadTrack) {
   if (!good.length) h += '<div style="font-size:12px;color:var(--warn)">沒有成功取得資料的股票</div>';
 
   good.forEach(r => {
-    const col = r.score >= 3 ? 'var(--buy)' : r.score >= 1 ? 'var(--warn)' : 'var(--muted)';
+    const col = r.score >= 1 ? 'var(--buy)' : r.score > 0 ? 'var(--warn)' : 'var(--muted)';
     h += `<div style="border:1px solid ${col}40;border-radius:8px;padding:9px 11px;margin-bottom:7px;background:${col}08">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
         <span style="font-size:13px;font-weight:700">${r.code} <span style="font-family:var(--mono);font-size:11px;color:var(--muted)">${r.price != null ? fmt(r.price) : ''}</span>${r.turnover ? `<span style="font-size:10px;color:var(--muted2);margin-left:6px">日均${(r.turnover / 1e8).toFixed(1)}億</span>` : ''}</span>
-        <span style="font-size:11px;font-weight:700;color:${col}">條件 +${r.pass.length} / −${r.fail.length}</span>
+        <span style="font-size:11px;font-weight:700;color:${col}">${r.ex == null ? '無中期分組' : `該組3個月 ${r.ex > 0 ? '+' : ''}${r.ex}%`}｜順風 ${r.pass.length}／逆風 ${r.fail.length}</span>
       </div>
       ${r.pass.map(p => `<div style="font-size:10px;color:var(--buy);line-height:1.5">✓ ${p}</div>`).join('')}
       ${r.fail.map(f => `<div style="font-size:10px;color:var(--sell);line-height:1.5">✗ ${f}</div>`).join('')}
+      ${r.info.map(f => `<div style="font-size:10px;color:var(--muted);line-height:1.5">・${f}</div>`).join('')}
       <div style="margin-top:5px"><button onclick="document.getElementById('ticker-input').value='${r.code}';closeScan();go();" style="font-size:10px;padding:3px 9px;border-radius:5px;border:1px solid var(--line);background:transparent;color:var(--fg);cursor:pointer">開啟完整分析 →</button></div>
     </div>`;
   });

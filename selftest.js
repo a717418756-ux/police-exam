@@ -95,7 +95,7 @@ function logicTests() {
     const mk = fs.readFileSync(path.join(ROOT, 'market.js'), 'utf8');
     { const tg = bf.slice(bf.indexOf('function computeTradeGate('), bf.indexOf('function renderTradeGate('));
       ok('紀律門：唯一的禁止是「高波動時放空」（19年 −1.42%/筆，t−6.6）；高波動做多改提醒（−0.40%，比平常不差）', !/fail\.push\(/.test(tg) && /regime\.regime === '高波動危險'\) \(dir === -1 \? fail : warn\)\.push/.test(tg)
-        && /regime\.regime === '高波動危險' && dir === -1\) fail\.push/.test(fs.readFileSync(path.join(ROOT, 'scan.js'), 'utf8')));
+        && /regime\.regime === '高波動危險' && dir === -1\) \{ fail\.push/.test(fs.readFileSync(path.join(ROOT, 'scan.js'), 'utf8')));
       ok('追突破：台股一律用全市場實測（−1.54% vs 隨便進場 −0.87%），不再有未驗證的逐股 38%／48% 綠燈', /全市場2,136檔19年實測，突破20日高進場每筆−1\.54%/.test(tg) && !/優於台股基準38\.4%/.test(tg));
       const GC = new Function(grab(bf, 'gapChase') + ';return gapChase;')();
       const mkG = (open, vol, o = {}) => ({ _intraday: '20261002', currency: 'TWD', open, volume: vol, closes: Array(60).fill(100), volumes: Array(60).fill(1000), ...o });
@@ -143,7 +143,12 @@ function logicTests() {
         && b.side === -1 && /扣掉52週位置後之後20日仍 -0\.86%/.test(b.txt) && c.side === 1 && /\+1\.54%/.test(c.txt) && SUM(() => [], () => null, () => null)({}) === null, JSON.stringify([a, b, c]));
       ok('量價狀態進橫幅、🧭分析方向與紀律門（偏多：做多順風／放空提醒；負面：只提醒做多）', /const pv = pvSummary\(D\); if \(pv\) addW\(2, '📊'/.test(bf) && /pv \? `量價（約 1~3 個月）/.test(bf)
         && /if \(pv && \(pv\.side === 1 \|\| dir === 1\)\) \(pv\.side === dir \? pass : warn\)/.test(bf)); }
-    ok('量價事件進紀律門（做多提醒）與橫幅', /const ve = volEvent\(D\);\n      if \(ve\) warn\.push\(VOL_EV\[ve\]\);/.test(bf) && /addW\(2, '📊', `\$\{D\._intraday \? '昨日' : '今日'\}\$\{VOL_EV\[ve\]\}`\)/.test(bf));
+    { const sc = fs.readFileSync(path.join(ROOT, 'scan.js'), 'utf8'), ev = sc.slice(sc.indexOf('function evalScanConditions('), sc.indexOf('/* 掃描主流程'));
+      ok('掃描只用有回測的條件排序（中期因子分組超額；高波動禁空；量價狀態／事件列逆風），未回測的尾端／Amihud／急跌／此股突破率／勢能不進掃描', /midFactors\(D\)/.test(ev) && /score: hard \? -99 : ex == null \? -50 : ex \* dir/.test(ev)
+        && !/computeMoveStage|computeAmihud|computeCrashPhase|computeBreakoutStats|computeShiPower/.test(ev) && !/唯一有實證/.test(sc + fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')));
+      ok('橫幅標題：勢能與中期因子相反時以中期為準（與執行計畫一致）；勢能盤中用前一日收盤', /但中期因子最弱 20%/.test(bf) && /但中期因子最強 20%/.test(bf) && /const price = barPx\(D\);/.test(bf));
+      ok('急跌末端不再說「有人接貨、追空會被軋」（全市場同類K棒 20 日 −1.29%）；只提醒做多', !/FUSION≤-40/.test(bf + fs.readFileSync(path.join(ROOT, 'help.js'), 'utf8')) && /if \(cp && dir === 1\) warn\.push\(cp\.note\)/.test(bf) && !/紀律門全綠/.test(bf)); }
+    ok('量價事件進紀律門（做多提醒）與橫幅', /const ve = volEvent\(D\);\n      if \(ve\) warn\.push\(VOL_EV\[ve\]\);/.test(bf) && /addW\(2, '📊', `最近一根K棒\$\{D\._intraday \? '（昨日）' : ''\}\$\{VOL_EV\[ve\]\}`\)/.test(bf));
     ok('分析方向：中期合成五組→偏空～偏多，只有最強／最弱 20% 才給方向；執行計畫先看中期因子、沒有才用勢能（標明未經回測）', /const MID_DIR = \['偏空', '略偏空', '中性', '略偏多', '偏多'\]/.test(bf) && /side: q === 4 \? 'long' : q === 0 \? 'short' : null/.test(bf)
       && /const want = md && md\.side \? md\.side :/.test(bf) && /勢能等級（未經回測，僅供參考）/.test(bf) && /🧭 分析方向：中期/.test(bf));
     ok('中期因子進紀律門（只有最高／最低 20%）與橫幅；情報面到了就重繪', /const mid = midFactors\(D\);   \/\/ v190/.test(bf) && /q === 4 \|\| q === 0/.test(bf) && /📊 中期因子/.test(bf)

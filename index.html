@@ -148,7 +148,7 @@ try {
   </div>
   <!-- 出手紀律門 -->
   <div id="gate-card" style="display:none">
-    <div class="layer-title"><span class="layer-num" style="background:linear-gradient(135deg,#16A34A,#DC2626);color:#fff">門</span>出手紀律門<span class="layer-sub">機構級檢查清單 — 一關不過就不出手</span><button onclick="showHelp('gate')" class="help-btn" title="說明">ⓘ</button></div>
+    <div class="layer-title"><span class="layer-num" style="background:linear-gradient(135deg,#16A34A,#DC2626);color:#fff">門</span>出手紀律門<span class="layer-sub">有回測的才禁止，其餘列提醒</span><button onclick="showHelp('gate')" class="help-btn" title="說明">ⓘ</button></div>
     <div class="card"><div id="gate-content"></div></div>
   </div>
 
@@ -368,7 +368,7 @@ try {
     <button onclick="closeScan()" style="font-size:12px;padding:5px 12px;border-radius:6px;border:1px solid var(--line);background:transparent;color:var(--fg);cursor:pointer">關閉</button>
   </div>
   <div style="font-size:10px;color:var(--muted2);line-height:1.6;margin-bottom:10px;padding:8px 10px;background:var(--warn-d);border:1px dashed var(--warn);border-radius:7px">
-    這不是「推薦會漲跌的股票」——19年24檔7,908事件已證方向不可預測。此處是把你的觀察池逐檔跑完整引擎，依<b>風控與時機條件</b>（本系統唯一有實證的車道）排序，回答「哪幾檔目前的進場條件結構較好」。最終仍須逐檔看完整分析與出手紀律門。
+    依<b>有全市場回測的中期因子</b>排序（52週高點；查過個股頁情報面的股票用四因子合成），列出該組歷史上之後 3 個月的平均超額，並附量價狀態與量價事件提醒。這是分組平均、不是此股的預測，最終仍須逐檔看完整分析與出手紀律門。
   </div>
   <!-- v114：主流程＝選方向就出結果，不必碰代碼。自訂清單降級為進階選項（預設收合） -->
   <div style="display:flex;gap:10px;margin-bottom:12px">
