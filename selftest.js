@@ -109,7 +109,7 @@ function logicTests() {
     ok('線位警示：K 棒真的碰到確認過的線才亮（不是現價接近就亮）', /lo <= p\.level && p\.level <= hi/.test(bf) && !/Math\.abs\(px - p\.level\)/.test(bf));
     ok('go()：趨勢／風險／心理／訊號／大盤卡各自 try，單卡壞掉不拖垮整頁', ['趨勢卡', '風險卡', '心理卡', '訊號卡', '大盤卡'].every(k => ap.includes(`ErrorLog.push('${k}',err)`)));
     { const ev = bf.match(/const MID_EV = \{[\s\S]*?\n\};/)[0];
-      const MF = new Function('_intelCache', 'pcLive', ev + grab(bf, 'midPct') + 'const midQ = (v, cut) => cut.filter(c => v >= c).length;' + grab(bf, 'midFactors') + ';return { midPct, midQ, midFactors, MID_EV };')({ X: { d: { revenue: { ym: 202608, sur: 1.12, rev3: 0.311 }, quality: { acc: 0.0717, q: '2026Q2' } } } }, e => !!e);
+      const MF = new Function('_intelCache', 'APP_VERSION', ev + grab(bf, 'midPct') + 'const midQ = (v, cut) => cut.filter(c => v >= c).length;' + grab(bf, 'midFactors') + ';return { midPct, midQ, midFactors, MID_EV };')({ X: { v: 1, t: Date.now() - 3 * 36e5, d: { revenue: { ym: 202608, sur: 1.12, rev3: 0.311 }, quality: { acc: 0.0717, q: '2026Q2' } } } }, 1);   // 3 小時前抓的（情報暫存已過期）仍要用
       const mkD = (f, o = {}) => ({ code: 'X', currency: 'TWD', closes: Array.from({ length: 300 }, (_, i) => f(i)), volumes: Array(300).fill(1e6), ...o });
       const up = MF.midFactors(mkD(i => 50 + i * 0.05)), cut = MF.MID_EV.hi52.cut;
       ok('中期因子：門檻內插（分界點＝20/40/60/80 百分位，兩端夾在 0~1）、分組', Math.abs(MF.midPct(cut[1], cut) - 0.4) < 1e-9 && MF.midPct(0, cut) === 0 && MF.midPct(9, cut) === 1 && MF.midQ(cut[3], cut) === 4 && MF.midQ(cut[0] - 1e-9, cut) === 0);
@@ -998,7 +998,7 @@ function intelFrontTests() {
   // v190 唯一例外：月營收（全市場回測★）只能經由 bingfa.js 的 midFactors() 讀 revenue 欄位；新聞／AI 方向仍不准進分數
   const noRev = src => src.replace(/function midFactors\(D\) \{[\s\S]*?\n\}/, '');
   const leak = others.filter(f => /intelVerdict|\.tilt\b|_intelCache/.test(noRev(fs.readFileSync(path.join(ROOT, f), 'utf8'))));
-  ok('其他模組沒有讀情報結果（確保不會偷偷進分數；只有 midFactors 可讀月營收與財報）', leak.length === 0 && /ic = typeof _intelCache !== 'undefined' && pcLive\(_intelCache\[D\.code\]\)[^\n]*rv = ic && ic\.d && ic\.d\.revenue, ql = ic && ic\.d && ic\.d\.quality;/.test(fs.readFileSync(path.join(ROOT, 'bingfa.js'), 'utf8')), leak.join(','));
+  ok('其他模組沒有讀情報結果（確保不會偷偷進分數；只有 midFactors 可讀月營收與財報）', leak.length === 0 && /ic = e0 && e0\.v === APP_VERSION && Date\.now\(\) - e0\.t < 864e5 && e0, rv = ic && ic\.d && ic\.d\.revenue, ql = ic && ic\.d && ic\.d\.quality;/.test(fs.readFileSync(path.join(ROOT, 'bingfa.js'), 'utf8')), leak.join(','));
 }
 
 /* ── 第三部分：後端資料正確性（worker.js 與 Code.gs 都要驗）──────────────

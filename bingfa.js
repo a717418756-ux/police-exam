@@ -54,7 +54,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 195; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 196; } catch (e) {}
 
 /* v159：marginChg5 名為「5日變化」，但後端資料不足 6 筆時是拿現有最舊那筆當基準，
    實際可能只跨 2~3 天。2 天漲 4% 與 5 天漲 4% 意義完全不同，直接套同一個門檻
@@ -357,7 +357,7 @@ function renderVerdictBanner(shi, D, regime, mtf) {
         const gt = computeTradeGate({ D, regime, mtf, shi }), pv = pvSummary(D), side = x => x.fail.length ? `🔴禁止（${x.fail[0].split('：')[0]}）` : `🟡未禁止${x.warn.length ? `，提醒 ${x.warn.length} 項` : ''}`;
         const sg = x => `${x > 0 ? '+' : ''}${x}%`;
         const act = !md ? '等情報面的月營收資料，才能算出中期方向（目前只有 52 週高點一項）。'
-          : md.q === 4 ? '中期有利：可列入持有／分批佈局名單，以「月」為單位評估；短線進場價位與停損照下方執行計畫。'
+          : md.q === 4 ? '中期有利：可列入持有／分批佈局名單，以「月」為單位評估；短線進場價位與停損照下方執行計畫。（實測：每月持有分數最高 20 檔、隔日開盤換股、扣成本，2007~2026 年化 +15.8% vs 0050 +11.0%，但波動 30% vs 20%、最大回撤 −69% vs −57%——要分散、能承受回撤）'
           : md.q === 0 ? `中期不利：持有者考慮減碼、不宜新買；放空另看紀律門${gt.short.fail.length ? '（目前禁止放空）' : ''}與券源。`
           : `中期沒有明顯優勢（中間三組之後 3 個月平均 ${sg(MID_EV.comp.ex[1])}～${sg(MID_EV.comp.ex[3])}）：不以中期理由進出，短線只做風控。`;
         const col = !md ? 'var(--muted)' : md.q >= 3 ? 'var(--buy)' : md.q <= 1 ? 'var(--sell)' : 'var(--muted)';
@@ -532,7 +532,9 @@ function midFactors(D) {
   if (val / 20 < 2e7) return { why: '日均成交值不到 2,000 萬，回測沒有涵蓋' };
   for (let k = n - 252; k < n; k++) if (Math.abs(c[k] / c[k - 1] - 1) > 0.11) return { why: '近一年有單日漲跌超過 11%（減資、分割等，原始價失真）' };
   const hi52 = c[n - 1] / Math.max(...c.slice(n - 252));
-  const ic = typeof _intelCache !== 'undefined' && pcLive(_intelCache[D.code]) && _intelCache[D.code], rv = ic && ic.d && ic.d.revenue, ql = ic && ic.d && ic.d.quality;   // 過期的情報面不用
+  /* v196 月營收、季財報一個月才變一次：情報面暫存為了新聞只留 5 分鐘～1 小時，過期後頁面重繪（存日誌、籌碼補繪）會讓中期方向
+     突然變「待定」、執行計畫退回勢能，情報卡卻還顯示同一份營收。改為：同一版本、24 小時內抓的就用（與情報卡顯示的是同一份） */
+  const e0 = typeof _intelCache !== 'undefined' && _intelCache[D.code], ic = e0 && e0.v === APP_VERSION && Date.now() - e0.t < 864e5 && e0, rv = ic && ic.d && ic.d.revenue, ql = ic && ic.d && ic.d.quality;
   const sur = rv && rv.sur != null ? rv.sur : null, rev3 = rv && rv.rev3 != null ? rv.rev3 : null, qual = ql ? ql.acc : null;
   const r = (x, k) => x == null ? 0 : midPct(x, MID_EV[k].cut) - 0.5;   // 回測：缺值＝中間
   return { hi52, sur, rev3, qual, qq: ql ? ql.q : null, ym: rv ? rv.ym : null,
