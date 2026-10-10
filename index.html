@@ -133,7 +133,7 @@ try {
       <div class="note-tag">🇺🇸 美股輸入 <b>英文代碼</b></div>
     </div>
     <div class="settings-row">
-      <div class="set-field"><div class="set-label">💰 帳戶總資金</div><input id="in-capital" type="number" value="1000000" inputmode="numeric"></div>
+      <div class="set-field"><div class="set-label">💰 帳戶總資金（美股以美元計）</div><input id="in-capital" type="number" value="1000000" inputmode="numeric"></div>
       <div class="set-field"><div class="set-label">⚠️ 單筆風險 %</div><input id="in-risk" type="number" value="1" step="0.5" inputmode="decimal"></div>
       <div class="set-field"><div class="set-label">🎯 你的歷史勝率 %</div><input id="in-winrate" type="number" value="50" step="5" inputmode="numeric"></div>
     </div>
@@ -166,7 +166,7 @@ try {
 
   <!-- 中國兵法交易系統 -->
   <div id="bingfa-card" style="display:none">
-    <div class="layer-title"><span class="layer-num" style="background:linear-gradient(135deg,#991B1B,#DC2626);color:#fff">兵</span>中國兵法交易系統<span class="layer-sub">觀勢 · 順勢 · 知足 — 孫子兵法量化</span><button onclick="showHelp('bingfa')" class="help-btn" title="說明">ⓘ</button></div>
+    <div class="layer-title"><span class="layer-num" style="background:linear-gradient(135deg,#991B1B,#DC2626);color:#fff">兵</span>中國兵法交易系統<span class="layer-sub">觀勢 · 順勢 — 勢能（未經回測，只在中期因子沒有方向時當備用）</span><button onclick="showHelp('bingfa')" class="help-btn" title="說明">ⓘ</button></div>
     <div class="card" style="border:1px solid #DC262640">
       <div id="bf-warning" style="display:none;margin-bottom:14px"></div>
       <div style="display:flex;align-items:center;gap:18px;margin-bottom:16px">
@@ -233,7 +233,7 @@ try {
     <div class="layer-title"><span class="layer-num" style="background:#0EA5E9;color:#fff">籌</span>籌碼面<span class="layer-sub">外資/投信買賣超 — 技術面漂亮但主力倒貨時的照妖鏡</span><button onclick="showHelp('chip')" class="help-btn" title="說明">ⓘ</button></div>
     <div class="card">
       <div class="risk-grid" id="chip-grid"></div>
-      <div style="font-size:10px;color:var(--muted);margin-top:10px;line-height:1.6">⚠️ 資料為 TWSE 三大法人公開資訊。「主力（券商分點）」需付費資料源，免費 API 無法提供，故不顯示。投信連買常是飆股訊號，但仍須配合其他層級判斷。</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:10px;line-height:1.6">⚠️ 資料為 TWSE 三大法人公開資訊。「主力（券商分點）」需付費資料源，免費 API 無法提供，故不顯示。法人買超單獨看有效，但全市場回測扣掉中期因子（52週高點＋營收）後沒有額外資訊——法人多半在追營收與強勢股，不另當買進理由。</div>
     </div>
   </div>
 

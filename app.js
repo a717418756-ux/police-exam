@@ -1,6 +1,6 @@
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['app.js'] = 188; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['app.js'] = 198; } catch (e) {}
 
 // ══════════════════════════════════════════════════════════════════════
 // 短線雷達 Pro — 風險優先分層決策系統
@@ -169,11 +169,7 @@ function calcDMI(h,l,c,n=14){
 function detectRSIDivergence(c,rsiSeries){
   const N=Math.min(20,c.length);
   const recentC=c.slice(-N), recentR=rsiSeries.slice(-N).map(v=>v==null?50:v);
-  // 找近期兩個價格高點與低點
-  const priceHigh=Math.max(...recentC), priceHighIdx=recentC.lastIndexOf(priceHigh);
-  const priceLow=Math.min(...recentC), priceLowIdx=recentC.lastIndexOf(priceLow);
-  const curIdx=recentC.length-1;
-  const curPrice=recentC[curIdx], curRSI=recentR[curIdx];
+  const curRSI=recentR[recentR.length-1];
   // 頂背離：價接近新高，但RSI明顯低於高點時的RSI
   let bearDiv=false,bullDiv=false;
   // 簡化：比較前半段與後半段的價格與RSI斜率
@@ -195,8 +191,7 @@ function detectRSIDivergence(c,rsiSeries){
 // 第①層：趨勢過濾
 // ══════════════════════════════════════════════════════════════════════
 function analyzeTrend(D){
-  const c=D.closes, price=D.price;
-  const ma200v=c.length>=200?sma(c,200).slice(-1)[0]:sma(c,Math.min(c.length-1,c.length)).slice(-1)[0];
+  const c=D.closes, price=barPx(D);   // v197 盤中也用完整K棒（判斷當天不變）
   const ma50v=c.length>=50?sma(c,50).slice(-1)[0]:null;
   const ma200=c.length>=120?(c.length>=200?sma(c,200).slice(-1)[0]:sma(c,Math.floor(c.length*0.9)).slice(-1)[0]):null;
   const has200=c.length>=200;
@@ -273,7 +268,7 @@ function analyzeRisk(D,atr){
 
 
   // 固定風險法部位大小
-  const riskAmount=capital*riskPct/100;
+  const riskAmount=capital*Math.min(riskPct,RISK_RULE.perTrade)/100/2;   // v197 與執行計畫同一套（2%上限、試單減半），原本畫面上兩個部位數字不同
   const shares=stopDist>0?Math.floor(riskAmount/stopDist):0;
   const positionValue=shares*price;
   const positionPct=positionValue/capital*100;
@@ -340,7 +335,7 @@ function analyzeRisk(D,atr){
 // 第③層：心理偏誤檢查
 // ══════════════════════════════════════════════════════════════════════
 function analyzePsychology(D){
-  const c=D.closes, price=D.price;
+  const c=D.closes, price=barPx(D);   // v197 盤中也用完整K棒（判斷當天不變）
   const alerts=[];
 
   // 1. FOMO / 連漲偵測
@@ -378,7 +373,7 @@ function analyzePsychology(D){
 // 第④層：進場訊號（技術指標群）
 // ══════════════════════════════════════════════════════════════════════
 function analyzeSignals(D,atr,trend){
-  const{closes:c,highs:h,lows:l,volumes:v,price,open}=D;
+  const{closes:c,highs:h,lows:l,volumes:v,open}=D;
   const sigs=[];
   const add=(name,group,val,raw,min,max,s,desc)=>sigs.push({name,group,val,raw,min,max,s,desc});
 
@@ -417,7 +412,7 @@ function analyzeSignals(D,atr,trend){
     `柱狀體${histGrow?'放大':'縮小'}中，動能${mc.hist>0?'偏多':'偏空'}但需確認`);
 
   // KD
-  const{k,d,j}=calcKD(h,l,c);
+  const{k,d}=calcKD(h,l,c);
   add('KD 隨機指標','震盪',`K:${k.toFixed(1)} D:${d.toFixed(1)}`,k,0,100,
     k<20&&k>d?'buy':k>80&&k<d?'sell':'hold',
     k<20&&k>d?`K${k.toFixed(0)} 低檔黃金交叉`:k>80&&k<d?`K${k.toFixed(0)} 高檔死亡交叉`:`K ${k.toFixed(0)} 中性`);
@@ -448,7 +443,7 @@ function renderRisk(r){
     {cls:'good',label:'🎯 停利一（此股5日中位可達）',value:r.tp5?cur+fmt(r.tp5.medPrice):'—',valCls:'buy',sub:r.tp5?`+${r.tp5.medPct.toFixed(1)}%${r.tp5.rr!=null?`｜風報比 1:${r.tp5.rr.toFixed(2)}`:''}（歷史上一半的時候5日內摸得到）`:'資料不足 120 日，算不出此股實際可達幅度'},
     {cls:'good',label:'🎯 停利二（此股10日中位可達）',value:r.tp10?cur+fmt(r.tp10.medPrice):'—',valCls:'buy',sub:r.tp10?`+${r.tp10.medPct.toFixed(1)}%｜抱得久一點的目標（固定 1:2、1:3 實測 10 日內只摸到 10.5%／3.9%）`:'資料不足 120 日'},
     {cls:'warn',label:'🪜 移動停利 (Chandelier)',value:cur+fmt(r.chandelier),valCls:'warn',sub:`最高價-3×ATR，股價創高就上移，保護獲利`},
-    {cls:'',label:'📦 建議部位（固定風險法）',value:`${fmt(r.shares,0)} ${r.currency==='TWD'?'股':'股'}`,valCls:'',sub:`單筆風險 ${cur}${fmtV(Math.round(r.riskAmount))}（資金${r.riskPct}%），佔總資金 ${r.positionPct.toFixed(1)}%`},
+    {cls:'',label:'📦 建議部位（固定風險法）',value:`${fmt(r.shares,0)} 股`,valCls:'',sub:`試單：單筆風險 ${cur}${fmtV(Math.round(r.riskAmount))}（資金 ${Math.min(r.riskPct,RISK_RULE.perTrade)}% 的一半，與執行計畫相同），佔總資金 ${r.positionPct.toFixed(1)}%${r.currency==='TWD'?'':'｜美股：帳戶資金視為美元'}`},
     {cls:'warn',label:'🎲 凱利建議比例',value:r.kellyFull>0?`${(r.kellyHalf*100).toFixed(1)}%`:`不下注｜需勝率≥${(r.breakevenWR*100).toFixed(0)}%`,valCls:r.kellyFull>0?'warn':'sell',sub:`半凱利（保守）。全凱利 ${(r.kellyFull*100).toFixed(1)}%／四分之一凱利 ${(r.kellyQuarter*100).toFixed(1)}%。風報比 1:${r.b.toFixed(2)}（${r.bSource}）｜<b>損益兩平勝率 ${(r.breakevenWR*100).toFixed(0)}%</b>——你的勝率需高於此才值得下注，目前填 ${(r.winRate*100).toFixed(0)}%${r.kellyFull<=0?`。<span style="color:var(--sell)">⚠️ 凱利=0：以此風報比，${(r.winRate*100).toFixed(0)}%勝率是負期望值，這筆不該做</span>`:''}${r.fixSuggestion?`<br><span style="color:var(--warn)">🔧 <b>出路</b>：問題在進場位置不在選股。若停損能從 ${r.fixSuggestion.curStopPct.toFixed(1)}% 縮到 <b>${r.fixSuggestion.stopNeedPct.toFixed(1)}%</b>（縮 ${r.fixSuggestion.shrink.toFixed(0)}%），損益兩平勝率就降到55%。做法：等價格回測到關鍵壓力/支撐附近再進場，把停損貼在該結構外緣——這才是「等回測」的真正價值，不是方向更準，而是讓數學結構由負轉正。</span>`:''}`},
   ];
   $('risk-grid').innerHTML=boxes.map(x=>`<div class="risk-box ${x.cls}"><div class="rb-label">${x.label}</div><div class="rb-value ${x.valCls}">${x.value}</div><div class="rb-sub">${x.sub}</div></div>`).join('');

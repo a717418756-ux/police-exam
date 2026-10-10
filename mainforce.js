@@ -37,7 +37,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['mainforce.js'] = 188; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['mainforce.js'] = 198; } catch (e) {}
 
 /* ══ A. OBV 能量潮 ════════════════════════════════════════════════════
    收漲日加量、收跌日減量的累積線。價與 OBV 背離 = 主力偷跑：
@@ -206,7 +206,7 @@ function computeMainForce(D) {
 function computeIntentAnalysis(D, mainForce) {
   const c = D.closes, h = D.highs, l = D.lows, v = D.volumes, n = c.length;
   if (n < 25) return null;
-  const price = D.price;
+  const price = barPx(D);   // v197 盤中也用完整K棒
 
   // 基礎量價
   const ma20 = c.slice(-20).reduce((a,b)=>a+b,0)/20;
@@ -472,7 +472,6 @@ function renderMainForce(D) {
         [['洗盤','漲'],['出貨','跌'],['進貨','漲']].forEach(([k, exp]) => {
           const s = bt.stats[k];
           if (!s.n) return;
-          const a5 = s.sum5 / s.n, a10 = s.sum10 / s.n;
           const wr5 = s.win5 / s.n * 100, wr10 = s.win10 / s.n * 100;
           // Alpha=扣除基準線後的真實優勢；出貨方向相反，基準線要用(100-base)校正
           const base5adj = k === '出貨' ? 100 - bt.base5 : bt.base5;
@@ -501,14 +500,14 @@ function renderMainForce(D) {
     <div style="background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:5px 10px;font-size:11px"><span style="color:var(--muted)">MFI資金流</span> <span style="font-family:var(--mono);font-weight:700;color:${mf.mfi>=80?'var(--sell)':mf.mfi<=20?'var(--buy)':'var(--txt)'}">${mf.mfi.toFixed(0)}</span></div>
     ${mf.kbar!=null?`<div style="background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:5px 10px;font-size:11px"><span style="color:var(--muted)">KBAR強度</span> <span style="font-family:var(--mono);font-weight:700;color:${mf.kbar>=0.1?'var(--buy)':mf.kbar<=-0.1?'var(--sell)':'var(--txt)'}">${mf.kbar>=0?'+':''}${mf.kbar.toFixed(2)}</span></div>`:''}
   </div>
-  <div style="font-size:10px;color:var(--muted2);margin-top:10px;line-height:1.5">💡 主力行為屬「推估」而非事實，需與籌碼/共振交叉驗證。影線以真實開盤價計算（後端未更新時以前收近似）。KBAR淨強度為機構級特徵（Qlib Alpha158系）。</div>`;
+  <div style="font-size:10px;color:var(--muted2);margin-top:10px;line-height:1.5">💡 主力行為屬「推估」而非事實，需與籌碼交叉驗證（19年實測意圖判定方向預測力≈0）。影線以真實開盤價計算（後端未更新時以前收近似）。KBAR淨強度為機構級特徵（Qlib Alpha158系）。</div>`;
 
   document.getElementById('mainforce-content').innerHTML = html;
 }
 
 /* ══ C. 融資融券 · 散戶心理 + 軋空偵測 ═══════════════════════════════
    融資 = 散戶槓桿代理。融資與價格的組合直接反映「散戶 vs 主力」：
-   融資增+價跌 = 散戶接刀（最危險）／融資減+價漲 = 主力行情（最健康）
+   融資增+價跌 = 散戶接刀／融資減+價漲 = 主力行情（v197：回測四象限之後表現沒有顯著差異，只描述結構）
    券資比 = 融券/融資，過高 = 軋空風險（空單必看）
    ════════════════════════════════════════════════════════════════════ */
 const _marginCache = {};
@@ -550,13 +549,13 @@ async function loadMarginCard(D) {
     vDesc = '最新幾天的融資沒抓到或資料落後（見下方紅字），不判讀散戶槓桿方向——稍後重查';
   } else if (q === 'knife') {
     verdict = '🚨 散戶接刀'; vCol = 'var(--sell)';
-    vDesc = `融資5日+${mc.toFixed(1)}%但股價跌${chg5.toFixed(1)}%——散戶用槓桿逢低接、大戶倒貨給散戶。這是「散戶賠大戶賺」最典型的型態，極危險`;
+    vDesc = `融資5日+${mc.toFixed(1)}%但股價跌${chg5.toFixed(1)}%——散戶用槓桿逢低接、大戶倒貨給散戶。常見說法是「散戶賠大戶賺」，但真實資料回放之後表現不比平常差——只當結構描述`;
   } else if (q === 'chase') {
     verdict = '⚠️ 散戶追價'; vCol = 'var(--warn)';
     vDesc = `融資+${mc.toFixed(1)}%且價漲——散戶槓桿追多。若在高檔，這批融資就是主力未來的出貨對象與助跌燃料`;
   } else if (q === 'healthy') {
     verdict = '💪 主力行情'; vCol = 'var(--buy)';
-    vDesc = `融資-${Math.abs(mc).toFixed(1)}%但價漲——散戶下車、主力推升，籌碼乾淨。這是最健康的上漲結構`;
+    vDesc = `融資-${Math.abs(mc).toFixed(1)}%但價漲——散戶下車、主力推升，籌碼乾淨。（結構描述，回測之後表現沒有顯著較好）`;
   } else if (q === 'flush') {
     verdict = '🧹 籌碼清洗'; vCol = 'var(--warn)';
     vDesc = `融資-${Math.abs(mc).toFixed(1)}%且價跌——散戶停損斷頭中。浮額洗清是打底的必經過程，但別急著接，等止穩`;
@@ -733,8 +732,8 @@ function checkETFRebalanceWindow() {
 }
 
 function computeCrowding(D) {
-  const c = D.closes, h = D.highs, l = D.lows, v = D.volumes, n = c.length;
-  const price = D.price;
+  const c = D.closes, h = D.highs, l = D.lows, n = c.length;
+  const price = barPx(D);   // v197 盤中也用完整K棒
   let buyVotes = 0, sellVotes = 0;
   const seen = [];
 
@@ -825,7 +824,7 @@ function renderCrowding(D) {
     </div>
     <div style="flex:1">
       <div style="font-size:13px;font-weight:700;color:${col}">${dirTxt}</div>
-      <div style="font-size:11px;color:var(--muted);margin-top:2px;line-height:1.5">${cw.crowding >= 70 ? '極度擁擠——這個結論每個用AI的散戶都看得到，明牌的預期報酬已被稀釋，且停損位高度聚集' : cw.crowding >= 45 ? '中度擁擠——教科書訊號偏一致，留意先掃停損再走的劇本' : '不擁擠——目前不是人盡皆知的明牌，訊號含金量相對高'}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px;line-height:1.5">${cw.crowding >= 70 ? '極度擁擠——教科書訊號幾乎全亮，停損位容易聚集（擁擠度回放之後報酬沒有顯著差異，只提醒）' : cw.crowding >= 45 ? '中度擁擠——教科書訊號偏一致，留意先掃停損再走的劇本' : '不擁擠——目前不是人盡皆知的明牌，訊號含金量相對高'}</div>
     </div>
   </div>`;
 
@@ -1006,7 +1005,7 @@ function computeIntentBacktest(D) {
   const _k = (D.code || '') + ':' + n + ':' + D.closes[n - 1] + ':' + (D.volumes ? D.volumes[n - 1] : 0);
   if (_ibMemo.k === _k) return _ibMemo.v;
   const H2 = 10;   // 同時統計5日與10日：洗盤機制上需等測試完成才反彈，單一視窗有盲點，雙視窗不挑好看的報
-  const stats = { '洗盤': { n: 0, sum5: 0, win5: 0, sum10: 0, win10: 0 }, '出貨': { n: 0, sum5: 0, win5: 0, sum10: 0, win10: 0 }, '進貨': { n: 0, sum5: 0, win5: 0, sum10: 0, win10: 0 } };
+  const stats = { '洗盤': { n: 0, win5: 0, win10: 0 }, '出貨': { n: 0, win5: 0, win10: 0 }, '進貨': { n: 0, win5: 0, win10: 0 } };
     const lastCount = { '洗盤': -99, '出貨': -99, '進貨': -99 };   // 各類判定獨立去重（信心短暫跌破50不會讓同一事件被重複計數）
 
   // 基準線（無條件上漲率）：此股任一天的未來5日/10日本身漲跌機率，不看任何訊號。
@@ -1035,7 +1034,7 @@ function computeIntentBacktest(D) {
     const s = stats[it.verdict]; if (!s) continue;
     const f5 = (D.closes[i + 5] - D.closes[i]) / D.closes[i] * 100;
     const f10 = (D.closes[i + H2] - D.closes[i]) / D.closes[i] * 100;
-    s.n++; s.sum5 += f5; s.sum10 += f10;
+    s.n++;
     const expectUp = it.verdict !== '出貨';
     if ((expectUp && f5 > 0) || (!expectUp && f5 < 0)) s.win5++;
     if ((expectUp && f10 > 0) || (!expectUp && f10 < 0)) s.win10++;

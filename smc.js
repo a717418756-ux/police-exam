@@ -16,7 +16,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['smc.js'] = 188; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['smc.js'] = 198; } catch (e) {}
 
 /* ══ A. VWAP 移動成交量加權均價 ════════════════════════════════════════
    VWAP = Σ(典型價×量) / Σ量，典型價=(高+低+收)/3
@@ -33,7 +33,7 @@ function computeVWAP(D, period) {
     sumV += v[i];
   }
   const vwap = sumV > 0 ? sumPV / sumV : c[n-1];
-  const price = D.price;
+  const price = barPx(D);   // v197 與 VWAP 同一套（還原價、完整K棒），原本拿原始即時價比還原 VWAP
   const dist = (price - vwap) / vwap * 100;
   let signal, desc;
   if (dist > 2) { signal = 'buy'; desc = `價在 VWAP 上方 ${dist.toFixed(1)}%，多方掌控（站穩機構成本之上）`; }
@@ -52,7 +52,7 @@ function computeStructure(D) {
   const h = D.rawHighs || D.highs, l = D.rawLows || D.lows, c = D.rawCloses || D.closes;
   const n = c.length;
   const N = Math.min(60, n);
-  const hs = h.slice(-N), ls = l.slice(-N), cs = c.slice(-N);
+  const hs = h.slice(-N), ls = l.slice(-N);
 
   // 找 swing 點（前後2根都低/高）
   const swingHighs = [], swingLows = [];

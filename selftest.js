@@ -81,7 +81,7 @@ function logicTests() {
     const bf = fs.readFileSync(path.join(ROOT, 'bingfa.js'), 'utf8'), ap = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8'), en = fs.readFileSync(path.join(ROOT, 'enhance.js'), 'utf8'), jn = fs.readFileSync(path.join(ROOT, 'journal.js'), 'utf8');
     ok('紀律門：大週期反向只提醒（順逆勢期望值無差異）；主力行為推估只提醒（未經驗證）', /else if \(mtf\.dir === -dir\) warn\.push/.test(bf) && /mf\.behavior === '吸籌'\) warn\.push/.test(bf) && !/mf\.behavior === '吸籌'\) fail\.push/.test(bf));
     ok('停利改用此股中位可達（風險卡、劇本）；不再用 1:2／1:3、2R／3R', /tp5 = row5/.test(ap) && /const \[longTp1, longTp2\] = tgt\(1, distL\)/.test(en) && !/stopDist\*2|distL \* 2|distS \* 3/.test(ap + en));
-    ok('日誌：進場時記 A 級證據（波段階段／風報比／高波動），匯出有對照表', /entryEvidence = \{ stage:/.test(jn) && /進場時的 A 級證據 vs 實際結果/.test(jn));
+    ok('日誌：進場時記證據（波段階段／風報比／高波動，標明各自證據等級），匯出有對照表', /entryEvidence = \{ stage:/.test(jn) && /進場時的證據 vs 實際結果/.test(jn) && !/A 級證據/.test(jn));
     ok('擁擠度與指標卡用同一套 RSI／KD／MACD（不再有 quant.js 的第二份算法）', /const rsi = calcRSI\(c, 14\)/.test(fs.readFileSync(path.join(ROOT, 'mainforce.js'), 'utf8')));
     // ADX：標準 Wilder（從頭平滑）；回測腳本必須用同一算法，否則期望值表的盤勢分類會和畫面對不上
     const grab = (src, n) => { const i = src.indexOf('function ' + n + '('); let d = 0, j = src.indexOf('{', i); for (;; j++) { if (src[j] === '{') d++; else if (src[j] === '}' && !--d) break; } return src.slice(i, j + 1); };
@@ -94,8 +94,8 @@ function logicTests() {
     // v188 重測後的修正：工具要能亮、亮了要有意義
     const mk = fs.readFileSync(path.join(ROOT, 'market.js'), 'utf8');
     { const tg = bf.slice(bf.indexOf('function computeTradeGate('), bf.indexOf('function renderTradeGate('));
-      ok('紀律門：唯一的禁止是「高波動時放空」（19年 −1.42%/筆，t−6.6）；高波動做多改提醒（−0.40%，比平常不差）', !/fail\.push\(/.test(tg) && /regime\.regime === '高波動危險'\) \(dir === -1 \? fail : warn\)\.push/.test(tg)
-        && /regime\.regime === '高波動危險' && dir === -1\) \{ fail\.push/.test(fs.readFileSync(path.join(ROOT, 'scan.js'), 'utf8')));
+      ok('紀律門：唯一的禁止是「高波動時放空」（19年 −1.42%/筆，t−6.6）；高波動做多改提醒（−0.40%，比平常不差）', !/fail\.push\(/.test(tg) && /\(dir === -1 && tw \? fail : warn\)\.push/.test(tg)
+        && /regime\.regime === '高波動危險' && dir === -1 && D\.currency === 'TWD'\) \{ fail\.push/.test(fs.readFileSync(path.join(ROOT, 'scan.js'), 'utf8')));
       ok('追突破：台股一律用全市場實測（−1.54% vs 隨便進場 −0.87%），不再有未驗證的逐股 38%／48% 綠燈', /全市場2,136檔19年實測，突破20日高進場每筆−1\.54%/.test(tg) && !/優於台股基準38\.4%/.test(tg));
       const GC = new Function(grab(bf, 'gapChase') + ';return gapChase;')();
       const mkG = (open, vol, o = {}) => ({ _intraday: '20261002', currency: 'TWD', open, volume: vol, closes: Array(60).fill(100), volumes: Array(60).fill(1000), ...o });
@@ -148,6 +148,11 @@ function logicTests() {
         && !/computeMoveStage|computeAmihud|computeCrashPhase|computeBreakoutStats|computeShiPower/.test(ev) && !/唯一有實證/.test(sc + fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')));
       ok('橫幅標題：勢能與中期因子相反時以中期為準（與執行計畫一致）；勢能盤中用前一日收盤', /但中期因子最弱 20%/.test(bf) && /但中期因子最強 20%/.test(bf) && /const price = barPx\(D\);/.test(bf));
       ok('急跌末端不再說「有人接貨、追空會被軋」（全市場同類K棒 20 日 −1.29%）；只提醒做多', !/FUSION≤-40/.test(bf + fs.readFileSync(path.join(ROOT, 'help.js'), 'utf8')) && /if \(cp && dir === 1\) warn\.push\(cp\.note\)/.test(bf) && !/紀律門全綠/.test(bf)); }
+    { const all = ['bingfa.js', 'app.js', 'mtf.js', 'mainforce.js', 'smc.js', 'enhance.js'].map(f => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n');
+      ok('v197 盤中判斷一律用完整K棒：趨勢／心理／MTF／主力意圖／擁擠度／VWAP／目標價不再拿即時價', !/const c=D\.closes, price=D\.price;|const price = D\.price;|D\.price > ma20|const price = D\.price \|\| c\[n - 1\]/.test(all));
+      ok('v197 台股回測不外推美股：期望值表、高波動禁空、急跌數字只限台股', /COND_EV === 'undefined' \|\| D\.currency !== 'TWD'/.test(bf) && /dir === -1 && tw \? fail : warn/.test(bf) && /D\.currency === 'TWD' \? '，但台股19年相近型態/.test(bf));
+      ok('v197 行為鏈：融資象限、大週期不投方向票（回測沒有差異），文字不再說「最可信」', /behaviors\.push\(\{ name: '散戶槓桿行為', actor: '散戶', dir: 0/.test(bf) && /dir: 0, strength: Math\.min\(80, Math\.abs\(mtf\.total/.test(bf) && !/最可信/.test(bf + fs.readFileSync(path.join(ROOT, 'help.js'), 'utf8')));
+      ok('v197 籌碼抓不到要明講（後端 chipErr、前端顯示），不再整張卡無聲消失', /kline\.chipErr = /.test(fs.readFileSync(path.join(ROOT, 'worker.js'), 'utf8')) && /ydata\.chipErr = /.test(fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8')) && /D && D\.chipErr/.test(fs.readFileSync(path.join(ROOT, 'enhance.js'), 'utf8'))); }
     ok('量價事件進紀律門（做多提醒）與橫幅', /const ve = volEvent\(D\);\n      if \(ve\) warn\.push\(VOL_EV\[ve\]\);/.test(bf) && /addW\(2, '📊', `最近一根K棒\$\{D\._intraday \? '（昨日）' : ''\}\$\{VOL_EV\[ve\]\}`\)/.test(bf));
     ok('分析方向：中期合成五組→偏空～偏多，只有最強／最弱 20% 才給方向；執行計畫先看中期因子、沒有才用勢能（標明未經回測）', /const MID_DIR = \['偏空', '略偏空', '中性', '略偏多', '偏多'\]/.test(bf) && /side: q === 4 \? 'long' : q === 0 \? 'short' : null/.test(bf)
       && /const want = md && md\.side \? md\.side :/.test(bf) && /勢能等級（未經回測，僅供參考）/.test(bf) && /🧭 分析方向：中期/.test(bf));
@@ -1257,6 +1262,13 @@ async function backendTests() {
     let wm = null, gm2 = null; try { wm = await W.fetchMargin('2330'); } catch (e) {} try { gm2 = G.fetchMargin('2330'); } catch (e) {}
     ok('融資：基期為 0 時變化率與券資比是 null（不是 0%）；GAS 也回報 headMiss', wm && wm.marginChg5 === null && wm.shortRatio === null && gm2 && gm2.marginChg5 === null && gm2.shortRatio === null && typeof gm2.headMiss === 'number', JSON.stringify([wm, gm2]).slice(0, 200));
     fetchImpl = async u => jt(T86); gsFetch = u => gsOf(T86); }
+  { // v197 證交所新版 groups 格式：GAS 與 worker 讀到同一個數字
+    const MG3 = { stat: 'OK', tables: [{ groups: [{ title: '股票', span: 2 }, { title: '融資', span: 6 }, { title: '融券', span: 6 }], fields: ['代號', '名稱', '買進', '賣出', '現金償還', '前日餘額', '今日餘額', '次一營業日限額', '買進', '賣出', '現券償還', '前日餘額', '今日餘額', '次一營業日限額'],
+      data: [['2330', '台積電', '0', '0', '0', '0', '2,000', '9', '0', '0', '0', '0', '300', '9']] }] };
+    fetchImpl = async () => jt(MG3); gsFetch = () => gsOf(MG3);
+    let wm = null, gm = null; try { wm = await W.fetchMargin('2330'); } catch (e) {} try { gm = G.fetchMargin('2330'); } catch (e) {}
+    ok('融資：證交所 groups 格式 worker／GAS 都讀到融資 2000、融券 300', wm && gm && wm.marginBal === 2000 && gm.marginBal === 2000 && wm.shortBal === 300 && gm.shortBal === 300, JSON.stringify([wm && wm.marginBal, gm && gm.marginBal]));
+    fetchImpl = async u => jt(T86); gsFetch = u => gsOf(T86); }
   { // 估值欄名全部對不上：原本 throw 在 try 裡被自己吞掉，診斷訊息到不了前端
     const BW = { stat: 'OK', fields: ['代號', 'X', 'Y'], data: [['2330', '1', '2']] };
     fetchImpl = async () => jt(BW);
@@ -1359,6 +1371,13 @@ async function backendTests() {
     ok('融資融券：假日不算缺漏', mg.headMiss === 0, `headMiss=${mg.headMiss}`);
     fetchImpl = async u => (dOf(u) === mNewest ? { ok: false, status: 500, text: async () => '' } : jt(MARGN));
     ok('融資融券：真失敗仍算缺漏', (await mod.fetchMargin('2330')).headMiss > 0);
+    // v197 證交所新版：欄名只剩重複的「今日餘額」，融資／融券寫在 tables[].groups
+    const MG2 = { stat: 'OK', tables: [{ title: '信用交易統計', fields: ['項目', '買進'], data: [['融資(交易單位)', '1']] }, { title: '融資融券彙總', groups: [{ title: '股票', span: 2 }, { title: '融資', span: 6 }, { title: '融券', span: 6 }, { title: '', span: 1 }, { title: '', span: 1 }],   // 2026-10-08 真實回傳的結構
+      fields: ['代號', '名稱', '買進', '賣出', '現金償還', '前日餘額', '今日餘額', '次一營業日限額', '買進', '賣出', '現券償還', '前日餘額', '今日餘額', '次一營業日限額', '資券互抵', '註記'],
+      data: [['2330', '台積電', '1,699', '361', '30', '30,278', '31,586', '6,483,092', '13', '8', '0', '50', '45', '6,483,092', '4', ' ']] }] };
+    fetchImpl = async () => jt(MG2);
+    const mg2 = await mod.fetchMargin('2330');
+    ok('融資融券：證交所現行格式（groups 只有 span）讀得到 2330 真實值（融資 31,586、融券 45），不靠位置猜', mg2 && mg2.marginBal === 31586 && mg2.shortBal === 45, JSON.stringify(mg2));
   }
 
   // ⑦a 端點名稱必須與期交所官方 OAS 清單一致（打錯字＝對方導回目錄頁，整個維度靜默消失）

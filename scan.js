@@ -11,7 +11,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['scan.js'] = 195; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['scan.js'] = 197; } catch (e) {}
 
 /* v115修：前端原送15檔/批，但 Code.gs（GAS後端）上限只取前10檔——
    使用GAS的人每批會默默遺失5檔（不成功也不算失敗，直接消失，總數對不上）。
@@ -68,7 +68,7 @@ function prefilterStock(D) {
     for (let i = n - 20; i < n; i++) amt += c[i] * v[i];
     amt /= 20;
     const minAmt = D.currency === 'TWD' ? SCAN_MIN_TURNOVER : 1e7;   // 美股門檻 1000萬美元
-    if (amt < minAmt) return { pass: false, why: `日均成交額 ${(amt / 1e8).toFixed(2)}億，低於門檻（流動性不足：借券難、滑價大）`, amt };
+    if (amt < minAmt) return { pass: false, why: `日均成交額 ${(amt / 1e8).toFixed(2)}億${D.currency === 'TWD' ? '' : '美元'}，低於門檻（流動性不足：借券難、滑價大）`, amt };
     // ② 炒作偵測：20日漲幅>40% 且 近5日有單日量>20日均量4倍
     const chg20 = (c[n - 1] - c[n - 21]) / c[n - 21] * 100;
     const vol20 = v.slice(n - 21, n - 1).reduce((a, b) => a + b, 0) / 20;
@@ -90,11 +90,11 @@ function evalScanConditions(D, dir) {
   const pass = [], fail = [], info = [];
   let regime = null, ex = null, hard = false;
   try { regime = computeRegime(D); } catch (e) {}
-  if (regime && regime.regime === '高波動危險' && dir === -1) { fail.push('高波動危險態（19年實測放空每筆虧1.42%，禁止放空）'); hard = true; }
+  if (regime && regime.regime === '高波動危險' && dir === -1 && D.currency === 'TWD') { fail.push('高波動危險態（19年實測放空每筆虧1.42%，禁止放空）'); hard = true; }
   const mid = midFactors(D);
   if (mid && !mid.why) {
     const k = mid.comp != null ? 'comp' : 'hi52', q = midQ(mid[k], MID_EV[k].cut); ex = MID_EV[k].ex[q];
-    (q === 4 || q === 0 ? (ex * dir > 0 ? pass : fail) : info).push(   // 中間三組超額接近 0，不算順逆風
+    (k === 'comp' && (q === 4 || q === 0) ? (ex * dir > 0 ? pass : fail) : info).push(   // 中間三組超額接近 0；只有 52 週高點一項時與個股頁一致（待定），只列出不算順逆風
       `${k === 'comp' ? '中期四因子合成' : `距52週高點 ${((mid.hi52 - 1) * 100).toFixed(1)}%（月營收未載入，只看這一項）`}：第 ${q + 1}／5 組，該組之後3個月平均超額 ${ex > 0 ? '+' : ''}${ex}%`);
   } else info.push(mid ? `中期因子不計算：${mid.why}` : '美股沒有中期因子回測');
   try { const pv = pvSummary(D); if (pv && (pv.side === 1 || dir === 1)) (pv.side === dir ? pass : fail).push(`量價狀態${pv.txt}`); } catch (e) {}
@@ -262,12 +262,12 @@ async function runScanInner() {
              ATR／20日高低，個股頁用原始價，同一檔兩邊結論可能不同。後端已補傳原始價；
              ||closes 是相容舊後端的退路（舊後端沒這欄位時至少不會壞掉）。 */
           rawCloses: it.rawCloses || it.closes, rawHighs: it.rawHighs || it.highs,
-          rawLows: it.rawLows || it.lows, _intraday: it._intraday,
+          rawLows: it.rawLows || it.lows,
         };
         const pf = prefilterStock(D);
         if (!pf.pass) { rows.push({ code: item.code, price: item.price, filtered: true, why: pf.why }); continue; }
         const ev = evalScanConditions(D, dir);
-        rows.push({ code: item.code, price: item.price, turnover: pf.amt, ...ev });
+        rows.push({ code: item.code, price: item.price, turnover: pf.amt, cur: D.currency, ...ev });
       }
     } catch (e) {
       batch.forEach(c => rows.push({ code: c, err: true, errMsg: e.message }));
@@ -326,7 +326,7 @@ function renderScanResult(rows, dir, secs, deadTrack) {
     const col = r.score >= 1 ? 'var(--buy)' : r.score > 0 ? 'var(--warn)' : 'var(--muted)';
     h += `<div style="border:1px solid ${col}40;border-radius:8px;padding:9px 11px;margin-bottom:7px;background:${col}08">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
-        <span style="font-size:13px;font-weight:700">${r.code} <span style="font-family:var(--mono);font-size:11px;color:var(--muted)">${r.price != null ? fmt(r.price) : ''}</span>${r.turnover ? `<span style="font-size:10px;color:var(--muted2);margin-left:6px">日均${(r.turnover / 1e8).toFixed(1)}億</span>` : ''}</span>
+        <span style="font-size:13px;font-weight:700">${r.code} <span style="font-family:var(--mono);font-size:11px;color:var(--muted)">${r.price != null ? fmt(r.price) : ''}</span>${r.turnover ? `<span style="font-size:10px;color:var(--muted2);margin-left:6px">日均${(r.turnover / 1e8).toFixed(1)}億${r.cur === 'TWD' ? '' : '美元'}</span>` : ''}</span>
         <span style="font-size:11px;font-weight:700;color:${col}">${r.ex == null ? '無中期分組' : `該組3個月 ${r.ex > 0 ? '+' : ''}${r.ex}%`}｜順風 ${r.pass.length}／逆風 ${r.fail.length}</span>
       </div>
       ${r.pass.map(p => `<div style="font-size:10px;color:var(--buy);line-height:1.5">✓ ${p}</div>`).join('')}

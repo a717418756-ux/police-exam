@@ -32,7 +32,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['advanced.js'] = 188; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['advanced.js'] = 198; } catch (e) {}
 
 /* ── 大盤基準快取（避免每檔都重抓）─────────────────────────────────── */
 let _benchCache = {};   // key → { d: { closes, lastDate }, t, until }（v177：台美各自計時；v186 有效期看資料日期，見 cacheUntil）
@@ -105,7 +105,7 @@ function renderRSRating(rs) {
   // 不是 IBD 官方那種跨全市場所有股票做百分位排名的 RS Rating，避免「RS=90」被誤解成「贏過90%股票」
   if (rs.rating >= 90) desc = `超額報酬強度 ${rs.rating} 分，超強勢，法人選股常要求 RS>80`;
   else if (rs.rating >= 70) desc = `超額報酬強度 ${rs.rating} 分，相對強勢`;
-  else if (rs.rating >= 50) desc = `中等強度，與大盤同步`;
+  else if (rs.rating >= 50) desc = `超額報酬強度 ${rs.rating} 分，略強於大盤`;
   else desc = `超額報酬強度 ${rs.rating} 分，相對弱勢，留意`;
   document.getElementById('rs-desc').textContent = desc;
   document.getElementById('rs-detail').textContent =
@@ -223,7 +223,6 @@ function computeSupportResistance(D) {
 function renderSupportResistance(sr, D) {
   const card = document.getElementById('sr-card');
   card.style.display = 'block';
-  const cur = '';
   const resHtml = sr.res.length ? sr.res.map((r,i) =>
     `<div style="display:flex;justify-content:space-between;padding:5px 10px;background:var(--sell-d);border-radius:6px;margin-bottom:4px"><span style="font-size:11px;color:var(--muted)">壓力${i+1}</span><span style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--sell)">${fmt(r)}</span></div>`
   ).join('') : '<div style="font-size:11px;color:var(--muted);padding:4px">近期無明顯壓力（接近高點）</div>';
@@ -271,7 +270,7 @@ function renderSupportResistance(sr, D) {
           const bs2 = typeof computeBreakoutStats === 'function' ? computeBreakoutStats(D) : null;
           if (bs2) fbTxt = `<br>📊 突破線位不等於突破成功——此股歷史統計與台股基準詳見「行情溫度計」卡的突破結構檢查。`;
         } catch (e3) {}
-        html3 += `<div style="font-size:9px;color:var(--muted2);line-height:1.5">線位=可下單的具體價位（突破觸發/停損擺放），非方向預測（19年7,908事件已證純價格方向訊號α≈0）。人人看得到的線=停損聚集區，突破/跌破常先掃停損，等回測確認更穩。${fbTxt}</div></div>`;
+        html3 += `<div style="font-size:9px;color:var(--muted2);line-height:1.5">線位＝參考線位（停損擺放、突破觀察；下單數字以紀律門執行計畫為準），非方向預測（19年7,908事件已證純價格方向訊號α≈0）。人人看得到的線=停損聚集區，突破/跌破常先掃停損，等回測確認更穩。${fbTxt}</div></div>`;
         document.getElementById('sr-content').innerHTML += html3;
       }
     }

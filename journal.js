@@ -21,7 +21,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['journal.js'] = 188; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['journal.js'] = 198; } catch (e) {}
 
 /* ── 開啟 / 關閉面板 ─────────────────────────────────────────────────── */
 /* ── 分批進場 / 加碼工具 ──────────────────────────────────────────────
@@ -220,8 +220,8 @@ async function addTradeFromForm() {
   // 出場原因自動推斷
   let exitReason = result === 'win' ? (judgment === 'wrong' ? 'holdback' : 'tp') : (judgment === 'wrong' ? 'sl' : 'sl');
 
-  /* ── v188 進場時的 A 級證據（取代原本的 STI/MFD/ECO/FUSION 公式分數——公式引擎已移除，理由見 app.js）──
-     只記有 19 年實證的三項：波段階段（尾端追單風險）、風報比（5日中位可達÷停損，與紀律門同算法）、高波動危險態。
+  /* ── v188 進場時的證據（取代原本的 STI/MFD/ECO/FUSION 公式分數——公式引擎已移除，理由見 app.js）──
+     記三項：波段階段（溫度計，B 級：只當風險提醒）、風報比（5日中位可達÷停損，與紀律門同算法；1:2／1:3 實測達成率低）、高波動危險態（台股放空每筆 −1.42%）。
      只用進場日之前的K線（dayBefore），與當時畫面看到的一致 */
   let entryEvidence = null;
   try {
@@ -251,7 +251,6 @@ async function addTradeFromForm() {
       let addJudge = '';
       if (bi > 0) {
         const prev = sortedB[bi-1];
-        const isLong = dir === 'long';
         // 做多加碼在更高價=順勢（對）、更低價=攤平（危險）；做空相反
         const higherPrice = b.price > prev.price;
         const trendAdd = isLong ? higherPrice : !higherPrice;
@@ -267,7 +266,6 @@ async function addTradeFromForm() {
   let exitRecords = null;
   if (exits.length >= 2) {
     const sortedE = [...exits].sort((a,b)=>a.date<b.date?-1:1);
-    const isLong = dir === 'long';
     exitRecords = sortedE.map((e, i) => {
       // 分批停利品質：做多時越晚出場價越高=漂亮(讓獲利奔跑)；越低=越賣越差
       let exitJudge = '';
@@ -287,7 +285,7 @@ async function addTradeFromForm() {
     shares: isNaN(shares) ? null : shares,
     mae, mfe, plannedStop: isNaN(plannedStop) ? null : plannedStop,
     holdOn, exitReason, judgment, judgmentReason: reasons.join('、'),
-    entryEvidence,   // v188 進場時的 A 級證據（舊單的 entryFormulas 保留在資料裡，不再分析）
+    entryEvidence,   // v188 進場時的證據（舊單的 entryFormulas 保留在資料裡，不再分析）
     batchRecords,    // 分批加碼紀錄
     exitRecords,     // 分批出場紀錄
     sim: isSim       // 模擬單標記
@@ -566,9 +564,9 @@ async function exportMarkdown() {
     }
     md += `\n`;
 
-    // 四之二、進場時的 A 級證據 vs 結果（v188 取代公式分數對照）
+    // 四之二、進場時的證據 vs 結果（v188 取代公式分數對照）
     const withEv = trades.filter(t => t.entryEvidence);
-    md += `## 四之二、進場時的 A 級證據 vs 實際結果\n\n`;
+    md += `## 四之二、進場時的證據 vs 實際結果\n\n`;
     if (withEv.length) {
       const grp = (name, arr) => { const n = arr.length, w = n ? arr.filter(t => t.result === 'win').length / n * 100 : null;
         return `| ${name} | ${n} | ${w == null ? '—' : w.toFixed(0) + '%'} | ${n ? (arr.reduce((a, t) => a + (+t.pnlPct || 0), 0) / n).toFixed(2) + '%' : '—'} |\n`; };
@@ -577,7 +575,7 @@ async function exportMarkdown() {
       md += grp('風報比 ≥ 1', withEv.filter(t => t.entryEvidence.rr != null && t.entryEvidence.rr >= 1));
       md += grp('風報比 < 1', withEv.filter(t => t.entryEvidence.rr != null && t.entryEvidence.rr < 1));
       md += grp('高波動危險態進場', withEv.filter(t => t.entryEvidence.highVol));
-      md += `\n> 三項都是本系統有 19 年實證的證據：尾端追單風報比差、風報比 <1 方向做對也賺得比停損少、高波動時期望值為負。各組筆數不到 ${TRADE_MIN} 筆時只供參考，不下結論。\n\n`;
+      md += `\n> 三項的證據等級不同：高波動危險態（台股 19 年實測：放空每筆 −1.42%，做多不比平常差）、風報比 <1（方向做對也賺得比停損少）、波段階段（溫度計，未經報酬回測，只當提醒）。各組筆數不到 ${TRADE_MIN} 筆時只供參考，不下結論。\n\n`;
     } else md += `> 尚無資料。新增的交易會自動記錄進場時的波段階段、風報比與高波動狀態，累積後這裡會出現對照表。\n\n`;
     // 四之三、加碼決策分析（分批進場的交易）
     const withBatch = trades.filter(t => t.batchRecords && t.batchRecords.length >= 2);

@@ -20,7 +20,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['db.js'] = 187; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['db.js'] = 198; } catch (e) {}
 
 const DB_NAME = 'stockRadarDB';
 // DB schema 版本獨立管理（schema 沒變就不用動；這裡固定 1）
@@ -409,9 +409,9 @@ function computeRiskBudget(trades, capital) {
     return {
       ym, trades: real.length, noAmt: real.length - known.length, lossSum, winSum, netPnl,
       usedPct: Math.round(usedPct * 100) / 100,
-      remainPct: Math.round(Math.max(0, 6 - usedPct) * 100) / 100,
-      blocked: usedPct >= 6,
-      warn: usedPct >= 4 && usedPct < 6,
+      remainPct: Math.round(Math.max(0, RISK_RULE.monthly - usedPct) * 100) / 100,
+      blocked: usedPct >= RISK_RULE.monthly,
+      warn: usedPct >= RISK_RULE.monthly - RISK_RULE.perTrade && usedPct < RISK_RULE.monthly,   // 再虧一筆滿額就觸頂
     };
   } catch (e) { return null; }
 }

@@ -18,7 +18,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['mtf.js'] = 188; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['mtf.js'] = 197; } catch (e) {}
 
 /* ── 重採樣：日K → 週K(5日) / 月K(21日) ──────────────────────────── */
 function resampleTF(D, size) {
@@ -55,7 +55,7 @@ function tfTrendScore(closes, price) {
 
 /* ── MTF 多時間框架共振 ───────────────────────────────────────────── */
 function computeMTF(D) {
-  const price = D.price;
+  const price = barPx(D);   // v197 盤中也用完整K棒
   const weekly = resampleTF(D, 5);
   const monthly = resampleTF(D, 21);
   const mScore = tfTrendScore(monthly.closes, price);
@@ -74,7 +74,7 @@ function computeMTF(D) {
   else if (bears === 3) { dir = -1; verdict = '三框架同步空頭（月週日全空，做空最強共振）'; vClass = 'sell'; }
   else if (bulls >= 2 && bears === 0) { dir = 1; verdict = '偏多共振（大週期多、小週期整理）'; vClass = 'buy'; }
   else if (bears >= 2 && bulls === 0) { dir = -1; verdict = '偏空共振（大週期空、小週期反彈）'; vClass = 'sell'; }
-  else { verdict = '框架互相衝突（大小週期方向不一致，勝率低，觀望）'; vClass = 'warn'; }
+  else { verdict = '框架互相衝突（大小週期方向不一致）'; vClass = 'warn'; }
 
   // 教科書型態偵測（大週期方向 + 小週期回檔 = 順勢進場點）
   let setup = null;
@@ -125,7 +125,7 @@ function renderMTF(D) {
     const sc = m.setup.type === 'trap' ? 'var(--warn)' : m.setup.type === 'short' ? 'var(--sell)' : 'var(--buy)';
     html += `<div style="margin-top:12px;padding:10px 12px;background:${sc}12;border:1px solid ${sc}50;border-radius:8px;font-size:11px;color:var(--muted);line-height:1.6"><span style="color:${sc};font-weight:700">${m.setup.text.split('：')[0]}</span>：${m.setup.text.split('：').slice(1).join('：')}</div>`;
   }
-  html += `<div style="font-size:10px;color:var(--muted2);margin-top:10px;line-height:1.5">💡 週K/月K由2年日K重採樣。法人邏輯：大週期定方向，小週期找進場——日線再漂亮，週線月線反向就別做波段。</div>`;
+  html += `<div style="font-size:10px;color:var(--muted2);margin-top:10px;line-height:1.5">💡 週K/月K由2年日K重採樣。「大週期定方向、小週期找進場」是常見觀念，但19年實測順勢／逆勢的期望值沒有差異——只當背景，不當進出依據。</div>`;
   document.getElementById('mtf-content').innerHTML = html;
 }
 

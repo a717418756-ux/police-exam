@@ -44,7 +44,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['enhance.js'] = 188; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['enhance.js'] = 198; } catch (e) {}
 
 /* ══ 區塊 H：ADX 市場狀態過濾器 ════════════════════════════════════════
    機構73%使用：ADX 不告訴方向，而是告訴你「該用哪種策略」
@@ -196,7 +196,7 @@ function computeChipHealth(chip, D) {
   }
   score = Math.max(0, Math.min(100, score));
   let verdict, vClass;
-  if (score >= 75) { verdict = '籌碼集中、主力進駐，賣壓輕、易漲難跌'; vClass = 'buy'; }
+  if (score >= 75) { verdict = '籌碼集中、法人站買方（未經報酬回測）'; vClass = 'buy'; }
   else if (score >= 60) { verdict = '籌碼偏多，法人站買方，可留意'; vClass = 'buy'; }
   else if (score >= 45) { verdict = '籌碼中性，法人態度不明，觀望'; vClass = 'warn'; }
   else if (score >= 30) { verdict = '籌碼偏空，法人站賣方，謹慎'; vClass = 'sell'; }
@@ -206,7 +206,11 @@ function computeChipHealth(chip, D) {
 
 function renderChip(chip, D) {
   const card = document.getElementById('chip-card');
-  if (!chip) { card.style.display = 'none'; return; }
+  if (!chip) {   // v197 台股抓不到法人資料要明講（原本整張卡無聲消失）
+    card.style.display = D && D.chipErr ? 'block' : 'none';
+    if (D && D.chipErr) document.getElementById('chip-grid').innerHTML = `<div style="grid-column:1/-1;font-size:12px;color:var(--sell);line-height:1.6">⚠️ ${escI(D.chipErr)}——籌碼分以中性計，請稍後按 ⟳ 重抓</div>`;
+    return;
+  }
   card.style.display = 'block';
 
   const health = computeChipHealth(chip, D);
@@ -302,7 +306,7 @@ function renderPlaybook(D, atr) {
     <div style="border:1px solid var(--bd);border-radius:12px;padding:12px;margin-bottom:10px">
       <div style="font-size:13px;font-weight:800;color:${color};margin-bottom:10px">${title}</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-        <div class="risk-box"><div class="rb-label">🎯 參考進場</div><div class="rb-value">${cur}${fmt(entry)}</div><div class="rb-sub">當前價</div></div>
+        <div class="risk-box"><div class="rb-label">🎯 參考進場</div><div class="rb-value">${cur}${fmt(entry)}</div><div class="rb-sub">${D._intraday ? '昨日收盤（盤中以完整K棒計）' : '最近收盤'}</div></div>
         <div class="risk-box"><div class="rb-label">🛑 智慧停損</div><div class="rb-value" style="color:var(--sell)">${cur}${fmt(stop)}</div><div class="rb-sub">${stopNote}</div></div>
         ${tpBox('停利一（出50%）', tp1)}
         ${tpBox('停利二（出25%）', tp2)}
@@ -320,7 +324,6 @@ function renderPlaybook(D, atr) {
   try {
     const ip = typeof computeIntradayProfile === 'function' ? computeIntradayProfile(D) : null;
     if (ip) {
-      const top = ip.dist[0];
       let hint = '';
       if (ip.bucket === '開高' && ip.dist.find(x => x.k === '走低' && x.shift > 3)) hint = '此股開高後沖高回落的傾向高於平常——不追開盤價，等回測支撐再說';
       else if (ip.bucket === '開低' && ip.dist.find(x => x.k === '走高' && x.shift > 3)) hint = '此股開低後收復的傾向高於平常——開盤恐慌殺低常是日內低點，空單別追殺';
@@ -436,7 +439,7 @@ function computeMoveStage(D) {
     advice = `${dirTxt}波段進行中，幅度位於此股歷史第${magPctl}百分位——已持有可續抱，新進場需拉回/反彈找位，不宜市價追`;
   } else {
     stage = '初期'; cls = 'buy';
-    advice = `${dirTxt}波段尚屬初期（幅度僅第${magPctl}百分位）——若方向與意圖研判/共振一致，這是風報比最好的進場區`;
+    advice = `${dirTxt}波段尚屬初期（幅度僅第${magPctl}百分位）——離此股歷史波段的尾端還遠（溫度計未經報酬回測，方向以中期因子為準）`;
   }
   return { stage, cls, maturity, dir: cur.dir, dirTxt, curDays: cur.days, curMag: cur.magPct,
     magPctl, dayPctl, volFade, histCount: hist.length, advice };
@@ -567,7 +570,7 @@ function computeSetupQuality(D) {
         const dnVol = v.slice(peakI + 1).reduce((a, b) => a + b, 0) / (n - peakI - 1);
         checks.push({ ok: dnVol < upVol * 0.75, txt: `回檔量縮至上漲段的 ${(dnVol / upVol * 100).toFixed(0)}%（<75%＝賣壓輕）` });
         const ma20 = cc.slice(-20).reduce((a, b) => a + b, 0) / 20;
-        checks.push({ ok: D.price > ma20, txt: '守住20日均線（趨勢結構未破壞）' });
+        checks.push({ ok: barPx(D) > ma20, txt: '守住20日均線（趨勢結構未破壞）' });
         const recentRange = (h[n - 1] - l[n - 1] + h[n - 2] - l[n - 2]) / 2;
         const peakRange = (h[peakI] - l[peakI] + h[peakI - 1] - l[peakI - 1]) / 2;
         checks.push({ ok: recentRange < peakRange, txt: 'K棒振幅收斂（波動冷卻，非恐慌出逃）' });
@@ -608,7 +611,6 @@ function computeIntradayProfile(D) {
   const live = !!D._intraday && D.open != null && D.price != null;
   const todayGap = live ? (D.open - c[n - 1]) / c[n - 1] * 100 : gapOf(n - 1);
   const bucket = gb(todayGap);
-  const realized = db(live ? (D.price - D.open) / D.open * 100 : dayOf(n - 1));   // 今日（或最近一日）到目前為止的實現走向
 
   // 此股歷史：同開局分布 vs 無條件基準（排除今日）
   const condN = { 走高: 0, 走低: 0, 盤整: 0 }; let cn = 0;
@@ -623,7 +625,7 @@ function computeIntradayProfile(D) {
     k, p: condN[k] / cn * 100, base: baseN[k] / bn * 100,
   })).map(x => ({ ...x, shift: x.p - x.base })).sort((a, b) => b.p - a.p);
   const wilson = 1.96 * Math.sqrt(0.25 / cn) * 100;   // 半寬（保守p=0.5）
-  return { todayGap, bucket, realized, dist, n: cn, wilson };
+  return { todayGap, bucket, dist, n: cn, wilson };
 }
 
 /* ══ 逐股突破統計引擎（False Breakout Database 的正面表述）═══════════════
@@ -684,7 +686,6 @@ function computeBreakoutStats(D) {
     fakeRate: 100 - rate(grp.all),
     tier,          // high=樣本≥15堪用｜mid=8~14參考｜low=3~7樣本過少
     isTW: D.currency === 'TWD',   // 台股基準僅適用台股；美股/他市場不套用（跨市場套用＝錯誤外推）
-    twBase: 38.4,  // 台股19年24檔3,934次突破基準（僅供台股對照；樣本不足時以此為主）
   };
   _bsMemo.k = _k; _bsMemo.v = _res;
   return _res;
@@ -775,11 +776,11 @@ function renderQualityTrend(D) {
     const arrow = (v) => v == null ? '' : v > 2 ? `<span style="color:var(--buy)">▲${v.toFixed(0)}</span>` : v < -2 ? `<span style="color:var(--sell)">▼${Math.abs(v).toFixed(0)}</span>` : `<span style="color:var(--muted2)">→</span>`;
     const cell = (v, col) => v == null ? '—' : `<span style="color:${col || 'var(--fg)'}">${typeof v === 'number' ? v.toFixed(0) : v}</span>`;
     let h = `<div style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
-      <div style="font-size:11px;font-weight:700;margin-bottom:6px">📊 近${q.days}日素質演變（每日只用當日以前資料重算，防前視偏誤）</div>
+      <div style="font-size:11px;font-weight:700;margin-bottom:6px">📊 近${q.days}日素質演變（每日只用當日以前資料重算，防前視偏誤；勢能只含價量、相對強弱以 50 計，與上方勢能卡不同）</div>
       <table style="width:100%;font-size:10px;font-family:var(--mono);border-collapse:collapse">
         <tr style="color:var(--muted2)"><td>日</td><td style="text-align:right">收盤</td><td style="text-align:right">漲跌%</td><td style="text-align:right">多勢能</td><td style="text-align:right">空勢能</td><td style="text-align:right">環境</td></tr>`;
     for (const r of q.rows) {
-      const lbl = r.offset === 0 ? '今日' : `T-${r.offset}`;
+      const lbl = r.offset === 0 ? (D._intraday ? '昨日' : '最近') : `T-${r.offset}`;
       const chgCol = r.chgPct >= 0 ? 'var(--buy)' : 'var(--sell)';
       h += `<tr style="border-top:1px solid var(--bd)">
         <td style="color:${r.offset === 0 ? 'var(--accent)' : 'var(--muted)'};font-weight:${r.offset === 0 ? 700 : 400}">${lbl}</td>
