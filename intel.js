@@ -12,7 +12,7 @@
 
    ⚠️ EVIDENCE tier U：未經回測，只顯示不計分。任何分數或紀律門都不讀這裡的結果。
    ══════════════════════════════════════════════════════════════════════ */
-try { (window.SR_FV = window.SR_FV || {})['intel.js'] = 189; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['intel.js'] = 199; } catch (e) {}   // v199：v192 改過內容卻沒升版，雲端與手機可能留著舊檔——升版讓版本檢查點名、快取重抓
 
 /* 條目標題來自新聞與PTT（任何人都能發文），一律完整跳脫再進 innerHTML。
    不用 layout.js 的 esc：那支是「刪掉」特殊字元，會把「台積電 & 蘋果」弄成「台積電  蘋果」。 */
@@ -253,7 +253,8 @@ async function loadIntelCard(D) {
   }
   if (window._activeCode && window._activeCode !== D.code) return;   // 已換股，丟棄遲到結果
   clearInterval(_intelTimer);
-  try { box.innerHTML = renderIntel(j, D); if (aiBox) aiBox.innerHTML = renderAiCard(j); refreshAsyncDependents(D.code); }   // v189 月營收驚奇進紀律門與橫幅
+  refreshAsyncDependents(D.code);   // v189 月營收驚奇進紀律門與橫幅（放在顯示之前：情報卡顯示出錯也不影響）
+  try { box.innerHTML = renderIntel(j, D); if (aiBox) aiBox.innerHTML = renderAiCard(j); }
   catch (e) {   // 資料已到但顯示程式出錯：明講，不讓兩張卡停在「已等 N 秒」「等待中」
     const m = `<div style="font-size:12px;color:var(--warn)">⚠️ 情報面資料已取得，但顯示時出錯（${escI(e && e.message || e)}）——這是程式問題，請回報</div>`;
     box.innerHTML = m; if (aiBox) aiBox.innerHTML = m;
