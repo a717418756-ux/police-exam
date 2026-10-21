@@ -11,7 +11,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['scan.js'] = 204; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['scan.js'] = 205; } catch (e) {}
 
 /* v115修：前端原送15檔/批，但 Code.gs（GAS後端）上限只取前10檔——
    使用GAS的人每批會默默遺失5檔（不成功也不算失敗，直接消失，總數對不上）。
@@ -409,9 +409,9 @@ function mlHedge(h) {
 }
 function mlRender(j) {
   const box = document.getElementById('ml-box'); if (!box) return;
-  if (j === undefined && ML_LOCAL) {   // 電腦版：讀資料庫算好的名單；讀不到要講原因
+  if (j === undefined && ML_LOCAL) {
     box.innerHTML = '<div style="font-size:11px;color:var(--muted2)">讀取電腦版名單…</div>';
-    fetch('/local/monthly').then(r => r.json()).then(x => { if (x.error) throw new Error(x.error); box.innerHTML = '<div style="font-size:10px;color:var(--muted2);margin-bottom:4px">💻 電腦版資料庫自動讀取</div>' + mlHTML(x); })
+    mlSync().then(x => { box.innerHTML = '<div style="font-size:10px;color:var(--muted2);margin-bottom:4px">💻 電腦版資料庫自動讀取</div>' + mlHTML(x); })
       .catch(e => { box.innerHTML = `<div style="font-size:11px;color:var(--sell)">⚠️ 讀不到電腦版名單：${escI(e.message)}</div>`; });
     return;
   }
@@ -426,6 +426,22 @@ function mlImport(inp) {
     mlRender(j); })
     .catch(e => { document.getElementById('ml-box').innerHTML = `<div style="font-size:11px;color:var(--sell)">⚠️ 匯入失敗：${escI(e.message)}</div>`; })
     .finally(() => { inp.value = ''; });
+}
+// 電腦版：讀資料庫算好的名單並存到本機（個股頁的名單提醒也讀這份）；開啟時先同步一次，失敗原因在名單區顯示
+const mlSync = () => fetch('/local/monthly').then(r => r.json()).then(x => { if (x.error) throw new Error(x.error); try { localStorage.setItem(ML_KEY, JSON.stringify(x)); } catch (e) {} return x; });
+if (ML_LOCAL) mlSync().catch(() => {});
+/* v205 個股頁提醒：此股在本月做多／放空名單第幾名＋操作；大盤避險訊號偏空時提醒只做多者。沒有名單、不在名單且避險正常＝不顯示 */
+function mlStockNote(code, now = Date.now()) {
+  let j = null; try { j = JSON.parse(localStorage.getItem(ML_KEY) || 'null'); } catch (e) {}
+  if (!j || !Array.isArray(j.long) || !Array.isArray(j.short)) return '';
+  const c = String(code).replace(/\..*$/, ''), iL = j.long.findIndex(x => x.code === c), iS = j.short.findIndex(x => x.code === c), h = j.hedge, out = [];
+  const cur = new Date(now + 8 * 3600000).toISOString().slice(0, 7), stale = j.use !== cur ? `（⚠️ 這是 ${escI(j.use)} 的名單，現在是 ${cur}，請先更新）` : '';
+  if (iL >= 0) out.push(`<b style="color:var(--buy)">📅 本月做多名單第 ${iL + 1}／${j.long.length}</b>${stale}<br>操作：月初第一個交易日開盤買進，與放空名單各半資金、等權；月底重排，還在名單就續抱，換出才賣；不設短線停損（回測：停損會砍掉優勢）。只做多時看下方大盤避險訊號。`);
+  if (iS >= 0) out.push(`<b style="color:var(--sell)">📅 本月放空名單第 ${iS + 1}／${j.short.length}</b>${stale}<br>操作：只在「做多名單＋放空名單」各半資金對沖時放空（回測：單獨放空扣成本為負）；放空前確認券源、停券期間與借券費。`);
+  if (h && Array.isArray(h.items) && (h.on || iL >= 0)) out.push(`<b style="color:${h.on ? 'var(--sell)' : 'var(--buy)'}">🛡️ 大盤避險訊號：${h.on ? '偏空' : '正常'}（${h.items.filter(Boolean).length}／3 項）</b>${h.on ? '：只做多的人這個月放空等額大盤（台指期或反向 ETF）；多空對沖不用再加。' : '：只做多也不需避險。'}`);
+  if (!out.length) return '';
+  return `<div style="margin-top:8px;padding:9px 11px;background:var(--bg);border:1px solid var(--bd);border-radius:9px;font-size:11px;color:var(--muted);line-height:1.8">${out.join('<br>')}
+    <br><span style="font-size:10px;color:var(--muted2)">月度名單（${escI(j.sig)} 月底資料，電腦版四因子、成交值前 500 名池）回測：多空對沖年化 +9.4%、夏普 0.85、最大回撤 −23%；投組層級統計，不是個股預測。</span></div>`;
 }
 function closeScan() {
   saveScanPool();

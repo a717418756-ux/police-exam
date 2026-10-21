@@ -54,7 +54,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 202; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 205; } catch (e) {}
 
 /* v159：marginChg5 名為「5日變化」，但後端資料不足 6 筆時是拿現有最舊那筆當基準，
    實際可能只跨 2~3 天。2 天漲 4% 與 5 天漲 4% 意義完全不同，直接套同一個門檻
@@ -365,6 +365,7 @@ function renderVerdictBanner(shi, D, regime, mtf) {
           <div style="font-size:13px;font-weight:800;color:${col}">🧭 分析方向：中期${md ? md.label : '待定'}</div>
           ${md ? `中期（約 3 個月）：四因子合成第 ${md.q + 1}／5 組，歷史上這組之後 3 個月平均超額 <b>${sg(md.ex)}</b><br>` : ''}${pv ? `量價（約 1~3 個月）：${pv.side > 0 ? '偏多' : '做多不利'}，中期組別的影響比它大（細節見下方警示）<br>` : ''}短線風險：做多 ${side(gt.long)}｜做空 ${side(gt.short)}<br><b>怎麼用：</b>${act}</div>`;
       }
+      if (D.currency === 'TWD') judgeEl.innerHTML += mlStockNote(D.code);   // v205 月度名單＋大盤避險訊號（scan.js；台股才有）
       const cev = computeCondEV(D);
       if (cev) {
         const pc = v => `${v[0] >= 0 ? '+' : ''}${v[0].toFixed(2)}%/筆（${v[1].toLocaleString()}筆）`;

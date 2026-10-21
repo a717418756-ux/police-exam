@@ -231,6 +231,16 @@ function logicTests() {
     const hOn = M({ ...j, hedge: { on: true, items: [true, true, false], breadth: 0.31 } }, Date.UTC(2026, 9, 21)), hOff = M({ ...j, hedge: { on: false, items: [true, false, false], breadth: 0.55 } }, Date.UTC(2026, 9, 21));
     ok('月度名單：大盤避險訊號（偏空 2／3 項→放空等額大盤；1 項→不需避險；舊檔提醒重跑）', /偏空（2／3 項）/.test(hOn) && /放空等額大盤/.test(hOn) && /站上 50 日線 31%/.test(hOn)
       && /正常（1／3 項）/.test(hOff) && /不需避險/.test(hOff) && !/放空等額大盤/.test(hOff) && /沒有大盤避險訊號/.test(h1) && !/沒有大盤避險訊號/.test(hOn), hOn.slice(0, 120));
+    // v205 個股頁：在名單內講第幾名與操作；不在名單且避險正常＝不顯示；避險偏空對所有台股提醒；過月要講
+    const store = {}, NS = new Function('localStorage', 'escI', 'ML_KEY', sc.slice(sc.indexOf('function mlStockNote('), sc.indexOf('function closeScan(')) + 'return mlStockNote;')(
+      { getItem: k => store[k] ?? null }, x => String(x).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';'), 'k');
+    const T0 = Date.UTC(2026, 9, 21), base = { ...j, hedge: { on: false, items: [false, false, false] } };
+    store.k = JSON.stringify(base); const nL = NS('2330', T0), nS = NS('2498', T0), nX = NS('1101', T0), nOld = NS('2330', Date.UTC(2026, 10, 3));
+    store.k = JSON.stringify({ ...base, hedge: { on: true, items: [true, true, false] } }); const hX = NS('1101', T0);
+    delete store.k; const none = NS('2330', T0);
+    ok('個股頁月度名單提醒（做多第幾名＋操作／放空只在對沖時／不在名單不顯示／避險偏空提醒／過月提醒）', /做多名單第 1／2/.test(nL) && /續抱/.test(nL) && /不設短線停損/.test(nL) && /避險訊號：正常/.test(nL)
+      && /放空名單第 1／1/.test(nS) && /單獨放空扣成本為負/.test(nS) && !/避險/.test(nS) && nX === '' && /偏空（2／3 項）/.test(hX) && /放空等額大盤/.test(hX) && !/名單第/.test(hX)
+      && /請先更新/.test(nOld) && !/請先更新/.test(nL) && none === '' && /D\.currency === 'TWD'\) judgeEl\.innerHTML \+= mlStockNote\(D\.code\)/.test(fs.readFileSync(path.join(ROOT, 'bingfa.js'), 'utf8')), nL.slice(0, 120));
     // v204 電腦版（localhost）直接讀 /local/monthly；讀不到要顯示原因；手機照舊讀匯入檔
     ok('月度名單：電腦版自動讀資料庫名單、失敗講原因；手機照舊用匯入檔', /ML_LOCAL = \/\^\(localhost\|127\\\.0\\\.0\\\.1\)\$\/\.test\(location\.hostname\)/.test(sc)
       && /fetch\('\/local\/monthly'\)/.test(sc) && /讀不到電腦版名單/.test(sc) && /if \(j === undefined\) try \{ j = JSON\.parse\(localStorage\.getItem\(ML_KEY\)/.test(sc));
