@@ -357,8 +357,8 @@ function renderVerdictBanner(shi, D, regime, mtf) {
         const gt = computeTradeGate({ D, regime, mtf, shi }), pv = pvSummary(D), side = x => x.fail.length ? `🔴禁止（${x.fail[0].split('：')[0]}）` : `🟡未禁止${x.warn.length ? `，提醒 ${x.warn.length} 項` : ''}`;
         const sg = x => `${x > 0 ? '+' : ''}${x}%`;
         const act = !md ? '等情報面的月營收資料，才能算出中期方向（目前只有 52 週高點一項）。'
-          : md.q === 4 ? '中期有利：可列入持有／分批佈局名單，以「月」為單位評估；短線進場價位與停損照下方執行計畫。（實測：每月持有分數最高 20 檔、隔日開盤換股、扣成本，2007~2026 年化 +15.8% vs 0050 +11.0%，但波動 30% vs 20%、最大回撤 −69% vs −57%——要分散、能承受回撤）'
-          : md.q === 0 ? `中期不利：持有者考慮減碼、不宜新買；放空另看紀律門${gt.short.fail.length ? '（目前禁止放空）' : ''}與券源。`
+          : md.q === 4 ? '中期有利：可列入持有／分批佈局名單，以「月」為單位評估；短線進場價位與停損照下方執行計畫。（實測：每月持有分數最高 20 檔、隔日開盤換股、扣成本，2007~2026 年化 +15.8% vs 0050 +11.0%，但波動 30% vs 20%、最大回撤 −69% vs −57%——要分散、能承受回撤。同一批股票改用「停損 8%＋跌破 MA50 出場」持有，年化只剩約 +2～3%：中期部位每月檢查、仍在最強組就續抱，不要用短線停損管理）'
+          : md.q === 0 ? `中期不利：持有者考慮減碼、不宜新買；放空另看紀律門${gt.short.fail.length ? '（目前禁止放空）' : ''}與券源（實測：單獨放空最弱 20%，停損與否扣成本都為負；但同時做多最強 20 檔、放空最弱 20 檔的多空對沖，2006~2026 年化 +8~13%、夏普 0.9~1.3、回撤 −11~−24%、三段都賺——放空要當成對沖的一邊，不單獨做）。`
           : `中期沒有明顯優勢（中間三組之後 3 個月平均 ${sg(MID_EV.comp.ex[1])}～${sg(MID_EV.comp.ex[3])}）：不以中期理由進出，短線只做風控。`;
         const col = !md ? 'var(--muted)' : md.q >= 3 ? 'var(--buy)' : md.q <= 1 ? 'var(--sell)' : 'var(--muted)';
         judgeEl.innerHTML += `<div style="margin-top:8px;padding:9px 11px;background:var(--bg);border:1px solid ${col};border-radius:9px;font-size:11px;color:var(--muted);line-height:1.8">

@@ -220,6 +220,18 @@ function logicTests() {
     const bodies = (no.match(/<rect /g) || []).length;
     ok('計畫圖：近 60 根 K 線＋量、進場／停損／目標三條線、重演條（達標＋先停損＋到期＝100%）；沒有計畫不畫價位', bodies === 120 && /目標 106\.00/.test(sv) && /停損 98\.00/.test(sv) && /進場 103\.00/.test(sv) && /到期出場 25%/.test(sv) && !/停損 /.test(no) && /不畫價位/.test(no), String(bodies));
   }
+  {   // v202 月度名單：只顯示電腦算好的 JSON；代碼只收四位數字（防注入）、名稱跳脫；過月要提醒
+    const sc = fs.readFileSync(path.join(ROOT, 'scan.js'), 'utf8'), ix = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+    const M = new Function('escI', sc.slice(sc.indexOf('function mlHTML('), sc.indexOf('function mlRender(')) + 'return mlHTML;')(x => String(x).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';'));
+    const j = { use: '2026-10', sig: '2026-09', lastDate: '2026-10-01', poolN: 500, long: [{ code: '2330', name: '台積電' }, { code: "1');alert(1)//", name: 'x' }], short: [{ code: '2498', name: '<b>宏達電</b>' }] };
+    const h1 = M(j, Date.UTC(2026, 9, 21)), h2 = M(j, Date.UTC(2026, 10, 3));
+    ok('月度名單：顯示做多／放空、點代碼查詢；非四位代碼不出按鈕、名稱跳脫；過月提醒重跑', /qs\('2330'\)/.test(h1) && !/alert/.test(h1) && !/<b>宏達電/.test(h1) && !/請在電腦更新/.test(h1) && /請在電腦更新/.test(h2) && /尚未匯入/.test(M(null))
+      && /onchange="mlImport\(this\)"/.test(ix) && /mlRender\(\);/.test(sc) && /j\.kind !== 'stockradar-monthly-list'/.test(sc), h1.slice(0, 80));
+    // v203 大盤避險訊號 H：隨名單匯入；≥2 項偏空才叫放空大盤；舊檔沒有要講
+    const hOn = M({ ...j, hedge: { on: true, items: [true, true, false], breadth: 0.31 } }, Date.UTC(2026, 9, 21)), hOff = M({ ...j, hedge: { on: false, items: [true, false, false], breadth: 0.55 } }, Date.UTC(2026, 9, 21));
+    ok('月度名單：大盤避險訊號（偏空 2／3 項→放空等額大盤；1 項→不需避險；舊檔提醒重跑）', /偏空（2／3 項）/.test(hOn) && /放空等額大盤/.test(hOn) && /站上 50 日線 31%/.test(hOn)
+      && /正常（1／3 項）/.test(hOff) && /不需避險/.test(hOff) && !/放空等額大盤/.test(hOff) && /沒有大盤避險訊號/.test(h1) && !/沒有大盤避險訊號/.test(hOn), hOn.slice(0, 120));
+  }
   const sw = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8');
   ok('SW 只刪本 App 的舊快取（同網域其他 PWA 的快取不可刪）', /keys\.filter\(k => k\.startsWith\('stock-radar-v'\) && k !== CACHE\)/.test(sw));
   {   // 新增前端檔時最容易漏：頁面載得到、離線就壞（v168 intel.js 起加此檢查）

@@ -11,7 +11,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['scan.js'] = 197; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['scan.js'] = 203; } catch (e) {}
 
 /* v115修：前端原送15檔/批，但 Code.gs（GAS後端）上限只取前10檔——
    使用GAS的人每批會默默遺失5檔（不成功也不算失敗，直接消失，總數對不上）。
@@ -376,11 +376,45 @@ function saveScanPool() {
 function openScan() {
   const ov = document.getElementById('scan-overlay');
   if (ov) ov.style.display = 'block';
+  mlRender();
   try {   // v113：沿用上次編輯過的清單（比靜態池可靠，因為你會維護它）
     const saved = localStorage.getItem('scanPool');
     const ta = document.getElementById('scan-codes');
     if (saved && ta && !ta.value.trim()) ta.value = saved;
   } catch (e) {}
+}
+/* v202 月度多空名單：電腦跑 research/monthly_list.js（與回測同一套算法：成交值前 500 名池、中期四因子合成）產生 JSON，這裡只匯入顯示。
+   App 不自己算：掃描只抓 K 線、拿不到逐檔月營收歷史，算出來會和回測不是同一套。回測：多空對沖 年化 +9.4%、夏普 0.85、最大回撤 −23%、三段都賺 */
+const ML_KEY = 'sr_monthly_list';
+function mlHTML(j, now = Date.now()) {
+  if (!j) return '<div style="font-size:11px;color:var(--muted2);line-height:1.6">尚未匯入。每月月底在電腦跑 monthly_list.js，再匯入它產生的 monthly_list_YYYY-MM.json。</div>';
+  const cur = new Date(now + 8 * 3600000).toISOString().slice(0, 7);
+  const chip = (x, col) => /^\d{4}$/.test(x.code) ? `<button onclick="closeScan();qs('${x.code}')" style="margin:2px;padding:4px 7px;border-radius:6px;border:1px solid ${col};background:transparent;color:var(--fg);font-size:11px;cursor:pointer">${x.code} ${escI(x.name || '')}</button>` : '';
+  return `<div style="font-size:11px;color:var(--muted);line-height:1.6;margin-bottom:6px">適用 <b>${escI(j.use)}</b>（${escI(j.sig)} 月底資料，資料到 ${escI(j.lastDate)}，股票池 ${+j.poolN || '—'} 檔）</div>
+    ${j.use !== cur ? `<div style="font-size:11px;color:var(--sell);margin-bottom:6px">⚠️ 這份是 ${escI(j.use)} 的名單，現在是 ${cur}——請在電腦更新資料後重跑 monthly_list.js</div>` : ''}
+    ${mlHedge(j.hedge)}
+    <div style="font-size:11px;font-weight:700;color:var(--buy)">📈 做多 ${j.long.length} 檔（中期分數最高）</div><div>${j.long.map(x => chip(x, 'var(--buy)')).join('')}</div>
+    <div style="font-size:11px;font-weight:700;color:var(--sell);margin-top:6px">📉 放空 ${j.short.length} 檔（中期分數最低、股價 ≥10 元）</div><div>${j.short.map(x => chip(x, 'var(--sell)')).join('')}</div>
+    <div style="font-size:10px;color:var(--muted2);line-height:1.6;margin-top:6px">做法：月初第一個交易日開盤換股，兩邊各半資金、等權，續抱的不動，不設停損。回測（2006~2026，只含現存股票）：多空對沖年化 +9.4%、夏普 0.85、最大回撤 −23%、三段都賺；單獨放空為負。放空前確認券源、停券期間與借券費。點代碼看個股分析。</div>`;
+}
+// v203 大盤避險訊號 H（電腦算好隨名單匯入；回測：只做多最強 20 檔 年化 +16.2%／回撤 −61% → 加 H 後 +18.6%／−31%）
+function mlHedge(h) {
+  if (!h || !Array.isArray(h.items)) return '<div style="font-size:11px;color:var(--sell);margin-bottom:6px">⚠️ 這份名單沒有大盤避險訊號（monthly_list.js 是 v203 以前的版本），請換新版重跑</div>';
+  const L = ['全市場指數跌破 200 日線', '站上 50 日線的股票 < 40%', '大盤波動在近 3 年前 20%'], n = h.items.filter(Boolean).length;
+  return `<div style="font-size:11px;line-height:1.6;margin-bottom:6px;padding:6px;border-radius:6px;border:1px solid ${h.on ? 'var(--sell)' : 'var(--line)'}">
+    <b style="color:${h.on ? 'var(--sell)' : 'var(--buy)'}">🛡️ 大盤避險訊號：${h.on ? '偏空' : '正常'}（${n}／3 項）</b>${h.breadth != null ? `｜站上 50 日線 ${Math.round(h.breadth * 100)}%` : ''}<br>
+    ${h.items.map((b, k) => (b ? '✔ ' : '✘ ') + L[k]).join('　')}<br>
+    <span style="color:var(--muted2)">${h.on ? '只做多的人：這個月放空等額大盤（台指期或反向 ETF）。' : '只做多的人：這個月不需避險。'}多空對沖名單本身已對沖，不用再加。</span></div>`;
+}
+function mlRender(j) { const box = document.getElementById('ml-box'); if (!box) return; if (j === undefined) try { j = JSON.parse(localStorage.getItem(ML_KEY) || 'null'); } catch (e) { j = null; } box.innerHTML = mlHTML(j); }
+function mlImport(inp) {
+  const f = inp.files && inp.files[0]; if (!f) return;
+  f.text().then(t => { const j = JSON.parse(t);
+    if (j.kind !== 'stockradar-monthly-list' || !Array.isArray(j.long) || !Array.isArray(j.short)) throw new Error('不是 monthly_list.js 產生的檔案');
+    try { localStorage.setItem(ML_KEY, JSON.stringify(j)); } catch (e) {}
+    mlRender(j); })
+    .catch(e => { document.getElementById('ml-box').innerHTML = `<div style="font-size:11px;color:var(--sell)">⚠️ 匯入失敗：${escI(e.message)}</div>`; })
+    .finally(() => { inp.value = ''; });
 }
 function closeScan() {
   saveScanPool();

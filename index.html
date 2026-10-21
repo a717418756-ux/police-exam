@@ -370,6 +370,12 @@ try {
   <div style="font-size:10px;color:var(--muted2);line-height:1.6;margin-bottom:10px;padding:8px 10px;background:var(--warn-d);border:1px dashed var(--warn);border-radius:7px">
     依<b>有全市場回測的中期因子</b>排序（52週高點；查過個股頁情報面的股票用四因子合成），列出該組歷史上之後 3 個月的平均超額，並附量價狀態與量價事件提醒。這是分組平均、不是此股的預測，最終仍須逐檔看完整分析與出手紀律門。
   </div>
+  <!-- v202 月度多空名單（電腦跑 monthly_list.js 產生，這裡匯入顯示） -->
+  <details style="margin-bottom:12px;padding:8px 10px;border:1px solid var(--line);border-radius:8px" open>
+    <summary style="font-size:12px;font-weight:700;cursor:pointer">📅 月度多空名單</summary>
+    <div id="ml-box" style="margin-top:6px"></div>
+    <label style="display:inline-block;margin-top:6px;font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid var(--accent);cursor:pointer">匯入 monthly_list_YYYY-MM.json<input type="file" accept=".json,application/json" onchange="mlImport(this)" style="display:none"></label>
+  </details>
   <!-- v114：主流程＝選方向就出結果，不必碰代碼。自訂清單降級為進階選項（預設收合） -->
   <div style="display:flex;gap:10px;margin-bottom:12px">
     <button id="scan-short" onclick="runScanAuto('short')" style="flex:1;padding:16px 8px;border-radius:10px;border:1px solid var(--sell);background:var(--sell-d);color:var(--fg);cursor:pointer;font-size:15px;font-weight:800">📉 找做空標的</button>
