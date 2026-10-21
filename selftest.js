@@ -231,6 +231,9 @@ function logicTests() {
     const hOn = M({ ...j, hedge: { on: true, items: [true, true, false], breadth: 0.31 } }, Date.UTC(2026, 9, 21)), hOff = M({ ...j, hedge: { on: false, items: [true, false, false], breadth: 0.55 } }, Date.UTC(2026, 9, 21));
     ok('月度名單：大盤避險訊號（偏空 2／3 項→放空等額大盤；1 項→不需避險；舊檔提醒重跑）', /偏空（2／3 項）/.test(hOn) && /放空等額大盤/.test(hOn) && /站上 50 日線 31%/.test(hOn)
       && /正常（1／3 項）/.test(hOff) && /不需避險/.test(hOff) && !/放空等額大盤/.test(hOff) && /沒有大盤避險訊號/.test(h1) && !/沒有大盤避險訊號/.test(hOn), hOn.slice(0, 120));
+    // v204 電腦版（localhost）直接讀 /local/monthly；讀不到要顯示原因；手機照舊讀匯入檔
+    ok('月度名單：電腦版自動讀資料庫名單、失敗講原因；手機照舊用匯入檔', /ML_LOCAL = \/\^\(localhost\|127\\\.0\\\.0\\\.1\)\$\/\.test\(location\.hostname\)/.test(sc)
+      && /fetch\('\/local\/monthly'\)/.test(sc) && /讀不到電腦版名單/.test(sc) && /if \(j === undefined\) try \{ j = JSON\.parse\(localStorage\.getItem\(ML_KEY\)/.test(sc));
   }
   const sw = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8');
   ok('SW 只刪本 App 的舊快取（同網域其他 PWA 的快取不可刪）', /keys\.filter\(k => k\.startsWith\('stock-radar-v'\) && k !== CACHE\)/.test(sw));
