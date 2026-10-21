@@ -38,7 +38,7 @@ self.addEventListener('install', e => {
 
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(keys =>
-    Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
+    Promise.all(keys.filter(k => k.startsWith('stock-radar-v') && k !== CACHE).map(k => caches.delete(k)))   // v200 同網域還有其他 PWA，只刪本 App 舊版
   ));
   self.clients.claim();
 });

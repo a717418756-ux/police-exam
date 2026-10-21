@@ -44,7 +44,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['enhance.js'] = 198; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['enhance.js'] = 201; } catch (e) {}
 
 /* ══ 區塊 H：ADX 市場狀態過濾器 ════════════════════════════════════════
    機構73%使用：ADX 不告訴方向，而是告訴你「該用哪種策略」
@@ -300,7 +300,7 @@ function renderPlaybook(D, atr) {
   const tgt = (dir, dist) => { const rt = computeRealisticTargets(D, dir, dist / price * 100), r = d => rt && rt.rows ? rt.rows.find(x => x.days === d) || null : null; return [r(5), r(10)]; };
   const [longTp1, longTp2] = tgt(1, distL), [shortTp1, shortTp2] = tgt(-1, distS);
   const stopPct = ((smart ? distL : atr*2) / price * 100).toFixed(1);
-  const tpBox = (lbl, t) => `<div class="risk-box"><div class="rb-label">✅ ${lbl}</div><div class="rb-value" style="color:var(--buy)">${t ? cur + fmt(t.medPrice) : '—'}</div><div class="rb-sub">${t ? `${t.days}日中位可達 ${t.medPct.toFixed(1)}%${t.rr != null ? `｜風報比 1:${t.rr.toFixed(2)}` : ''}` : '資料不足 120 日，算不出此股實際可達幅度'}</div></div>`;
+  const tpBox = (lbl, t) => `<div class="risk-box"><div class="rb-label">✅ ${lbl}</div><div class="rb-value" style="color:var(--buy)">${t ? cur + fmt(t.medPrice) : '—'}</div><div class="rb-sub">${t ? `${t.days}日中位可達 ${t.medPct.toFixed(1)}%${t.sim ? `｜照計畫重演每筆淨 ${t.sim.ev >= 0 ? '+' : ''}${t.sim.ev.toFixed(2)}%（達標 ${t.sim.hit.toFixed(0)}%）` : ''}` : '資料不足 120 日，算不出此股實際可達幅度'}</div></div>`;
 
   const scenario = (title, color, entry, stop, tp1, tp2, stopNote) => `
     <div style="border:1px solid var(--bd);border-radius:12px;padding:12px;margin-bottom:10px">
@@ -318,7 +318,7 @@ function renderPlaybook(D, atr) {
   document.getElementById('pb-rows').innerHTML =
     scenario('📈 做多劇本', 'var(--buy)', price, longStop, longTp1, longTp2, noteL) +
     scenario('📉 做空劇本', 'var(--sell)', price, shortStop, shortTp1, shortTp2, noteS) +
-    `<div style="font-size:10px;color:var(--muted);line-height:1.6;padding:8px 4px">💡 分批停利：到停利一（此股5日中位可達）出50%、停利二（10日中位）出25%、剩25%用移動停利。風報比 &lt;1＝方向做對也賺得比停損少，這筆不划算。做空風險較高（虧損理論無上限），務必嚴守停損。<br>⏱️ 時間停損：進場 3~5 日未朝預期方向發展即離場——短線單不快贏通常不會贏，做空尤甚（拖著的空單還在付借券與除息成本）。<br>🛡️ 智慧停損原理：主力最愛掃「整數ATR位/結構位正下方」的停損，故本系統把停損放在<b>結構位之外＋動態緩衝</b>（該股越愛假跌破，緩衝越大），降低「剛停損就反向走」的機率。</div>`;
+    `<div style="font-size:10px;color:var(--muted);line-height:1.6;padding:8px 4px">💡 分批停利：到停利一（此股5日中位可達）出50%、停利二（10日中位）出25%、剩25%用移動停利。重演每筆淨為負＝照這組停損與目標，此股歷史上平均賠錢（已含停損先後與成本）。做空風險較高（虧損理論無上限），務必嚴守停損。<br>⏱️ 時間停損：進場 3~5 日未朝預期方向發展即離場——短線單不快贏通常不會贏，做空尤甚（拖著的空單還在付借券與除息成本）。<br>🛡️ 智慧停損原理：主力最愛掃「整數ATR位/結構位正下方」的停損，故本系統把停損放在<b>結構位之外＋動態緩衝</b>（該股越愛假跌破，緩衝越大），降低「剛停損就反向走」的機率。</div>`;
 
   // ── 日內型態（此股歷史條件頻率，非模型預測）──
   try {

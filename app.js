@@ -1,6 +1,6 @@
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['app.js'] = 198; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['app.js'] = 201; } catch (e) {}
 
 // ══════════════════════════════════════════════════════════════════════
 // 短線雷達 Pro — 風險優先分層決策系統
@@ -114,7 +114,7 @@ function calcRSISeries(c,n=14){
   let ag=g.slice(0,n).reduce((a,b)=>a+b,0)/n,al=l.slice(0,n).reduce((a,b)=>a+b,0)/n;
   const out=[...Array(n+1).fill(null)];
   out[n]=al===0?(ag===0?50:100):100-100/(1+ag/al);
-  for(let i=n;i<g.length;i++){ag=(ag*(n-1)+g[i])/n;al=(al*(n-1)+l[i])/n;out.push(al===0?100:100-100/(1+ag/al));}
+  for(let i=n;i<g.length;i++){ag=(ag*(n-1)+g[i])/n;al=(al*(n-1)+l[i])/n;out.push(al===0?(ag===0?50:100):100-100/(1+ag/al));}
   return out;
 }
 const calcRSI=(c,n=14)=>lastNonNull(calcRSISeries(c,n));
@@ -274,13 +274,10 @@ function analyzeRisk(D,atr){
   const positionPct=positionValue/capital*100;
 
   /* 凱利公式：f = (bp - q)/b，b=盈虧比
-     v128修：原本固定 b=2（假設風報比1:2），但 v124 的 MFE 實證顯示這個假設
-     對短線嚴重失真——2313 的停損14.3% vs 5日中位可達3.1%，真實 b 僅 0.21。
-     用虛高的 b 會把凱利比例算得過大，直接導致部位過重。
-     改為：若能取得此股的實際 MFE 風報比就用實際值，取不到才退回保守的 b=1。
-     （b=1 比原本的 b=2 保守，符合「寧可低估也不高估部位」的風控原則） */
-  let b = 1;   // 保守預設（原為2，已證實過度樂觀）
-  let bSource = '保守預設1:1（未取得此股實測風報比）';
+     v128 起 b 用此股實測（原本固定 1:2 過度樂觀）；v201 改用計畫重演的「平均賺 ÷ 平均賠」——
+     原本用「5日中位可達 ÷ 停損」，不管途中先停損、也沒扣成本，不是真正的盈虧比。取不到才退回保守的 b=1。 */
+  let b = 1;
+  let bSource = '保守預設1:1（重演樣本不足）';
   /* v188 停利改用此股 5／10 日中位可達價（原本 1:2、1:3 風報比：實測 10 日內到 2R 只有 10.5%、3R 3.9%，
      與紀律門執行計畫用的是同一套 MFE 統計）；資料不足 120 日時不給停利價，不拿 R 倍數硬湊 */
   let tp5 = null, tp10 = null;
@@ -290,7 +287,7 @@ function analyzeRisk(D,atr){
       const rt = computeRealisticTargets(D, 1, stopPct);
       const row5 = rt && rt.rows ? rt.rows.find(r => r.days === 5) : null;
       tp5 = row5; tp10 = rt && rt.rows ? rt.rows.find(r => r.days === 10) || null : null;
-      if (row5 && row5.rr > 0) { b = row5.rr; bSource = `此股實測（5日中位可達 ${row5.medPct.toFixed(1)}% ÷ 停損 ${stopPct.toFixed(1)}%）`; }
+      if (row5 && row5.sim && row5.sim.b > 0) { b = row5.sim.b; bSource = `此股照計畫重演 ${row5.sim.n} 次（停損 ${stopPct.toFixed(1)}%、目標 5 日中位 ${row5.medPct.toFixed(1)}%）的平均賺÷平均賠，重演勝率 ${(row5.sim.win * 100).toFixed(0)}%，已扣成本`; }
     }
   } catch (e) {}
   const q=1-winRate;
@@ -298,29 +295,16 @@ function analyzeRisk(D,atr){
   const kellyHalf=kellyFull/2;
   const kellyQuarter=kellyFull/4;
   /* v129：只顯示「凱利=0」使用者會困惑，補上可行動的資訊——
-     損益兩平勝率 = 1/(1+b)：以此股風報比，勝率要超過這個值才值得下注。
-     這是專業交易的核心概念：風報比越差，需要的勝率越高。
-     例：b=0.36（2330實測）→ 需勝率>73.5%；b=2 → 只需>33.3%。
-     短線做空最常見的死因就是「風報比0.2卻用50%勝率的心態下注」。 */
+     損益兩平勝率 = 1/(1+b)：以此股盈虧比，勝率要超過這個值才值得下注；盈虧比越差，需要的勝率越高。 */
   const breakevenWR = 1 / (1 + b);
-  /* v129：只說「需82%勝率」還是死路，要給出路。
-     實測所有標的的損益兩平勝率都落在70~82%（因為2×ATR停損對短線太寬），
-     代表問題不在選股而在「進場位置」——停損寬窄由「進場價距離關鍵位多遠」決定。
-     這裡反推：若要把門檻降到合理的55%勝率，停損必須縮到多少。
-     這正是「等回測支撐/壓力再進場」的真正價值：不是為了方向更準，
-     而是為了讓停損能放得夠近，把數學結構從負期望值扭轉為正。 */
+  /* v129 給出路；v201 改用計畫重演找：停損縮到多少，此股照同一目標重演會轉正（縮到原本三成仍負＝問題不在停損） */
   let fixSuggestion = null;
   try {
-    if (typeof computeRealisticTargets === 'function' && stopPct > 0) {
-      const rt2 = computeRealisticTargets(D, 1, stopPct);
-      const r5 = rt2 && rt2.rows ? rt2.rows.find(r => r.days === 5) : null;
-      if (r5 && breakevenWR > 0.6) {
-        const bNeed = (1 - 0.55) / 0.55;              // 目標：55%勝率即可獲利
-        const stopNeed = r5.medPct / bNeed;           // 反推所需停損距離%
-        if (stopNeed > 0 && stopNeed < stopPct) {
-          fixSuggestion = { stopNeedPct: stopNeed, curStopPct: stopPct, medPct: r5.medPct,
-            shrink: (1 - stopNeed / stopPct) * 100 };
-        }
+    if (tp5 && tp5.sim && tp5.sim.ev <= 0) {
+      fixSuggestion = { curStopPct: stopPct, none: true };
+      for (const f of [0.8, 0.6, 0.5, 0.4, 0.3]) {
+        const s = simPlan(D, 1, stopPct * f, tp5.medPct, 5);
+        if (s && s.ev > 0) { fixSuggestion = { curStopPct: stopPct, stopNeedPct: stopPct * f, shrink: (1 - f) * 100, ev: s.ev }; break; }
       }
     }
   } catch (e) {}
@@ -440,11 +424,11 @@ function renderRisk(r){
   const cur=r.currency==='TWD'?'NT$':'$';
   const boxes=[
     {cls:'',label:'🛑 ATR 停損價 (2×ATR)',value:cur+fmt(r.stopLoss),valCls:'sell',sub:`停損距離 ${fmt(r.stopDist)}（${r.stopPct.toFixed(1)}%）${r.stopNote?'。📐 '+r.stopNote:'，比固定%停損更貼合波動'}`},
-    {cls:'good',label:'🎯 停利一（此股5日中位可達）',value:r.tp5?cur+fmt(r.tp5.medPrice):'—',valCls:'buy',sub:r.tp5?`+${r.tp5.medPct.toFixed(1)}%${r.tp5.rr!=null?`｜風報比 1:${r.tp5.rr.toFixed(2)}`:''}（歷史上一半的時候5日內摸得到）`:'資料不足 120 日，算不出此股實際可達幅度'},
+    {cls:'good',label:'🎯 停利一（此股5日中位可達）',value:r.tp5?cur+fmt(r.tp5.medPrice):'—',valCls:'buy',sub:r.tp5?`+${r.tp5.medPct.toFixed(1)}%${r.tp5.sim?`｜照計畫重演達標 ${r.tp5.sim.hit.toFixed(0)}%、先停損 ${r.tp5.sim.stop.toFixed(0)}%`:''}（不管停損時，一半的日子5日內摸得到）`:'資料不足 120 日，算不出此股實際可達幅度'},
     {cls:'good',label:'🎯 停利二（此股10日中位可達）',value:r.tp10?cur+fmt(r.tp10.medPrice):'—',valCls:'buy',sub:r.tp10?`+${r.tp10.medPct.toFixed(1)}%｜抱得久一點的目標（固定 1:2、1:3 實測 10 日內只摸到 10.5%／3.9%）`:'資料不足 120 日'},
     {cls:'warn',label:'🪜 移動停利 (Chandelier)',value:cur+fmt(r.chandelier),valCls:'warn',sub:`最高價-3×ATR，股價創高就上移，保護獲利`},
     {cls:'',label:'📦 建議部位（固定風險法）',value:`${fmt(r.shares,0)} 股`,valCls:'',sub:`試單：單筆風險 ${cur}${fmtV(Math.round(r.riskAmount))}（資金 ${Math.min(r.riskPct,RISK_RULE.perTrade)}% 的一半，與執行計畫相同），佔總資金 ${r.positionPct.toFixed(1)}%${r.currency==='TWD'?'':'｜美股：帳戶資金視為美元'}`},
-    {cls:'warn',label:'🎲 凱利建議比例',value:r.kellyFull>0?`${(r.kellyHalf*100).toFixed(1)}%`:`不下注｜需勝率≥${(r.breakevenWR*100).toFixed(0)}%`,valCls:r.kellyFull>0?'warn':'sell',sub:`半凱利（保守）。全凱利 ${(r.kellyFull*100).toFixed(1)}%／四分之一凱利 ${(r.kellyQuarter*100).toFixed(1)}%。風報比 1:${r.b.toFixed(2)}（${r.bSource}）｜<b>損益兩平勝率 ${(r.breakevenWR*100).toFixed(0)}%</b>——你的勝率需高於此才值得下注，目前填 ${(r.winRate*100).toFixed(0)}%${r.kellyFull<=0?`。<span style="color:var(--sell)">⚠️ 凱利=0：以此風報比，${(r.winRate*100).toFixed(0)}%勝率是負期望值，這筆不該做</span>`:''}${r.fixSuggestion?`<br><span style="color:var(--warn)">🔧 <b>出路</b>：問題在進場位置不在選股。若停損能從 ${r.fixSuggestion.curStopPct.toFixed(1)}% 縮到 <b>${r.fixSuggestion.stopNeedPct.toFixed(1)}%</b>（縮 ${r.fixSuggestion.shrink.toFixed(0)}%），損益兩平勝率就降到55%。做法：等價格回測到關鍵壓力/支撐附近再進場，把停損貼在該結構外緣——這才是「等回測」的真正價值，不是方向更準，而是讓數學結構由負轉正。</span>`:''}`},
+    {cls:'warn',label:'🎲 凱利建議比例',value:r.kellyFull>0?`${(r.kellyHalf*100).toFixed(1)}%`:`不下注｜需勝率≥${(r.breakevenWR*100).toFixed(0)}%`,valCls:r.kellyFull>0?'warn':'sell',sub:`半凱利（保守）。全凱利 ${(r.kellyFull*100).toFixed(1)}%／四分之一凱利 ${(r.kellyQuarter*100).toFixed(1)}%。盈虧比 1:${r.b.toFixed(2)}（${r.bSource}）｜<b>損益兩平勝率 ${(r.breakevenWR*100).toFixed(0)}%</b>——你的勝率需高於此才值得下注，目前填 ${(r.winRate*100).toFixed(0)}%${r.kellyFull<=0?`。<span style="color:var(--sell)">⚠️ 凱利=0：以此盈虧比，${(r.winRate*100).toFixed(0)}%勝率是負期望值，這筆不該做</span>`:''}${r.fixSuggestion?`<br><span style="color:var(--warn)">🔧 <b>出路</b>：${r.fixSuggestion.none?`停損縮到原本三成，此股照同一目標重演仍是負期望——問題不在停損位置，這個目標本身不划算`:`停損從 ${r.fixSuggestion.curStopPct.toFixed(1)}% 縮到 <b>${r.fixSuggestion.stopNeedPct.toFixed(1)}%</b>（縮 ${r.fixSuggestion.shrink.toFixed(0)}%），此股照同一目標重演每筆淨 +${r.fixSuggestion.ev.toFixed(2)}%。做法：等價格回測到關鍵壓力/支撐附近再進場，把停損貼在該結構外緣（歷史重演，非保證）`}</span>`:''}`},
   ];
   $('risk-grid').innerHTML=boxes.map(x=>`<div class="risk-box ${x.cls}"><div class="rb-label">${x.label}</div><div class="rb-value ${x.valCls}">${x.value}</div><div class="rb-sub">${x.sub}</div></div>`).join('');
 }

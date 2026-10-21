@@ -21,7 +21,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['journal.js'] = 198; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['journal.js'] = 201; } catch (e) {}
 
 /* ── 開啟 / 關閉面板 ─────────────────────────────────────────────────── */
 /* ── 分批進場 / 加碼工具 ──────────────────────────────────────────────
@@ -221,7 +221,7 @@ async function addTradeFromForm() {
   let exitReason = result === 'win' ? (judgment === 'wrong' ? 'holdback' : 'tp') : (judgment === 'wrong' ? 'sl' : 'sl');
 
   /* ── v188 進場時的證據（取代原本的 STI/MFD/ECO/FUSION 公式分數——公式引擎已移除，理由見 app.js）──
-     記三項：波段階段（溫度計，B 級：只當風險提醒）、風報比（5日中位可達÷停損，與紀律門同算法；1:2／1:3 實測達成率低）、高波動危險態（台股放空每筆 −1.42%）。
+     記三項：波段階段（溫度計，B 級：只當風險提醒）、計畫重演每筆淨（v201，與紀律門同算法；v200 以前記的是「風報比」rr，不再分組）、高波動危險態（台股放空每筆 −1.42%）。
      只用進場日之前的K線（dayBefore），與當時畫面看到的一致 */
   let entryEvidence = null;
   try {
@@ -231,8 +231,8 @@ async function addTradeFromForm() {
       if (hj.ok && hj.closes) {
         const Dh = { ...hj, code, currency: /^\d/.test(code) ? 'TWD' : 'USD' };
         const ms = computeMoveStage(Dh), rg = computeRegime(Dh), pb = planBasis(Dh, dir === 'long' ? 'long' : 'short');
-        entryEvidence = { stage: ms ? ms.stage : null, maturity: ms ? ms.maturity : null, rr: pb.rr != null ? Math.round(pb.rr * 100) / 100 : null, highVol: rg ? rg.regime === '高波動危險' : null };
-        autoNote += `｜進場時：波段${entryEvidence.stage || '—'}、風報比${entryEvidence.rr != null ? entryEvidence.rr : '—'}${entryEvidence.highVol ? '、高波動危險' : ''}`;
+        entryEvidence = { stage: ms ? ms.stage : null, maturity: ms ? ms.maturity : null, ev: pb.sim ? Math.round(pb.sim.ev * 100) / 100 : null, highVol: rg ? rg.regime === '高波動危險' : null };
+        autoNote += `｜進場時：波段${entryEvidence.stage || '—'}、計畫重演每筆${entryEvidence.ev != null ? entryEvidence.ev + '%' : '—'}${entryEvidence.highVol ? '、高波動危險' : ''}`;
       }
     }
   } catch (e) {
@@ -572,11 +572,11 @@ async function exportMarkdown() {
         return `| ${name} | ${n} | ${w == null ? '—' : w.toFixed(0) + '%'} | ${n ? (arr.reduce((a, t) => a + (+t.pnlPct || 0), 0) / n).toFixed(2) + '%' : '—'} |\n`; };
       md += `| 進場時條件 | 筆數 | 勝率 | 平均報酬 |\n|---|---|---|---|\n`;
       for (const st of ['初期', '中期', '尾端']) md += grp(`波段${st}`, withEv.filter(t => t.entryEvidence.stage === st));
-      md += grp('風報比 ≥ 1', withEv.filter(t => t.entryEvidence.rr != null && t.entryEvidence.rr >= 1));
-      md += grp('風報比 < 1', withEv.filter(t => t.entryEvidence.rr != null && t.entryEvidence.rr < 1));
+      md += grp('計畫重演 ≥ 0', withEv.filter(t => t.entryEvidence.ev != null && t.entryEvidence.ev >= 0));
+      md += grp('計畫重演 < 0', withEv.filter(t => t.entryEvidence.ev != null && t.entryEvidence.ev < 0));
       md += grp('高波動危險態進場', withEv.filter(t => t.entryEvidence.highVol));
-      md += `\n> 三項的證據等級不同：高波動危險態（台股 19 年實測：放空每筆 −1.42%，做多不比平常差）、風報比 <1（方向做對也賺得比停損少）、波段階段（溫度計，未經報酬回測，只當提醒）。各組筆數不到 ${TRADE_MIN} 筆時只供參考，不下結論。\n\n`;
-    } else md += `> 尚無資料。新增的交易會自動記錄進場時的波段階段、風報比與高波動狀態，累積後這裡會出現對照表。\n\n`;
+      md += `\n> 三項的證據等級不同：高波動危險態（台股 19 年實測：放空每筆 −1.42%，做多不比平常差）、計畫重演 <0（照同一停損與目標，此股歷史上平均賠錢）、波段階段（溫度計，未經報酬回測，只當提醒）。各組筆數不到 ${TRADE_MIN} 筆時只供參考，不下結論。\n\n`;
+    } else md += `> 尚無資料。新增的交易會自動記錄進場時的波段階段、計畫重演與高波動狀態，累積後這裡會出現對照表。\n\n`;
     // 四之三、加碼決策分析（分批進場的交易）
     const withBatch = trades.filter(t => t.batchRecords && t.batchRecords.length >= 2);
     if (withBatch.length > 0) {

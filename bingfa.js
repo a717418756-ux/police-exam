@@ -54,7 +54,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 198; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 201; } catch (e) {}
 
 /* v159：marginChg5 名為「5日變化」，但後端資料不足 6 筆時是拿現有最舊那筆當基準，
    實際可能只跨 2~3 天。2 天漲 4% 與 5 天漲 4% 意義完全不同，直接套同一個門檻
@@ -420,14 +420,13 @@ function renderVerdictBanner(shi, D, regime, mtf) {
       }
       // ③ 誰在動（行為結構）
       if (syn) seg.push({ k: '參與者', v: !syn.decisive ? `只有 ${syn.voteCount} 個有方向的行為，不足以判斷走向` : `行為結構 ${syn.score >= 0 ? '+' : ''}${syn.score}${syn.conflict && syn.conflict.length ? `，但有 ${syn.conflict.length} 項證據互相衝突——分歧時勿重倉` : syn.score >= 20 ? '，多方證據集中' : syn.score <= -20 ? '，空方證據集中' : '，證據分散無主導方' }` });
-      // ④ 結構是否支持（風報比＝能不能賺）
+      // ④ 結構是否支持（v201 計畫重演＝能不能賺）
       try {
         const atrN = calcATR(D.rawHighs || D.highs, D.rawLows || D.lows, D.rawCloses || D.closes, 14);
         const stopPctN = atrN * 2 / barPx(D) * 100;
-        /* v183：原本用「環境」（X級、已除權）決定算哪一邊，盤整／空頭時對多單也秀空方的風報比、而且沒寫是哪一邊。兩邊都列 */
-        const rr5 = d => { const rt = typeof computeRealisticTargets === 'function' ? computeRealisticTargets(D, d, stopPctN) : null; const r = rt && rt.rows ? rt.rows.find(x => x.days === 5) : null; return r ? r.rr : null; };
-        const rL = rr5(1), rS = rr5(-1), f = x => x == null ? '—' : '1:' + x.toFixed(2);
-        if (rL != null || rS != null) seg.push({ k: '結構', v: `以2×ATR停損計，風報比 做多 ${f(rL)}｜做空 ${f(rS)}${Math.max(rL || 0, rS || 0) < 1 ? '——兩邊都小於1：即使方向做對也難獲利，需等回測關鍵位讓停損變近（見風險卡「出路」）' : ''}` });
+        const ev5 = d => { const rt = typeof computeRealisticTargets === 'function' ? computeRealisticTargets(D, d, stopPctN) : null; const r = rt && rt.rows ? rt.rows.find(x => x.days === 5) : null; return r && r.sim ? r.sim.ev : null; };
+        const eL = ev5(1), eS = ev5(-1), f = x => x == null ? '—' : (x >= 0 ? '+' : '') + x.toFixed(2) + '%';
+        if (eL != null || eS != null) seg.push({ k: '結構', v: `以2×ATR停損、5日中位目標重演，每筆淨 做多 ${f(eL)}｜做空 ${f(eS)}（已扣成本）${Math.max(eL == null ? -1 : eL, eS == null ? -1 : eS) < 0 ? '——兩邊都是負期望：需等回測關鍵位讓停損變近（見風險卡「出路」）' : ''}` });
       } catch (e) {}
       // ⑤ 翻盤條件（最關鍵：事先寫下我錯了的證據）
       const inval = [];
@@ -693,8 +692,8 @@ function computeCrashPhase(D) {
   } catch (e) { return null; }
 }
 
-/* v187 執行計畫的價位基準（紀律門判風報比與下方計畫共用，原本只有計畫在算）：
-   ATR 用原始市價（下單價位鐵律）、停損用智慧停損、目標用此股 5 日 MFE 中位可達 */
+/* v187 執行計畫的價位基準（紀律門判計畫重演與下方計畫共用，原本只有計畫在算）：
+   ATR 用原始市價（下單價位鐵律）、停損用智慧停損、目標用此股 5 日 MFE 中位可達；sim＝照這組停損與目標的歷史重演（v201） */
 function planBasis(D, side) {
   const atr = calcATR(D.rawHighs || D.highs, D.rawLows || D.lows, D.rawCloses || D.closes, 14);
   let smart = null;
@@ -704,8 +703,21 @@ function planBasis(D, side) {
   const dist = Math.abs(entry - stop);
   const rtT = computeRealisticTargets(D, side === 'long' ? 1 : -1, dist / entry * 100);
   const pickT = rtT ? (rtT.rows.find(r => r.days === 5) || rtT.rows[rtT.rows.length - 1]) : null;
-  return { atr, smart, entry, stop, dist, rtT, pickT, rr: pickT ? pickT.rr : null };
+  return { atr, smart, entry, stop, dist, rtT, pickT, sim: pickT ? pickT.sim : null };
 }
+/* v201 未來 days 天內的停券、除權息（後端 corp，只有上市；抓不到或上櫃時講原因） */
+function corpAhead(D, days, now = Date.now()) {
+  if (D.corpErr) return `${D.corpErr}——放空前請自行確認除權息與停券日`;
+  if (!D.corp) return '後端沒有回傳除權息／停券預告（Cloudflare／GAS 還沒更新到 v201）——放空前請自行確認';
+  const ymd = t => new Date(t + 8 * 3600000).toISOString().slice(0, 10).replace(/-/g, ''), a = ymd(now), b = ymd(now + days * 86400000);
+  const f = s => `${+s.slice(4, 6)}/${+s.slice(6)}`;
+  const out = [
+    ...D.corp.stopShort.filter(s => s.to >= a && s.from <= b).map(s => `${f(s.from)}～${f(s.to)} 停止融券賣出（${s.why}）：期間不能融券放空，已有的融券空單要在券商通知的最後回補日前回補`),
+    ...D.corp.exdiv.filter(e => e.d >= a && e.d <= b).map(e => `${f(e.d)} 除${e.kind}${e.cash ? `（現金 ${e.cash} 元）` : ''}：借券賣出跨過要補償給出借人`),
+  ];
+  return out.length ? `近 ${days} 天交易所事件：${out.join('；')}` : null;
+}
+
 function computeTradeGate(ctx) {
   // ctx: { D, regime, mtf, shi }
   const { D, regime, mtf } = ctx;
@@ -832,9 +844,11 @@ function computeTradeGate(ctx) {
       if (q === 4 || q === 0) ((q === 4 ? 1 : -1) === dir ? pass : warn).push(`中期因子${q === 4 ? '最強' : '最弱'} 20%（52週高點＋營收＋盈餘品質）：全市場19年，之後3個月平均超額 ${ex > 0 ? '+' : ''}${ex}%——此方向${(q === 4 ? 1 : -1) === dir ? '順風' : '逆風'}（中期，非短線）`); }
     const pv = pvSummary(D);   // v194 量價狀態：偏多的做多列順風、放空列提醒；負面的只提醒做多（扣掉中期因子後只差 0.3%，不當放空理由）
     if (pv && (pv.side === 1 || dir === 1)) (pv.side === dir ? pass : warn).push(`量價狀態${pv.txt}`);
-    // 風報比：與執行計畫同一套算法（此股 5 日中位可達 ÷ 停損距離）
-    try { const pb = planBasis(D, dir === 1 ? 'long' : 'short');
-      if (pb.rr != null && pb.rr < 1) warn.push(`風報比 ${pb.rr.toFixed(2)} < 1：此股5日中位可達 ${pb.pickT.medPct.toFixed(1)}% 小於停損距離 ${(pb.dist / pb.entry * 100).toFixed(1)}%，方向做對也賺得比停損少`); } catch (e) {}
+    // v201 放空的交易所限制（事實，不需回測）：持有期內停券、除權息
+    if (dir === -1 && D.currency === 'TWD') { const ce = corpAhead(D, 14); if (ce) warn.push(ce); }
+    // v201 計畫重演：與執行計畫同一組停損與目標（含停損先後、跳空、成本）
+    try { const pb = planBasis(D, dir === 1 ? 'long' : 'short'), s = pb.sim;
+      if (s && s.ev < 0) warn.push(`照計畫重演為負：此股 ${s.n} 次（停損 ${(pb.dist / pb.entry * 100).toFixed(1)}%、目標 5 日中位 ${pb.pickT.medPct.toFixed(1)}%）每筆淨 ${s.ev.toFixed(2)}%（已扣成本），達標 ${s.hit.toFixed(0)}%、先停損 ${s.stop.toFixed(0)}%`); } catch (e) {}
 
     /* v188 裁決只剩兩級：有回測證據的條件（目前只有高波動）才「禁止」，其餘一律列為提醒。
        原本的「可出手」需要 3 個綠燈：只有股價資料 896 個時點、加真實籌碼 2175 個時點都是 0 次，
@@ -868,10 +882,36 @@ function computeTradeGate(ctx) {
    專業做法（機構常用的 MFE / Maximum Favorable Excursion 分析）：
    統計此股歷史上「進場後 N 日內最大有利偏移」的分布，用實際分位數當目標，
    而不是用公式推算。中位數＝一半機率能達到，75分位＝約1/4機率。
-   同時檢查風報比：若「中位可達幅度 < 停損距離」，這筆交易的結構就是不利的，
-   無論方向看得多準都難獲利——這是短線最常見卻最少人算的致命點。
-   ⚠️ 逐日重演僅用當日之後的實際走勢，不含任何未來資訊以外的推測。
+   v201 計畫重演（取代原本「風報比＝中位可達÷停損」：那個比值不管途中先被停損，不是實際盈虧比）：
+   每個歷史日照「同一停損、同一目標、持有 N 日」走一遍——當日收盤進場；之後開盤跳空越過停損／目標以開盤價成交；
+   同一根 K 同時碰到兩者算停損；到期以收盤出場；扣來回成本（台股與回測腳本相同：做多 0.471%、做空 0.551%；美股估 0.1%）。
+   ⚠️ 目標與重演用同一段歷史（樣本內），是此股的歷史描述，不是保證。
    ════════════════════════════════════════════════════════════════════ */
+function simPlan(D, dir, stopPct, tgtPct, H) {
+  const c = D.rawCloses || D.closes, h = D.rawHighs || D.highs, l = D.rawLows || D.lows, n = c.length;
+  const oA = D.opens, cA = D.closes, hasO = !!oA && oA.length === n;
+  const cost = D.currency === 'TWD' ? (dir === 1 ? 0.471 : 0.551) : 0.1;
+  const r = []; let hit = 0, stp = 0;
+  for (let i = 60; i < n - H; i++) {
+    const e = c[i]; if (!e) continue;
+    const S = e * (1 - dir * stopPct / 100), T = e * (1 + dir * tgtPct / 100);
+    let x = null;
+    for (let k = i + 1; k <= i + H && x === null; k++) {
+      const o = hasO && oA[k] && cA[k] ? oA[k] * c[k] / cA[k] : null;   // 開盤換成原始價（同一天還原比例相同）
+      if (o != null && dir * (o - S) <= 0) { x = o; stp++; }
+      else if (o != null && dir * (o - T) >= 0) { x = o; hit++; }
+      else if (dir === 1 ? l[k] <= S : h[k] >= S) { x = S; stp++; }
+      else if (dir === 1 ? h[k] >= T : l[k] <= T) { x = T; hit++; }
+    }
+    if (x === null) x = c[i + H];
+    r.push(dir * (x - e) / e * 100 - cost);
+  }
+  const N = r.length; if (N < 50) return null;
+  const w = r.filter(v => v > 0), ls = r.filter(v => v <= 0), sum = a => a.reduce((s, v) => s + v, 0);
+  const aw = w.length ? sum(w) / w.length : 0, al = ls.length ? -sum(ls) / ls.length : 0;
+  return { n: N, ev: sum(r) / N, win: w.length / N, hit: hit / N * 100, stop: stp / N * 100, b: al > 0 ? aw / al : null };
+}
+
 function computeRealisticTargets(D, dir, stopDistPct) {
   try {
     const c = D.rawCloses || D.closes, h = D.rawHighs || D.highs, l = D.rawLows || D.lows;
@@ -894,35 +934,19 @@ function computeRealisticTargets(D, dir, stopDistPct) {
       }
       if (mfes.length < 50) continue;
       mfes.sort((a, b) => a - b);
-      const q = (p) => mfes[Math.floor(mfes.length * p)];
-      const med = q(0.5);
-      const rr = stopDistPct > 0 ? med / stopDistPct : null;   // 風報比＝中位可達 ÷ 停損距離
+      const med = mfes[Math.floor(mfes.length * 0.5)];
       out.push({
         days: H, n: mfes.length,
         medPct: med,
         medPrice: dir === -1 ? price * (1 - med / 100) : price * (1 + med / 100),
-        rr,
+        sim: stopDistPct > 0 ? simPlan(D, dir, stopDistPct, med, H) : null,
       });
     }
     if (!out.length) return null;
-    // 2R 目標的歷史達成率（用來揭穿不切實際的目標）
-    const rTargets = [2].map(mult => {
-      const tgtPct = stopDistPct * mult;
-      const res = horizons.map(H => {
-        const mfes = [];
-        for (let i = 60; i < n - H; i++) {
-          const entry = c[i]; if (!entry) continue;
-          let ext = entry;
-          for (let k = i + 1; k <= i + H; k++) ext = dir === -1 ? Math.min(ext, l[k]) : Math.max(ext, h[k]);
-          const mfe = dir === -1 ? (entry - ext) / entry * 100 : (ext - entry) / entry * 100;
-          if (isFinite(mfe)) mfes.push(mfe);
-        }
-        const hit = mfes.length ? mfes.filter(x => x >= tgtPct).length / mfes.length * 100 : null;
-        return { days: H, hit };
-      });
-      return { mult, tgtPct, res };
-    });
-    return { rows: out, rTargets, price, stopDistPct, dir };
+    // 2R 目標的重演達成率（用來揭穿不切實際的目標；v201 起含停損先後）
+    const hit2R = {};
+    if (stopDistPct > 0) for (const H of horizons) { const s = simPlan(D, dir, stopDistPct, stopDistPct * 2, H); hit2R[H] = s ? s.hit : null; }
+    return { rows: out, hit2R, price, stopDistPct, dir };
   } catch (e) { return null; }
 }
 
@@ -1044,16 +1068,14 @@ function renderTradeGate(ctx) {
           ${(() => {
             /* v124：把「目標為2R」改成此股歷史實際可達的目標。
                原本的R倍數目標對短線不切實際（實測2313的2R=28.5%，5日達成率0.0%），
-               使用者永遠「還沒到目標就先出場或被停損」。改用MFE分位數＋風報比檢查。 */
+               使用者永遠「還沒到目標就先出場或被停損」。改用MFE分位數；v201 再照計畫重演（含停損先後）。 */
             try {
               const stopPct = dist / entry * 100;
               const rt = rtT;
               if (!rt) return `📏 <b>資料不足 120 日，算不出此股可達幅度</b>：不給目標價，只用停損＋移動停利<br>`;
               const pick = rt.rows.find(r => r.days === 5) || rt.rows[rt.rows.length - 1];
-              const r2 = (rt.rTargets.find(x => x.mult === 2) || {}).res || [];
-              const hit5 = (r2.find(x => x.days === 5) || {}).hit;
-              const rr = pick.rr;
-              const rrCol = rr >= 1.5 ? 'var(--buy)' : rr >= 1 ? 'var(--warn)' : 'var(--sell)';
+              const hit5 = rt.hit2R[5], s = pick.sim;
+              const sCol = !s ? 'var(--muted2)' : s.ev >= 0 ? 'var(--buy)' : 'var(--sell)';
               return `${(() => {
                 /* v137 參數掃描＋樣本外複驗（8檔153筆挑選 → 另10檔270筆驗證，含0.287%做空成本）：
                    規律「停損越寬越差」樣本外重現（排名相關0.89）；唯一正值 0.5×/1× 的+0.020% 在樣本外為-0.232%；
@@ -1064,9 +1086,9 @@ function renderTradeGate(ctx) {
                   下方建議停損為結構位計算值（較寬、不易被掃）；改用近停損可以少虧，但<b>目前沒有任何參數能證明扣成本後賺錢</b>。
                 </div>`;
               })()}
-              📏 <b>此股歷史實際可達</b>（非公式推算，逐日重演${pick.n}個樣本）：
+              📏 <b>此股歷史中位可達</b>（逐日重演${pick.n}個樣本，不管途中停損）：
                 ${rt.rows.map(r => `${r.days}日 ${r.medPct.toFixed(1)}%→${cur}${fmt(r.medPrice)}`).join('｜')}<br>
-                <span style="color:${rrCol}">${rr >= 1.5 ? '✓' : '⚠️'} <b>風報比 ${rr.toFixed(2)}</b>（5日中位可達${pick.medPct.toFixed(1)}% ÷ 停損${stopPct.toFixed(1)}%）${rr < 1 ? '——結構不利：即使方向做對，賺的也少於做錯時賠的。建議跳過此檔，或縮短為當沖/隔日沖並改用更近停損（但留意易被雜訊掃損）' : rr < 1.5 ? '——勉強可做，務必嚴守停損與時間停損' : '——結構有利'}</span><br>
+                <span style="color:${sCol}">${!s ? '照計畫重演樣本不足' : `${s.ev >= 0 ? '✓' : '⚠️'} <b>照計畫重演：每筆淨 ${s.ev >= 0 ? '+' : ''}${s.ev.toFixed(2)}%</b>（停損${stopPct.toFixed(1)}%、目標${pick.days}日中位${pick.medPct.toFixed(1)}%，${s.n}次：達標${s.hit.toFixed(0)}%、先停損${s.stop.toFixed(0)}%、其餘到期出場；已扣成本）${s.ev < 0 ? '——負期望：方向看對也常先被停損。建議跳過此檔，或等回測關鍵位讓停損變近' : ''}`}</span><br>
                 ${(() => {
                   /* v137 執行摩擦：升降單位（原始價）＋隔夜跳空越過停損頻率（還原價比率，開收同基準） */
                   if (D.currency !== 'TWD') return '';
@@ -1077,7 +1099,7 @@ function renderTradeGate(ctx) {
                   const bad = nT < 5 || tkPct >= 0.4;
                   return `<span style="color:${bad ? 'var(--warn)' : 'var(--muted2)'}">🧾 執行摩擦：此價位1檔＝${tk}元（${tkPct.toFixed(2)}%），停損距離約 ${nT.toFixed(0)} 檔；停損多以市價觸發，實際虧損≈停損＋1檔${gp != null ? `｜隔夜跳空≥停損距離的歷史頻率 ${gp.toFixed(1)}%（跳空時以開盤價成交，虧損大於計畫）` : ''}${bad ? '——每檔成本占比偏高，短線近停損不利' : ''}</span><br>`;
                 })()}
-                ${hit5 != null && hit5 < 10 ? `<span style="color:var(--muted2)">（參考：傳統2R目標${(stopPct * 2).toFixed(1)}%在此股5日內的歷史達成率僅 ${hit5.toFixed(1)}%，故不採用）</span><br>` : ''}
+                ${hit5 != null && hit5 < 10 ? `<span style="color:var(--muted2)">（參考：傳統2R目標${(stopPct * 2).toFixed(1)}%照計畫重演5日達標率僅 ${hit5.toFixed(1)}%，故不採用）</span><br>` : ''}
                 到價出50%、停損移至成本、剩餘用移動停利跟到走完<br>`;
             } catch (e) { return `📏 目標：到價出50%、停損移至成本、剩餘移動停利<br>`; }
           })()}
