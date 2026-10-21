@@ -943,10 +943,9 @@ function computeRealisticTargets(D, dir, stopDistPct) {
       });
     }
     if (!out.length) return null;
-    // 2R 目標的重演達成率（用來揭穿不切實際的目標；v201 起含停損先後）
-    const hit2R = {};
-    if (stopDistPct > 0) for (const H of horizons) { const s = simPlan(D, dir, stopDistPct, stopDistPct * 2, H); hit2R[H] = s ? s.hit : null; }
-    return { rows: out, hit2R, price, stopDistPct, dir };
+    // 2R 目標 5 日的重演達成率（執行計畫卡用來揭穿不切實際的目標；含停損先後）
+    const s2R = stopDistPct > 0 ? simPlan(D, dir, stopDistPct, stopDistPct * 2, 5) : null;
+    return { rows: out, hit2R5: s2R ? s2R.hit : null, price, stopDistPct, dir };
   } catch (e) { return null; }
 }
 
@@ -1110,7 +1109,7 @@ function renderTradeGate(ctx) {
               const rt = rtT;
               if (!rt) return `📏 <b>資料不足 120 日，算不出此股可達幅度</b>：不給目標價，只用停損＋移動停利<br>`;
               const pick = rt.rows.find(r => r.days === 5) || rt.rows[rt.rows.length - 1];
-              const hit5 = rt.hit2R[5], s = pick.sim;
+              const hit5 = rt.hit2R5, s = pick.sim;
               const sCol = !s ? 'var(--muted2)' : s.ev >= 0 ? 'var(--buy)' : 'var(--sell)';
               return `${(() => {
                 /* v137 參數掃描＋樣本外複驗（8檔153筆挑選 → 另10檔270筆驗證，含0.287%做空成本）：

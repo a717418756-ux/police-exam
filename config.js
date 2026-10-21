@@ -43,7 +43,7 @@ const RISK_RULE = { perTrade: 2, monthly: 6 };
    app.js 啟動時比對，不符就直接點名是哪個檔沒更新——
    以前只能靠「畫面文字怎麼還是舊的」去猜，這種事發生過不只一次。 */
 const FILE_VERS = {
-  'help.js': 201, 'db.js': 198, 'market.js': 188, 'enhance.js': 201, 'advanced.js': 198, 'smc.js': 198, 'mainforce.js': 198, 'mtf.js': 197, 'bingfa.js': 202, 'layout.js': 188, 'journal.js': 201, 'scan.js': 197, 'intel.js': 199, 'app.js': 201
+  'help.js': 202, 'db.js': 198, 'market.js': 188, 'enhance.js': 201, 'advanced.js': 198, 'smc.js': 198, 'mainforce.js': 198, 'mtf.js': 197, 'bingfa.js': 202, 'layout.js': 188, 'journal.js': 201, 'scan.js': 197, 'intel.js': 199, 'app.js': 201
 };
 
 /* 證據等級登記（文件；各規則直接寫在使用它的地方）
