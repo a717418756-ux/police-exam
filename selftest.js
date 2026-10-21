@@ -211,6 +211,15 @@ function logicTests() {
     ok('除權息／停券預告：只提醒台股放空；上櫃、抓不到時兩後端都寫 corpErr', /if \(dir === -1 && D\.currency === 'TWD'\) \{ const ce = corpAhead\(D, 14\); if \(ce\) warn\.push\(ce\); \}/.test(bfs)
       && /r\.listed = suffix === '\.TW'/.test(wk) && /listed: s === 0/.test(gs) && /kline\.corpErr = '上櫃股/.test(wk) && /d\.corpErr = '上櫃股/.test(gs) && /kline\.corpErr = '證交所除權息／停券預告抓不到：'/.test(wk) && /d\.corpErr = '證交所除權息／停券預告抓不到：'/.test(gs));
   }
+  {   // v202 計畫圖：60 根 K 線、價位線與下方計畫同一組、重演條三段相加 100%
+    const bfs = fs.readFileSync(path.join(ROOT, 'bingfa.js'), 'utf8');
+    const P = new Function('fmt', bfs.slice(bfs.indexOf('function planChart('), bfs.indexOf('function renderTradeGate(')) + 'return planChart;')(v => v.toFixed(2));
+    const n = 80, D = { closes: Array.from({ length: n }, (_, i) => 100 + i % 7), volumes: Array(n).fill(1000) };
+    D.highs = D.closes.map(c => c + 2); D.lows = D.closes.map(c => c - 2); D.opens = D.closes.map((c, i) => i ? D.closes[i - 1] : c);
+    const sv = P(D, { entry: 103, stop: 98, pickT: { medPrice: 106 }, sim: { n: 300, hit: 40, stop: 35, ev: -0.2 } }, 'long'), no = P(D, null, null);
+    const bodies = (no.match(/<rect /g) || []).length;
+    ok('計畫圖：近 60 根 K 線＋量、進場／停損／目標三條線、重演條（達標＋先停損＋到期＝100%）；沒有計畫不畫價位', bodies === 120 && /目標 106\.00/.test(sv) && /停損 98\.00/.test(sv) && /進場 103\.00/.test(sv) && /到期出場 25%/.test(sv) && !/停損 /.test(no) && /不畫價位/.test(no), String(bodies));
+  }
   const sw = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8');
   ok('SW 只刪本 App 的舊快取（同網域其他 PWA 的快取不可刪）', /keys\.filter\(k => k\.startsWith\('stock-radar-v'\) && k !== CACHE\)/.test(sw));
   {   // 新增前端檔時最容易漏：頁面載得到、離線就壞（v168 intel.js 起加此檢查）

@@ -54,7 +54,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 201; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 202; } catch (e) {}
 
 /* v159：marginChg5 名為「5日變化」，但後端資料不足 6 筆時是拿現有最舊那筆當基準，
    實際可能只跨 2~3 天。2 天漲 4% 與 5 天漲 4% 意義完全不同，直接套同一個門檻
@@ -950,6 +950,40 @@ function computeRealisticTargets(D, dir, stopDistPct) {
   } catch (e) { return null; }
 }
 
+/* v202 圖形：近 60 日原始價 K 線＋成交量，疊上執行計畫的進場／停損／目標（與下方計畫同一組數字），
+   下方一條橫條畫照計畫重演的結果（達標／先停損／到期）。只畫已算好的數字，不新增判斷 */
+function planChart(D, pb, side) {
+  try {
+    const C = D.rawCloses || D.closes, H = D.rawHighs || D.highs, L = D.rawLows || D.lows, n = C.length, m = Math.min(60, n), s0 = n - m;
+    const O = k => D.opens && D.opens[k] && D.closes[k] ? D.opens[k] * C[k] / D.closes[k] : C[k - 1] || C[k];
+    const tgt = pb && pb.pickT ? pb.pickT.medPrice : null, lv = pb ? [pb.entry, pb.stop, tgt].filter(v => v > 0) : [];
+    let lo = Math.min(...L.slice(s0), ...lv), hi = Math.max(...H.slice(s0), ...lv); const pad = (hi - lo) * 0.04; lo -= pad; hi += pad;
+    const W = 360, PH = 130, VH = 26, R = 300, bw = R / m, y = v => (hi - v) / (hi - lo) * PH;
+    const V = D.volumes ? D.volumes.slice(s0) : [], vMax = Math.max(1, ...V);
+    let g = '';
+    for (let i = 0; i < m; i++) {
+      const k = s0 + i, o = O(k), c = C[k], up = c >= o, col = up ? 'var(--buy)' : 'var(--sell)', x = i * bw + bw / 2;
+      g += `<line x1="${x}" x2="${x}" y1="${y(H[k])}" y2="${y(L[k])}" stroke="${col}" stroke-width="1"/>`;
+      g += `<rect x="${x - bw * 0.35}" y="${y(Math.max(o, c))}" width="${bw * 0.7}" height="${Math.max(1, Math.abs(y(o) - y(c)))}" fill="${col}"/>`;
+      if (V[i]) g += `<rect x="${x - bw * 0.35}" y="${PH + 4 + VH * (1 - V[i] / vMax)}" width="${bw * 0.7}" height="${VH * V[i] / vMax}" fill="${col}" opacity="0.45"/>`;
+    }
+    if (pb) {   // 價位線；文字標籤太近時上下錯開，避免重疊
+      const ls = [[tgt, 'var(--buy)', '目標'], [pb.stop, 'var(--sell)', '停損'], [pb.entry, 'var(--txt)', '進場']].filter(a => a[0] > 0).sort((a, b) => y(a[0]) - y(b[0]));
+      let last = -99;
+      for (const [v, col, txt] of ls) { const ty = Math.max(y(v) + 3, last + 11); last = ty;
+        g += `<line x1="0" x2="${R}" y1="${y(v)}" y2="${y(v)}" stroke="${col}" stroke-dasharray="4 3" stroke-width="1.2"/><text x="${R + 3}" y="${ty}" font-size="9" fill="${col}">${txt} ${fmt(v)}</text>`; }
+    }
+    let bar = '';
+    const sm = pb && pb.sim;
+    if (sm) { const ex = Math.max(0, 100 - sm.hit - sm.stop);
+      bar = `<div style="display:flex;height:8px;border-radius:4px;overflow:hidden;margin-top:6px"><div style="width:${sm.hit}%;background:var(--buy)"></div><div style="width:${sm.stop}%;background:var(--sell)"></div><div style="width:${ex}%;background:var(--muted2)"></div></div>
+        <div style="font-size:10px;color:var(--muted);margin-top:3px">照計畫重演 ${sm.n} 次：<span style="color:var(--buy)">達標 ${sm.hit.toFixed(0)}%</span>｜<span style="color:var(--sell)">先停損 ${sm.stop.toFixed(0)}%</span>｜到期出場 ${ex.toFixed(0)}%｜每筆淨 <b style="color:${sm.ev >= 0 ? 'var(--buy)' : 'var(--sell)'}">${sm.ev >= 0 ? '+' : ''}${sm.ev.toFixed(2)}%</b>（已扣成本）</div>`; }
+    const title = pb ? `${side === 'long' ? '做多' : '放空'}計畫價位（與下方計畫同一組）` : '近 60 日（今天沒有可執行的計畫，不畫價位）';
+    return `<div style="margin-bottom:10px"><div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px">📈 ${title}</div>
+      <svg viewBox="0 0 ${W} ${PH + VH + 6}" width="100%" role="img" aria-label="近60日K線與計畫價位" style="display:block">${g}</svg>${bar}</div>`;
+  } catch (e) { return `<div style="font-size:10px;color:var(--sell)">⚠️ 圖形畫不出來：${e.message}</div>`; }
+}
+
 function renderTradeGate(ctx) {
   const card = document.getElementById('gate-card');
   if (!card) return;
@@ -986,6 +1020,8 @@ function renderTradeGate(ctx) {
     const planSide = want && g[want].vClass !== 'no' ? want : null;
     const basis = md && md.side ? `方向依據：中期因子${md.side === 'long' ? '最強' : '最弱'} 20%（回測 3 個月 ${md.ex > 0 ? '+' : ''}${md.ex}%）` : '方向依據：勢能等級（未經回測，僅供參考）';
 
+    const pbC = planSide ? planBasis(D, planSide) : null;
+    html += planChart(D, pbC, planSide);   // v202 近 60 日 K 線＋計畫價位＋重演結果
     if (!planSide) {
       html += `<div style="padding:12px;text-align:center;background:var(--bg);border:1px dashed var(--bd);border-radius:10px;margin-bottom:10px;font-size:13px;font-weight:700;color:var(--muted)">⛔ 今日此標的無戰事<div style="font-size:11px;font-weight:400;color:var(--muted2);margin-top:3px">不出手，就是最精準的打擊</div></div>`;
     } else {
@@ -994,7 +1030,7 @@ function renderTradeGate(ctx) {
       // ATR統一用app.js的calcATR（Wilder平滑，業界標準）+原始市價序列（下單價位鐵律）
       // v93修：原本此處有獨立的_gateATR（簡單平均+還原價），與執行計畫/劇本的calcATR
       // 算出不同數值（實測2313差14.7%、2330差7.8%），導致停損價與部位大小前後不一致
-      const { entry, stop, dist, rtT, pickT } = planBasis(D, planSide);
+      const { entry, stop, dist, rtT, pickT } = pbC;
       // 聯動：停損若恰落在圖形線位上=全市場停損聚集區，最易被掃——提示外移
       let stopLineWarn = '';
       try {
