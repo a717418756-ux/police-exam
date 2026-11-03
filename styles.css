@@ -186,6 +186,7 @@ footer{text-align:center;padding:14px;font-size:11px;color:var(--muted);border-t
 /* ══ 卡片折疊 ══ */
 .layer-title{cursor:pointer;user-select:none}
 .layer-title::after{content:'▾';margin-left:auto;color:var(--muted2);font-size:11px;padding-left:6px}
+.layer-title:has(.help-btn)::after{margin-left:0}   /* v206 有ⓘ時由ⓘ靠右，箭頭緊跟其後（原本兩者都 auto，ⓘ 被擠到中間） */
 .card-collapsed .layer-title::after{content:'▸'}
 .card-collapsed .card{display:none!important}
 /* ══ 回頂按鈕 ══ */
@@ -215,7 +216,7 @@ html,body{font-size:15px;line-height:1.55}
 .rb-sub,.pa-desc,.note-tag,.tb-detail,.tab-btn span{font-size:13px!important;line-height:1.6}
 .ic-name{font-size:12px!important;letter-spacing:.4px}.ic-group{font-size:11px!important}
 .ic-badge{font-size:12px!important;padding:3px 9px}.ic-desc{font-size:12.5px!important;line-height:1.6}
-.help-btn{font-size:13px!important;width:24px;height:24px}
+.help-btn{font-size:13px!important;width:24px;height:24px;min-height:0}   /* v206 抵銷下方 button{min-height:38px}，否則ⓘ被拉成橢圓 */
 .rmin,.rmax{font-size:11px!important}.ai-pill{font-size:11.5px!important}
 .layer-title{font-size:15px}.layer-num{font-size:12px}
 .card{padding:16px;border-radius:14px;line-height:1.6}
