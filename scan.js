@@ -11,7 +11,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['scan.js'] = 205; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['scan.js'] = 207; } catch (e) {}
 
 /* v115修：前端原送15檔/批，但 Code.gs（GAS後端）上限只取前10檔——
    使用GAS的人每批會默默遺失5檔（不成功也不算失敗，直接消失，總數對不上）。
@@ -421,14 +421,21 @@ function mlRender(j) {
 function mlImport(inp) {
   const f = inp.files && inp.files[0]; if (!f) return;
   f.text().then(t => { const j = JSON.parse(t);
-    if (j.kind !== 'stockradar-monthly-list' || !Array.isArray(j.long) || !Array.isArray(j.short)) throw new Error('不是電腦版產生的月度名單檔');
+    if (!mlValid(j)) throw new Error('不是電腦版產生的月度名單檔');
     try { localStorage.setItem(ML_KEY, JSON.stringify(j)); } catch (e) {}
     mlRender(j); })
     .catch(e => { document.getElementById('ml-box').innerHTML = `<div style="font-size:11px;color:var(--sell)">⚠️ 匯入失敗：${escI(e.message)}</div>`; })
     .finally(() => { inp.value = ''; });
 }
 // 電腦版：讀資料庫算好的名單並存到本機（個股頁的名單提醒也讀這份）；開啟時先同步一次，失敗原因在名單區顯示
-const mlSync = () => fetch('/local/monthly').then(r => r.json()).then(x => { if (x.error) throw new Error(x.error); try { localStorage.setItem(ML_KEY, JSON.stringify(x)); } catch (e) {} return x; });
+/* v207 與匯入檔同一道格式檢查：原本自動讀取不驗格式，舊版／壞掉的名單直接存進本機，名單區與個股頁提醒一起壞；
+   回應不是 JSON（舊版電腦版把 /local/… 轉去 GitHub Pages 回 404 文字）時原本只顯示「Unexpected token」 */
+const mlValid = j => j && j.kind === 'stockradar-monthly-list' && Array.isArray(j.long) && Array.isArray(j.short);
+const mlSync = () => fetch('/local/monthly', { cache: 'no-store' }).then(r => r.text().then(t => {
+  let x; try { x = JSON.parse(t); } catch (e) { throw new Error(`電腦版回應不是 JSON（HTTP ${r.status}）：${t.slice(0, 60)}——請更新電腦版程式`); }
+  if (x.error) throw new Error(x.error);
+  if (!mlValid(x)) throw new Error('電腦版回傳的不是月度名單格式——請重新執行 更新資料.bat');
+  try { localStorage.setItem(ML_KEY, JSON.stringify(x)); } catch (e) {} return x; }));
 if (ML_LOCAL) mlSync().catch(() => {});
 /* v205 個股頁提醒：此股在本月做多／放空名單第幾名＋操作；大盤避險訊號偏空時提醒只做多者。沒有名單、不在名單且避險正常＝不顯示 */
 function mlStockNote(code, now = Date.now()) {

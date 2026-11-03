@@ -1,0 +1,24 @@
+# 日K資料（selftest 用的 {代碼}.json，如 2330.json、00632R.json）——不進版控
+/[0-9]*.json
+/data/
+/klines/
+
+# 金鑰與本機設定：一律不上 GitHub（Worker 金鑰用 wrangler secret，GAS 用指令碼屬性）
+.env
+.env.*
+.dev.vars
+*.key
+*.pem
+*secret*
+*secrets*
+*token*.json
+*credential*
+local-config.*
+.clasprc.json
+
+# 本機工具與暫存
+node_modules/
+package-lock.json
+.wrangler/
+test-results/
+*.log

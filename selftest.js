@@ -85,10 +85,12 @@ function logicTests() {
     ok('擁擠度與指標卡用同一套 RSI／KD／MACD（不再有 quant.js 的第二份算法）', /const rsi = calcRSI\(c, 14\)/.test(fs.readFileSync(path.join(ROOT, 'mainforce.js'), 'utf8')));
     // ADX：標準 Wilder（從頭平滑）；回測腳本必須用同一算法，否則期望值表的盤勢分類會和畫面對不上
     const grab = (src, n) => { const i = src.indexOf('function ' + n + '('); let d = 0, j = src.indexOf('{', i); for (;; j++) { if (src[j] === '{') d++; else if (src[j] === '}' && !--d) break; } return src.slice(i, j + 1); };
-    const bt = fs.readFileSync(path.join(ROOT, 'backtest_conditional.js'), 'utf8');
-    const X = new Function(grab(ap, 'calcDMI') + grab(bt, 'adxSeries') + ';return { calcDMI, adxSeries };')();
+    // 回測腳本不部署也不進版控（README），clone 下來的資料夾沒有它：略過並明講，不可讓整段邏輯檢查中斷
+    const fbt = path.join(ROOT, 'backtest_conditional.js');
+    if (!fs.existsSync(fbt)) console.log('（找不到 backtest_conditional.js，略過 ADX 與回測腳本一致性檢查）');
+    const X = fs.existsSync(fbt) && new Function(grab(ap, 'calcDMI') + grab(fs.readFileSync(fbt, 'utf8'), 'adxSeries') + ';return { calcDMI, adxSeries };')();
     const f2330 = path.join(DATA, '2330.json');
-    if (fs.existsSync(f2330)) { const r = JSON.parse(fs.readFileSync(f2330, 'utf8'));
+    if (X && fs.existsSync(f2330)) { const r = JSON.parse(fs.readFileSync(f2330, 'utf8'));
       if (Array.isArray(r)) { const h = r.map(x => x.max), l = r.map(x => x.min), c = r.map(x => x.close), a = X.calcDMI(h, l, c).adx, b = X.adxSeries({ h, l, c }).at(-1).adx;
         // v201 改和測試內的教科書 Wilder 比（原本寫死 15.9，換了資料截止日就失敗）
         let sT = 0, sP = 0, sN = 0, dxs = [], ref = null;
@@ -226,7 +228,7 @@ function logicTests() {
     const j = { use: '2026-10', sig: '2026-09', lastDate: '2026-10-01', poolN: 500, long: [{ code: '2330', name: '台積電' }, { code: "1');alert(1)//", name: 'x' }], short: [{ code: '2498', name: '<b>宏達電</b>' }] };
     const h1 = M(j, Date.UTC(2026, 9, 21)), h2 = M(j, Date.UTC(2026, 10, 3));
     ok('月度名單：顯示做多／放空、點代碼查詢；非四位代碼不出按鈕、名稱跳脫；過月提醒重跑', /qs\('2330'\)/.test(h1) && !/alert/.test(h1) && !/<b>宏達電/.test(h1) && !/請在電腦更新/.test(h1) && /請在電腦更新/.test(h2) && /尚未匯入/.test(M(null))
-      && /onchange="mlImport\(this\)"/.test(ix) && /mlRender\(\);/.test(sc) && /j\.kind !== 'stockradar-monthly-list'/.test(sc), h1.slice(0, 80));
+      && /onchange="mlImport\(this\)"/.test(ix) && /mlRender\(\);/.test(sc) && /const mlValid = j => j && j\.kind === 'stockradar-monthly-list'/.test(sc) && /if \(!mlValid\(j\)\) throw/.test(sc), h1.slice(0, 80));
     // v203 大盤避險訊號 H：隨名單匯入；≥2 項偏空才叫放空大盤；舊檔沒有要講
     const hOn = M({ ...j, hedge: { on: true, items: [true, true, false], breadth: 0.31 } }, Date.UTC(2026, 9, 21)), hOff = M({ ...j, hedge: { on: false, items: [true, false, false], breadth: 0.55 } }, Date.UTC(2026, 9, 21));
     ok('月度名單：大盤避險訊號（偏空 2／3 項→放空等額大盤；1 項→不需避險；舊檔提醒重跑）', /偏空（2／3 項）/.test(hOn) && /放空等額大盤/.test(hOn) && /站上 50 日線 31%/.test(hOn)
@@ -243,7 +245,7 @@ function logicTests() {
       && /請先更新/.test(nOld) && !/請先更新/.test(nL) && none === '' && /D\.currency === 'TWD'\) judgeEl\.innerHTML \+= mlStockNote\(D\.code\)/.test(fs.readFileSync(path.join(ROOT, 'bingfa.js'), 'utf8')), nL.slice(0, 120));
     // v204 電腦版（localhost）直接讀 /local/monthly；讀不到要顯示原因；手機照舊讀匯入檔
     ok('月度名單：電腦版自動讀資料庫名單、失敗講原因；手機照舊用匯入檔', /ML_LOCAL = \/\^\(localhost\|127\\\.0\\\.0\\\.1\)\$\/\.test\(location\.hostname\)/.test(sc)
-      && /fetch\('\/local\/monthly'\)/.test(sc) && /讀不到電腦版名單/.test(sc) && /if \(j === undefined\) try \{ j = JSON\.parse\(localStorage\.getItem\(ML_KEY\)/.test(sc));
+      && /fetch\('\/local\/monthly'/.test(sc) && /讀不到電腦版名單/.test(sc) && /if \(!mlValid\(x\)\) throw/.test(sc) && /電腦版回應不是 JSON/.test(sc) && /if \(j === undefined\) try \{ j = JSON\.parse\(localStorage\.getItem\(ML_KEY\)/.test(sc));
   }
   const sw = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8');
   ok('SW 只刪本 App 的舊快取（同網域其他 PWA 的快取不可刪）', /keys\.filter\(k => k\.startsWith\('stock-radar-v'\) && k !== CACHE\)/.test(sw));
@@ -1150,6 +1152,20 @@ async function backendTests() {
   gsFetch = () => gsOf(chart(80, { trailingNull: 1 }));
   ok('GAS lastDate 對齊最後一根有效K棒', G.fetchYahoo('AAPL').lastDate === want);
   ok('GAS 台股有回傳 lastDate（新鮮度檢查才有效）', G.fetchYahooTW('2330').lastDate === want);
+
+  // v207 端點對等：掃描「不足60日」兩端同一句、不重試，且不含「查無K線」（scan.js 據此累計死代碼，新上市股不可被除名）
+  { let wn = 0, gn = 0;
+    fetchImpl = async () => { wn++; return { ok: true, json: async () => chart(30) }; };
+    gsFetch = () => { gn++; return gsOf(chart(30)); };
+    const WH0 = {}; new Function('module', fs.readFileSync(path.join(ROOT, 'worker.js'), 'utf8').replace('export default', 'module.handler =')) (WH0);
+    const ws = JSON.parse(await (await WH0.handler.fetch(new Request('https://w.test/?action=scan&codes=7777'), {})).text()).results[0];
+    const gs0 = JSON.parse(G.doGet({ parameter: { action: 'scan', codes: '7777' } })).results[0];
+    ok('掃描不足60日：Worker 與 GAS 同一句、不重試、不計入死代碼', ws.error === gs0.error && /^僅 30 個交易日/.test(gs0.error) && !/查無K線|查無此代碼/.test(gs0.error) && wn === 1 && gn === 1, `${ws.error}｜${gs0.error}｜${wn}/${gn}`);
+    const wg = JSON.parse(await (await WH0.handler.fetch(new Request('https://w.test/?action=sync_save'), {})).text());
+    const gg = JSON.parse(G.doGet({ parameter: { action: 'sync_save' } }));
+    ok('sync_save 用 GET 呼叫：兩端都明講要用 POST（不再回「缺少股票代碼」）', wg.ok === false && wg.error === gg.error && /POST/.test(gg.error), `${wg.error}｜${gg.error}`);
+    const wc = JSON.parse(await (await WH0.handler.fetch(new Request('https://w.test/?code='), {})).text()), gc = JSON.parse(G.doGet({ parameter: {} }));
+    ok('缺少代碼：兩端錯誤訊息相同', wc.error === gc.error, `${wc.error}｜${gc.error}`); }
 
   // ①b 用「Yahoo 實際回傳」驗證時間戳慣例（2330.TW，2026-09-22 取得）：
   //     台股日K的時間戳＝當日 09:00 台北＝01:00Z。period2 用 T23:59:59Z 即可涵蓋當天，
@@ -2123,6 +2139,7 @@ ${Array.from({ length: 3 }, (_, i) => `<item><title>台積電法說重點第${i}
     const s1 = await call('action=sync_save', kvE, { method: 'POST', body: JSON.stringify(bk) });
     const g1 = await call('action=sync_get&user=u1', kvE);
     ok('雲端備份：有綁 KV 時存得進、讀得回', s1.ok === true && g1.ok === true && g1.data.trades[0].id === 1, JSON.stringify(g1));
+    ok('雲端備份：Worker 回傳與 GAS 同格式（savedAt／bytes／usedPct，日誌頁靠 usedPct 提醒接近上限）', !isNaN(Date.parse(s1.savedAt)) && s1.bytes === Buffer.byteLength(JSON.stringify(bk)) && typeof s1.usedPct === 'number', JSON.stringify(s1));
 
     /* ③ 去重：使用者實測同一則新聞三種寫法 */
     const dup = ['嘉科3期計劃啟動 點名台積電增設5座封裝廠 | ETtoday新聞雲', '嘉科3期計劃啟動　點名台積電增設5座封裝廠', '嘉科3期計劃啟動 點名台積電增設5座封裝廠'];
