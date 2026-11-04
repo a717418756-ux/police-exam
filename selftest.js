@@ -173,6 +173,13 @@ function logicTests() {
       ok('上櫃月營收：兩個後端都改用 TPEx mopsfin_t187ap05_O（TWSE 的 t187ap05_O 不存在），失敗原因回傳並顯示在基本面卡', [wk, gs2].every(x => x.includes('https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap05_O') && !/'t187ap05_O'/.test(x) && /revErr/.test(x)) && /月營收抓不到：/.test(av2) && /!j\.revErr/.test(av2)); }
     ok('ADX：期望值表已用標準 ADX 重跑，查表用畫面同一個盤勢分類；舊版算法已移除', /const rgNow = computeRegime\(D\)/.test(bf) && !/calcDMILegacy|legacy/.test(ap + en + bf) && /多頭: \[-0\.80, 5126\]/.test(cfg));
   }
+  { // v208 同一畫面只能有一組停損：風險卡、趨勢邏輯鏈、橫幅標題都用執行計畫的 planBasis
+    const ap = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8'), bf = fs.readFileSync(path.join(ROOT, 'bingfa.js'), 'utf8'), mf = fs.readFileSync(path.join(ROOT, 'mainforce.js'), 'utf8'), css = fs.readFileSync(path.join(ROOT, 'styles.css'), 'utf8');
+    ok('v208 風險卡停損與執行計畫同一組（planBasis），不再另算 2×ATR 或自行移動', /const pb=planBasis\(D,'long'\)/.test(ap) && !/stopLoss=L\.v\*0\.992/.test(ap) && !/ATR 停損價 \(2×ATR\)/.test(ap));
+    ok('v208 趨勢邏輯鏈「結構」用執行計畫重演，不再另用 2×ATR', !/以2×ATR停損、5日中位目標重演/.test(bf) && /照執行計畫（同一組停損、5日中位目標）重演/.test(bf));
+    ok('v208 勢能 A/B 級但照計畫重演為負時，標題不得再說「條件良好」', /級多方勢能，但照計畫重演為負/.test(bf) && /級勢能，但照計畫重演為負/.test(bf));
+    ok('v208 主力意圖分數列有關閉（否則歷史驗證被擠進 flex 窄欄）', /\}\);\n    html \+= `<\/div>`;   \/\/ v208 補上分數列/.test(mf));
+    ok('v208 桌機劇本單欄（多空兩塊不並排）', /#pb-rows\.risk-grid\{grid-template-columns:1fr\}/.test(css)); }
   ok('盤中時鐘 twMarketPhase 已移除（推估全日量的依據已不存在），沒有殘留呼叫', !/twMarketPhase/.test(['config.js', 'bingfa.js', 'enhance.js', 'mainforce.js', 'app.js'].map(f => fs.readFileSync(path.join(ROOT, f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')).join('')));
   // 台北時間一律「+8h 時間戳搭配 getUTC*」：混用 getHours 會整個時區錯位
   for (const f of ['config.js', 'app.js', 'worker.js', 'bingfa.js', 'enhance.js']) {
