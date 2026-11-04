@@ -1,7 +1,7 @@
 # 短線雷達 StockRadar Pro
 
 > 台股／美股日K分析 PWA｜繁體中文｜手機／Boox e-ink 優化
-> 版本 v198（2026-10）｜原則：**只說有證據的話**——沒有回測證據的規則只提醒、不擋單；沒有資料就不顯示
+> 版本 v209（2026-11）｜原則：**只說有證據的話**——沒有回測證據的規則只提醒、不擋單；沒有資料就不顯示
 
 ---
 
@@ -88,7 +88,7 @@ ECO、MFD、STI、FUSION、PSY（併入 RSI）、崩跌預警、專屬量化分�
 | scan.js／layout.js／help.js | 掃描、分頁、說明 | GitHub Pages |
 | worker.js | 後端（Cloudflare） | Worker 編輯器 |
 | Code.gs | 後端（GAS，ES5） | GAS 編輯器 |
-| selftest.js | 自我檢查（約 655 項，需 playwright） | 不部署 |
+| selftest.js | 自我檢查（745 項，需 playwright；本機沒有 backtest_conditional.js 時略過 ADX 一致性檢查） | 不部署 |
 | backtest_conditional.js／backtest_standalone.js | 19 年回測 | 不部署 |
 | research/ | 研究腳本與全市場下載 | 不部署 |
 
@@ -131,6 +131,8 @@ ECO、MFD、STI、FUSION、PSY（併入 RSI）、崩跌預警、專屬量化分�
 ## 七、修改與驗證規範
 
 見 `AI協作交接提示詞.md`。重點：修改不誤傷、不留死碼、不猜（用真實資料驗證）、沒值不顯示、失敗要大聲；新規則先回測、過門檻才進系統；交付前 `node selftest.js <資料夾>` 全過。
+
+停損、部位、照計畫重演的數字全系統只有一個來源：`bingfa.js` 的 `planBasis`（紀律門執行計畫、決策橫幅的一句話結論列、風險卡、進出場劇本、趨勢邏輯鏈都讀它），不可在別處另算。
 
 ---
 

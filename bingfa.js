@@ -54,7 +54,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 208; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 209; } catch (e) {}
 
 /* v159：marginChg5 名為「5日變化」，但後端資料不足 6 筆時是拿現有最舊那筆當基準，
    實際可能只跨 2~3 天。2 天漲 4% 與 5 天漲 4% 意義完全不同，直接套同一個門檻
@@ -993,6 +993,39 @@ function planChart(D, pb, side) {
   } catch (e) { return `<div style="font-size:10px;color:var(--sell)">⚠️ 圖形畫不出來：${e.message}</div>`; }
 }
 
+/* v209 一句話結論列（橫幅最上方）：方向、進場／停損／目標、部位、此股照計畫重演每筆淨。
+   全部取 renderTradeGate 執行計畫的同一組變數與 planBasis，不另算；沒有的欄位不顯示。
+   今天沒有計畫時講原因與兩邊重演，不留空 */
+function renderPlanLine(D, ol) {
+  const el = document.getElementById('vb-oneline');
+  if (!el) return;
+  if (!ol || !D) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  const pct = x => `<b style="color:${x < 0 ? 'var(--sell)' : 'var(--buy)'}">${x >= 0 ? '+' : ''}${x.toFixed(2)}%</b>`;
+  const sideTxt = s => s === 'long' ? '做多' : '做空';
+  const { md, sh, g, want, planSide, pbC, plan } = ol;
+  const why = md && md.side ? `依中期因子${md.side === 'long' ? '最強' : '最弱'} 20%` : sh ? `依勢能 ${sh.grade} 級，未經回測` : '';
+  const item = (k, v) => `<span style="display:inline-block;margin-right:12px"><span style="color:var(--muted2)">${k}</span> ${v}</span>`;
+  let h;
+  if (planSide && !plan) { el.style.display = 'none'; el.innerHTML = ''; return; }   // 計畫中途出錯：不顯示，免得誤寫「無計畫」
+  if (planSide) {
+    const pc = planSide === 'long' ? 'var(--buy)' : 'var(--sell)', sim = pbC && pbC.sim, f = x => plan.cur + fmt(x);
+    h = item('方向', `<b style="color:${pc}">${sideTxt(planSide)}</b>（${why}）`)
+      + item('價位', `進場 <b>${f(plan.entry)}</b> → 停損 <b style="color:var(--sell)">${f(plan.stop)}</b> → 目標${plan.days ? `（${plan.days}日中位）` : '（2R）'} <b style="color:var(--buy)">${f(plan.tp1)}</b>`)
+      + (plan.blocked ? item('部位', '<b style="color:var(--sell)">本月 6% 熔斷，不開新倉</b>') : plan.size ? item('部位（試單）', `<b>${plan.size}</b>`) : item('部位', '不足最小單位，跳過'))
+      + (sim ? item('此股照計畫重演', `每筆淨 ${pct(sim.ev)}（${sim.n} 次，已扣成本）`) : '');
+  } else {
+    let eL = null, eS = null;
+    try { const a = planBasis(D, 'long').sim; if (a) eL = a.ev; } catch (e) {}
+    try { const b = planBasis(D, 'short').sim; if (b) eS = b.ev; } catch (e) {}
+    const reason = want ? `${sideTxt(want)}方向（${why}）被紀律門禁止：${g[want].fail[0].split('：')[0]}`
+      : `${sh ? `勢能 ${sh.grade}` : '勢能未算出'}、中期${md ? md.label : '待定'}`;
+    const ev = eL == null && eS == null ? '' : `、${eL != null && eS != null && eL < 0 && eS < 0 ? '兩邊重演皆負' : '照計畫重演'}（${eL != null ? `多 ${pct(eL)}` : ''}${eL != null && eS != null ? '／' : ''}${eS != null ? `空 ${pct(eS)}` : ''}）`;
+    h = `<b style="color:var(--txt)">今日無計畫</b>：${reason}${ev} → <b>觀望</b>`;
+  }
+  el.innerHTML = `<div style="font-size:12px;color:var(--muted);line-height:1.7;padding:7px 10px;margin-bottom:10px;background:var(--bg);border:1px solid var(--bd);border-radius:9px;overflow-wrap:anywhere">📌 ${h}</div>`;
+  el.style.display = 'block';
+}
+
 function renderTradeGate(ctx) {
   const card = document.getElementById('gate-card');
   if (!card) return;
@@ -1020,6 +1053,7 @@ function renderTradeGate(ctx) {
     html += `<div style="padding:10px 12px;background:${tc}10;border:1px solid ${tc}50;border-radius:9px;font-size:11px;color:var(--muted);line-height:1.7;margin-bottom:10px">${g.timing.text}</div>`;
   }
   // ── 🎯 執行計畫（化繁為簡：做哪邊/幾張/停損/停利/時間停損）──
+  let ol = null;   // v209 一句話結論列：與下方執行計畫同一組變數（不另算）
   try {
     const D = ctx.D;
     /* v192 做哪一邊：先看有回測證據的中期因子（最強／最弱 20%），沒有中期訊號時才退回勢能等級（A/B 做多、空A/空B 做空，未經回測）。
@@ -1030,6 +1064,7 @@ function renderTradeGate(ctx) {
     const basis = md && md.side ? `方向依據：中期因子${md.side === 'long' ? '最強' : '最弱'} 20%（回測 3 個月 ${md.ex > 0 ? '+' : ''}${md.ex}%）` : '方向依據：勢能等級（未經回測，僅供參考）';
 
     const pbC = planSide ? planBasis(D, planSide) : null;
+    ol = { want, planSide, md, sh, g, pbC };
     html += planChart(D, pbC, planSide);   // v202 近 60 日 K 線＋計畫價位＋重演結果
     if (!planSide) {
       html += `<div style="padding:12px;text-align:center;background:var(--bg);border:1px dashed var(--bd);border-radius:10px;margin-bottom:10px;font-size:13px;font-weight:700;color:var(--muted)">⛔ 今日此標的無戰事<div style="font-size:11px;font-weight:400;color:var(--muted2);margin-top:3px">不出手，就是最精準的打擊</div></div>`;
@@ -1074,10 +1109,12 @@ function renderTradeGate(ctx) {
          高價股在2%風險下算出0張是正常的（2330約74股），直接給零股數才可執行。
          這是「符合現實」而非「數學上不足」：不給零股數等於逼使用者自己心算或超額下單。 */
       const shr2 = dist > 0 ? Math.floor(riskAmt2 / dist) : 0;
-      const sizeTxt2 = D.currency === 'TWD'
-        ? (lots2 >= 1 ? lots2 + ' 張' + (shr2 - lots2 * 1000 >= 1 ? `（＋${shr2 - lots2 * 1000} 零股）` : '')
-                      : (shr2 >= 1 ? shr2 + ' 股（零股，2%風險下不足1張屬正常）' : '風險額不足最小單位——此股停損距離過大，跳過'))
-        : (shr2 >= 1 ? shr2 + ' 股' : '不足1股');
+      const sizeShort = D.currency === 'TWD'
+        ? (lots2 >= 1 ? lots2 + ' 張' + (shr2 - lots2 * 1000 >= 1 ? `（＋${shr2 - lots2 * 1000} 零股）` : '') : shr2 >= 1 ? shr2 + ' 股' : null)
+        : (shr2 >= 1 ? shr2 + ' 股' : null);
+      const sizeTxt2 = sizeShort ? sizeShort + (D.currency === 'TWD' && lots2 < 1 ? '（零股，2%風險下不足1張屬正常）' : '')
+        : D.currency === 'TWD' ? '風險額不足最小單位——此股停損距離過大，跳過' : '不足1股';
+      ol.plan = { entry, stop, tp1, days: pickT ? pickT.days : null, size: sizeShort, blocked: !!(rb && rb.blocked), cur };
 
       if (rb && rb.blocked) {
         // 6%原則熔斷：本月已虧6%，停止開新倉
@@ -1168,6 +1205,7 @@ function renderTradeGate(ctx) {
       }
     }
   } catch (e) { /* 執行計畫失敗不影響裁決顯示 */ }
+  renderPlanLine(ctx.D, ol);
 
   html += `<div style="font-size:10px;color:var(--muted2);line-height:1.8;padding-top:8px;border-top:1px solid var(--bd)">
     <b style="color:var(--muted)">⚔️ 出手四律（依回測結果）</b><br>
