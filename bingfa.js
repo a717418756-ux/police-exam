@@ -54,7 +54,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 205; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 208; } catch (e) {}
 
 /* v159：marginChg5 名為「5日變化」，但後端資料不足 6 筆時是拿現有最舊那筆當基準，
    實際可能只跨 2~3 天。2 天漲 4% 與 5 天漲 4% 意義完全不同，直接套同一個門檻
@@ -287,7 +287,14 @@ function renderVerdictBanner(shi, D, regime, mtf) {
     const md = midDirection(midFactors(D));
     if (md && md.side === 'short') { color = 'var(--warn)'; bg = 'var(--warn-d)'; title = `🟡 ${grade}級多方勢能，但中期因子最弱 20%`;
       summary = `勢能 ${shi.shi}分（未經回測）與中期因子（全市場回測）相反：中期最弱組之後3個月平均超額 ${md.ex}%——以中期為準，不做多；執行計畫依中期方向`; }
-    else summary = `勢能 ${shi.shi}分（未經回測）${syn && syn.decisive ? `、行為結構 ${syn.score >= 0 ? '+' : ''}${syn.score}` : ''}。${warns.length ? '有警示需先看（見下方）' : '沒有警示'}，進場價位與停損照出手紀律門的執行計畫，嚴設停損`;
+    else {
+      summary = `勢能 ${shi.shi}分（未經回測）${syn && syn.decisive ? `、行為結構 ${syn.score >= 0 ? '+' : ''}${syn.score}` : ''}。${warns.length ? '有警示需先看（見下方）' : '沒有警示'}，進場價位與停損照出手紀律門的執行計畫，嚴設停損`;
+      /* v208 標題不再只看未經回測的勢能：此股照執行計畫重演（同一組停損／目標、已扣成本）為負時，標題改黃、講出數字——
+         原本綠色「條件良好」底下緊接著「兩邊皆為負」「照計畫重演為負」，一眼看到的結論與證據相反 */
+      let sim = null; try { sim = planBasis(D, 'long').sim; } catch (e) {}
+      if (sim && sim.ev < 0) { color = 'var(--warn)'; bg = 'var(--warn-d)'; title = `🟡 ${grade}級多方勢能，但照計畫重演為負`;
+        summary = `勢能 ${shi.shi}分（未經回測）；此股照執行計畫重演 ${sim.n} 次每筆淨 ${sim.ev.toFixed(2)}%（已扣成本）——方向看對也常先被停損。要做只用試單，或等回測關鍵位讓停損變近`; }
+    }
   } else if (grade === 'C') {
     color = 'var(--warn)'; bg = 'var(--warn-d)';
     title = '🟡 C級標的，勢能普通，謹慎';
@@ -315,7 +322,10 @@ function renderVerdictBanner(shi, D, regime, mtf) {
       if (gS && gS.fail.length) { color = 'var(--warn)'; bg = 'var(--warn-d)'; title = `🟡 空方${shi.shortGrade}級勢能，但紀律門禁止做空`; summary = `空方勢能 ${shi.shortShi}分。出手紀律門禁止做空：${gS.fail[0]}`; }
       else { const md = midDirection(midFactors(D));   // v195 與中期因子相反時以中期為準
         if (md && md.side === 'long') { color = 'var(--warn)'; bg = 'var(--warn-d)'; title = `🟡 空方${shi.shortGrade}級勢能，但中期因子最強 20%`;
-          summary = `空方勢能 ${shi.shortShi}分（未經回測）與中期因子（全市場回測）相反：中期最強組之後3個月平均超額 +${md.ex}%——以中期為準，不放空；執行計畫依中期方向`; } }
+          summary = `空方勢能 ${shi.shortShi}分（未經回測）與中期因子（全市場回測）相反：中期最強組之後3個月平均超額 +${md.ex}%——以中期為準，不放空；執行計畫依中期方向`; }
+        else { let sim = null; try { sim = planBasis(D, 'short').sim; } catch (e) {}   // v208 與多方同一規則：照計畫重演為負時標題改黃
+          if (sim && sim.ev < 0) { color = 'var(--warn)'; bg = 'var(--warn-d)'; title = `🟡 空方${shi.shortGrade}級勢能，但照計畫重演為負`;
+            summary = `空方勢能 ${shi.shortShi}分（未經回測）；此股照執行計畫重演 ${sim.n} 次每筆淨 ${sim.ev.toFixed(2)}%（已扣成本）——要做只用試單，或等反彈到壓力區讓停損變近`; } } }
     }
   } else {
     color = 'var(--muted)'; bg = 'var(--bg)';
@@ -423,11 +433,10 @@ function renderVerdictBanner(shi, D, regime, mtf) {
       if (syn) seg.push({ k: '參與者', v: !syn.decisive ? `只有 ${syn.voteCount} 個有方向的行為，不足以判斷走向` : `行為結構 ${syn.score >= 0 ? '+' : ''}${syn.score}${syn.conflict && syn.conflict.length ? `，但有 ${syn.conflict.length} 項證據互相衝突——分歧時勿重倉` : syn.score >= 20 ? '，多方證據集中' : syn.score <= -20 ? '，空方證據集中' : '，證據分散無主導方' }` });
       // ④ 結構是否支持（v201 計畫重演＝能不能賺）
       try {
-        const atrN = calcATR(D.rawHighs || D.highs, D.rawLows || D.lows, D.rawCloses || D.closes, 14);
-        const stopPctN = atrN * 2 / barPx(D) * 100;
-        const ev5 = d => { const rt = typeof computeRealisticTargets === 'function' ? computeRealisticTargets(D, d, stopPctN) : null; const r = rt && rt.rows ? rt.rows.find(x => x.days === 5) : null; return r && r.sim ? r.sim.ev : null; };
-        const eL = ev5(1), eS = ev5(-1), f = x => x == null ? '—' : (x >= 0 ? '+' : '') + x.toFixed(2) + '%';
-        if (eL != null || eS != null) seg.push({ k: '結構', v: `以2×ATR停損、5日中位目標重演，每筆淨 做多 ${f(eL)}｜做空 ${f(eS)}（已扣成本）${Math.max(eL == null ? -1 : eL, eS == null ? -1 : eS) < 0 ? '——兩邊都是負期望：需等回測關鍵位讓停損變近（見風險卡「出路」）' : ''}` });
+        // v208 與紀律門／執行計畫／風險卡同一組停損（planBasis 智慧停損）；原本另用 2×ATR 重演，數字與上方計畫不同
+        const ev5 = side => { const pb = planBasis(D, side); return pb && pb.sim ? pb.sim.ev : null; };
+        const eL = ev5('long'), eS = ev5('short'), f = x => x == null ? '—' : (x >= 0 ? '+' : '') + x.toFixed(2) + '%';
+        if (eL != null || eS != null) seg.push({ k: '結構', v: `照執行計畫（同一組停損、5日中位目標）重演，每筆淨 做多 ${f(eL)}｜做空 ${f(eS)}（已扣成本）${Math.max(eL == null ? -1 : eL, eS == null ? -1 : eS) < 0 ? '——兩邊都是負期望：需等回測關鍵位讓停損變近（見風險卡「出路」）' : ''}` });
       } catch (e) {}
       // ⑤ 翻盤條件（最關鍵：事先寫下我錯了的證據）
       const inval = [];

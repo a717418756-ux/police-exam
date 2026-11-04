@@ -253,6 +253,7 @@ button{min-height:38px}
   .card,#stock-bar,#trend-banner,#err-box{break-inside:avoid}
   .sb-price{font-size:32px}
   .risk-grid{grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}
+  #pb-rows.risk-grid{grid-template-columns:1fr}   /* v208 劇本是多空兩大塊（內含 2×2），套用 220px 自動欄會兩塊並排、內格擠到一字一行 */
   .chip:hover,.cat-tab:hover,.modal-tab:hover{border-color:var(--acc);color:var(--acc)}
   ::-webkit-scrollbar{width:10px;height:10px}
   ::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:6px}

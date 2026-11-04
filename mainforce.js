@@ -37,7 +37,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['mainforce.js'] = 198; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['mainforce.js'] = 208; } catch (e) {}
 
 /* ══ A. OBV 能量潮 ════════════════════════════════════════════════════
    收漲日加量、收跌日減量的累積線。價與 OBV 背離 = 主力偷跑：
@@ -463,6 +463,7 @@ function renderMainForce(D) {
       const sCol = sc.dir==='up'?'var(--buy)':sc.dir==='down'?'var(--sell)':sc.dir==='bounce'?'var(--warn)':'var(--muted)';
       html += `<div style="flex:1;text-align:center;background:var(--bg);border-radius:6px;padding:4px"><div style="font-size:9px;color:var(--muted)">${sc.name}</div><div style="font-family:var(--mono);font-size:13px;font-weight:700;color:${sc.score>0?sCol:'var(--muted2)'}">${sc.score}</div></div>`;
     });
+    html += `</div>`;   // v208 補上分數列的結尾——原本沒關，下方歷史驗證與 Wyckoff 註記全被塞進這個 flex 列，擠成窄欄
     // 真實資料回測：此股2年歷史逐日重演，驗證意圖引擎在「這支股票」上準不準
     try {
       const bt = computeIntentBacktest(D);

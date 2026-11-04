@@ -1,6 +1,6 @@
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['app.js'] = 201; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['app.js'] = 208; } catch (e) {}
 
 // ══════════════════════════════════════════════════════════════════════
 // 短線雷達 Pro — 風險優先分層決策系統
@@ -233,12 +233,17 @@ function analyzeRisk(D,atr){
   const riskPct=parseFloat($('in-risk').value)||1;
   const winRate=Math.min(95,Math.max(5,parseFloat($('in-winrate').value)||50))/100;
 
-  // ATR 停損（2倍）
-  const atrMult=2;
-  let stopLoss=price-atr*atrMult;
-  // ── v80聯動：停損防掃調整 ──
-  // 原理：停損若恰好放在「人人看得到的線位（趨勢線/箱底/頸線）或整數關卡」內側緊貼處，
-  // 正好落在全市場停損聚集區，最容易被掃損後反轉。偵測到即下移到該價位外側0.8%。
+  /* v208 停損與紀律門／執行計畫同一組（planBasis：智慧停損＝前波低−緩衝與 2×ATR 取較遠、上限 3×ATR）。
+     原本這裡另算 2×ATR（再自行避開掃損區），同一畫面出現兩個停損價、兩個部位數字，
+     且凱利、停利達成率都是用另一組停損重演的。取不到才退回 2×ATR。 */
+  let stopLoss=price-atr*2, stopMethod='2×ATR';
+  try{
+    if(typeof planBasis==='function'){
+      const pb=planBasis(D,'long');
+      if(pb&&pb.stop>0&&pb.stop<price){ stopLoss=pb.stop; stopMethod=pb.smart?pb.smart.long.method:'2×ATR'; }
+    }
+  }catch(e){}
+  // v80 掃損區：停損若貼在人人看得到的線位（圖形線位／整數關卡）內側 0.6% 內，最容易被掃——v208 起只提醒、不再自行移動（移動會與執行計畫不一致）
   let stopNote=null;
   try{
     const levels=[];
@@ -251,10 +256,8 @@ function analyzeRisk(D,atr){
       if(an&&an.nearRound&&an.nearestRound<price) levels.push({v:an.nearestRound,name:'整數關卡'});
     }
     for(const L of levels){
-      // 停損在線位上方且距離<0.6%價格 = 貼在掃損區內側
       if(stopLoss>L.v && (stopLoss-L.v)/price<0.006){
-        stopLoss=L.v*0.992;
-        stopNote=`已避開掃損區：原停損貼近「${L.name} ${L.v.toFixed(2)}」內側（全市場停損聚集處），下移至其外側0.8%`;
+        stopNote=`停損貼近「${L.name} ${L.v.toFixed(2)}」內側（全市場停損聚集處），容易被掃；可自行放到其外側（約 ${(L.v*0.992).toFixed(2)}），部位要跟著減少`;
         break;
       }
     }
@@ -309,7 +312,7 @@ function analyzeRisk(D,atr){
     }
   } catch (e) {}
 
-  return{capital,riskPct,winRate,atr,stopLoss,stopPct,stopDist,chandelier,tp5,tp10,stopNote,b,bSource,breakevenWR,fixSuggestion,
+  return{capital,riskPct,winRate,atr,stopLoss,stopMethod,stopPct,stopDist,chandelier,tp5,tp10,stopNote,b,bSource,breakevenWR,fixSuggestion,
     riskAmount,shares,positionValue,positionPct,
     kellyFull,kellyHalf,kellyQuarter,
     currency:D.currency};
@@ -423,7 +426,7 @@ function renderRisk(r){
   $('risk-card').style.display='block';
   const cur=r.currency==='TWD'?'NT$':'$';
   const boxes=[
-    {cls:'',label:'🛑 ATR 停損價 (2×ATR)',value:cur+fmt(r.stopLoss),valCls:'sell',sub:`停損距離 ${fmt(r.stopDist)}（${r.stopPct.toFixed(1)}%）${r.stopNote?'。📐 '+r.stopNote:'，比固定%停損更貼合波動'}`},
+    {cls:'',label:'🛑 停損價（與執行計畫同一組）',value:cur+fmt(r.stopLoss),valCls:'sell',sub:`停損距離 ${fmt(r.stopDist)}（${r.stopPct.toFixed(1)}%）｜${r.stopMethod}${r.stopNote?'。⚠️ '+r.stopNote:''}`},
     {cls:'good',label:'🎯 停利一（此股5日中位可達）',value:r.tp5?cur+fmt(r.tp5.medPrice):'—',valCls:'buy',sub:r.tp5?`+${r.tp5.medPct.toFixed(1)}%${r.tp5.sim?`｜照計畫重演達標 ${r.tp5.sim.hit.toFixed(0)}%、先停損 ${r.tp5.sim.stop.toFixed(0)}%`:''}（不管停損時，一半的日子5日內摸得到）`:'資料不足 120 日，算不出此股實際可達幅度'},
     {cls:'good',label:'🎯 停利二（此股10日中位可達）',value:r.tp10?cur+fmt(r.tp10.medPrice):'—',valCls:'buy',sub:r.tp10?`+${r.tp10.medPct.toFixed(1)}%｜抱得久一點的目標（固定 1:2、1:3 實測 10 日內只摸到 10.5%／3.9%）`:'資料不足 120 日'},
     {cls:'warn',label:'🪜 移動停利 (Chandelier)',value:cur+fmt(r.chandelier),valCls:'warn',sub:`最高價-3×ATR，股價創高就上移，保護獲利`},
