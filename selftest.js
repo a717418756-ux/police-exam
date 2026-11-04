@@ -102,8 +102,9 @@ function logicTests() {
         ok('ADX：標準 Wilder 算法（與測試內的教科書實作一致），回測腳本算出的完全相同', Math.abs(a - ref) < 1e-6 && Math.abs(a - b) < 1e-9, `${a.toFixed(3)}／${ref.toFixed(3)}／${b.toFixed(3)}`); } }
     // v188 重測後的修正：工具要能亮、亮了要有意義
     const mk = fs.readFileSync(path.join(ROOT, 'market.js'), 'utf8');
+    ok('v210 高波動禁空的畫面說明用全市場重驗數字（−1.70%），不再寫舊 24 檔的「放空每筆虧1.42%」', ['bingfa.js', 'enhance.js', 'scan.js', 'journal.js'].every(f => !/放空每筆虧1.42%/.test(fs.readFileSync(path.join(ROOT, f), 'utf8'))) && /此時放空每筆−1.70%（11.9萬筆/.test(bf));
     { const tg = bf.slice(bf.indexOf('function computeTradeGate('), bf.indexOf('function renderTradeGate('));
-      ok('紀律門：唯一的禁止是「高波動時放空」（19年 −1.42%/筆，t−6.6）；高波動做多改提醒（−0.40%，比平常不差）', !/fail\.push\(/.test(tg) && /\(dir === -1 && tw \? fail : warn\)\.push/.test(tg)
+      ok('紀律門：唯一的禁止是「高波動時放空」（全市場19年 −1.70%/筆，月t−12.4）；高波動做多改提醒（−0.11%，比平常不差）', !/fail\.push\(/.test(tg) && /\(dir === -1 && tw \? fail : warn\)\.push/.test(tg)
         && /regime\.regime === '高波動危險' && dir === -1 && D\.currency === 'TWD'\) \{ fail\.push/.test(fs.readFileSync(path.join(ROOT, 'scan.js'), 'utf8')));
       ok('追突破：台股一律用全市場實測（−1.54% vs 隨便進場 −0.87%），不再有未驗證的逐股 38%／48% 綠燈', /全市場2,136檔19年實測，突破20日高進場每筆−1\.54%/.test(tg) && !/優於台股基準38\.4%/.test(tg));
       const GC = new Function(grab(bf, 'gapChase') + ';return gapChase;')();

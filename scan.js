@@ -11,7 +11,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['scan.js'] = 207; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['scan.js'] = 210; } catch (e) {}
 
 /* v115修：前端原送15檔/批，但 Code.gs（GAS後端）上限只取前10檔——
    使用GAS的人每批會默默遺失5檔（不成功也不算失敗，直接消失，總數對不上）。
@@ -90,7 +90,7 @@ function evalScanConditions(D, dir) {
   const pass = [], fail = [], info = [];
   let regime = null, ex = null, hard = false;
   try { regime = computeRegime(D); } catch (e) {}
-  if (regime && regime.regime === '高波動危險' && dir === -1 && D.currency === 'TWD') { fail.push('高波動危險態（19年實測放空每筆虧1.42%，禁止放空）'); hard = true; }
+  if (regime && regime.regime === '高波動危險' && dir === -1 && D.currency === 'TWD') { fail.push('高波動危險態（全市場19年實測放空每筆−1.70%，禁止放空）'); hard = true; }
   const mid = midFactors(D);
   if (mid && !mid.why) {
     const k = mid.comp != null ? 'comp' : 'hi52', q = midQ(mid[k], MID_EV[k].cut); ex = MID_EV[k].ex[q];
