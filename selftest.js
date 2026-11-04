@@ -187,6 +187,7 @@ function logicTests() {
     ok('v209 結論列由紀律門用同一組計畫變數繪製（ol.plan 取自執行計畫、renderPlanLine 在計畫之後呼叫）', /ol = \{ want, planSide, md, sh, g, pbC \};/.test(bf) && /ol\.plan = \{ entry, stop, tp1, days: pickT \? pickT\.days : null, size: sizeShort, blocked: !!\(rb && rb\.blocked\), cur \};/.test(bf) && /\n  renderPlanLine\(ctx\.D, ol\);\n/.test(bf));
     ok('v209 結論列不自行計算 ATR／停損／部位（只有 planBasis 一個來源）', pl.length > 0 && !/calcATR|computeSmartStop|Math\.floor|riskAmt|capital/.test(pl) && /planBasis\(D, 'long'\)/.test(pl));
     ok('v209 部位文字由同一個 sizeShort 組成（結論列與執行計畫同一字串）', /const sizeTxt2 = sizeShort \? sizeShort \+/.test(bf)); }
+  ok('v209 結論列在紀律門開頭先清空（出錯時不殘留上一檔的價位）', /function renderTradeGate\(ctx\) \{\n  renderPlanLine\(null, null\);/.test(fs.readFileSync(path.join(ROOT, 'bingfa.js'), 'utf8')));
   ok('盤中時鐘 twMarketPhase 已移除（推估全日量的依據已不存在），沒有殘留呼叫', !/twMarketPhase/.test(['config.js', 'bingfa.js', 'enhance.js', 'mainforce.js', 'app.js'].map(f => fs.readFileSync(path.join(ROOT, f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')).join('')));
   // 台北時間一律「+8h 時間戳搭配 getUTC*」：混用 getHours 會整個時區錯位
   for (const f of ['config.js', 'app.js', 'worker.js', 'bingfa.js', 'enhance.js']) {

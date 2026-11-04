@@ -1027,6 +1027,7 @@ function renderPlanLine(D, ol) {
 }
 
 function renderTradeGate(ctx) {
+  renderPlanLine(null, null);   // v209 先清掉上一檔的結論列：下方 computeTradeGate 若出錯，不會留下別檔的進場／停損
   const card = document.getElementById('gate-card');
   if (!card) return;
   card.style.display = 'block';
