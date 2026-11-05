@@ -1157,7 +1157,7 @@ async function backendTests() {
   let fetchImpl = async () => { throw new Error('未設定'); };
   global.fetch = (...a) => fetchImpl(...a);
   const W = {};
-  new Function('module', src + '\nmodule.yahooChart=yahooChart;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTaifexFutures=fetchTaifexFutures;module.fetchTaifexPCR=fetchTaifexPCR;module.fetchMargin=fetchMargin;module.fetchTopPool=fetchTopPool;module.rocToYmd=rocToYmd;module.eventStudy=eventStudy;module.infoTilt=infoTilt;module.validateAI=validateAI;module.parseRSS=parseRSS;module.parsePTT=parsePTT;module.parseAnnounce=parseAnnounce;module.fetchIntel=fetchIntel;module.dropIntraday=dropIntraday;module.fetchNews=fetchNews;module.fetchIntelRouted=fetchIntelRouted;module.dedupKey=dedupKey;module.heat=heat;module.parseFinMindNews=parseFinMindNews;module.dayMoves=dayMoves;module.mergeDays=mergeDays;module.intelPrompt=intelPrompt;module.revSurprise=revSurprise;module.fetchNewsEn=fetchNewsEn;module.normCite=normCite;module.yahooQuote=yahooQuote;module.numN=numN;module.peN=peN;module.fetchDeepChip=fetchDeepChip;module.fetchMarket=fetchMarket;module.fetchFundamental=fetchFundamental;module.saveIntelSnap=saveIntelSnap;module.listIntelSnaps=listIntelSnaps;module.snapFwd=snapFwd;module.fetchTaiwan=fetchTaiwan;')(W);
+  new Function('module', src + '\nmodule.yahooChart=yahooChart;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTaifexFutures=fetchTaifexFutures;module.fetchTaifexPCR=fetchTaifexPCR;module.fetchMargin=fetchMargin;module.fetchTopPool=fetchTopPool;module.rocToYmd=rocToYmd;module.eventStudy=eventStudy;module.infoTilt=infoTilt;module.validateAI=validateAI;module.parseRSS=parseRSS;module.parsePTT=parsePTT;module.parseAnnounce=parseAnnounce;module.fetchIntel=fetchIntel;module.dropIntraday=dropIntraday;module.fetchNews=fetchNews;module.fetchIntelRouted=fetchIntelRouted;module.dedupKey=dedupKey;module.heat=heat;module.parseFinMindNews=parseFinMindNews;module.dayMoves=dayMoves;module.mergeDays=mergeDays;module.intelPrompt=intelPrompt;module.revSurprise=revSurprise;module.fetchNewsEn=fetchNewsEn;module.normCite=normCite;module.yahooQuote=yahooQuote;module.numN=numN;module.peN=peN;module.fetchDeepChip=fetchDeepChip;module.fetchMarket=fetchMarket;module.fetchFundamental=fetchFundamental;module.saveIntelSnap=saveIntelSnap;module.listIntelSnaps=listIntelSnaps;module.snapFwd=snapFwd;module.fetchTaiwan=fetchTaiwan;module.dailySeries=dailySeries;')(W);
   const W2 = W;
 
   // Code.gs：補上 GAS 全域物件
@@ -1196,7 +1196,7 @@ async function backendTests() {
     ok('Code.gs 只用 ES5 語法（Rhino 可解析）', !bad.length, bad.join('、'));
   }
   const G = {};
-  new Function('module', fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8') + '\nmodule.fetchYahoo=fetchYahoo;module.fetchYahooTW=fetchYahooTW;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTopPool=fetchTopPool;module.rocToYmd=rocToYmd;module.eventStudy=eventStudy;module.infoTilt=infoTilt;module.validateAI=validateAI;module.parseRSS=parseRSS;module.parsePTT=parsePTT;module.parseAnnounce=parseAnnounce;module.fetchIntel=fetchIntel;module.dropIntraday=dropIntraday;module.fetchNews=fetchNews;module.dedupKey=dedupKey;module.doGet=doGet;module.doPost=doPost;module.heat=heat;module.parseFinMindNews=parseFinMindNews;module.dayMoves=dayMoves;module.mergeDays=mergeDays;module.intelPrompt=intelPrompt;module.revSurprise=revSurprise;module.fetchNewsEn=fetchNewsEn;module.normCite=normCite;module.yahooQuote=yahooQuote;module.numN=numN;module.peN=peN;module.fetchDeepChip=fetchDeepChip;module.fetchMarket=fetchMarket;module.fetchTaiwan=fetchTaiwan;module.fetchMargin=fetchMargin;module.fetchFundamental=fetchFundamental;')(G);
+  new Function('module', fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8') + '\nmodule.fetchYahoo=fetchYahoo;module.fetchYahooTW=fetchYahooTW;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTopPool=fetchTopPool;module.rocToYmd=rocToYmd;module.eventStudy=eventStudy;module.infoTilt=infoTilt;module.validateAI=validateAI;module.parseRSS=parseRSS;module.parsePTT=parsePTT;module.parseAnnounce=parseAnnounce;module.fetchIntel=fetchIntel;module.dropIntraday=dropIntraday;module.fetchNews=fetchNews;module.dedupKey=dedupKey;module.doGet=doGet;module.doPost=doPost;module.heat=heat;module.parseFinMindNews=parseFinMindNews;module.dayMoves=dayMoves;module.mergeDays=mergeDays;module.intelPrompt=intelPrompt;module.revSurprise=revSurprise;module.fetchNewsEn=fetchNewsEn;module.normCite=normCite;module.yahooQuote=yahooQuote;module.numN=numN;module.peN=peN;module.fetchDeepChip=fetchDeepChip;module.fetchMarket=fetchMarket;module.fetchTaiwan=fetchTaiwan;module.fetchMargin=fetchMargin;module.fetchFundamental=fetchFundamental;module.dailySeries=dailySeries;')(G);
 
   // twseGet 會先讀 resp.text()；測試替身統一用 jt() 同時提供 text 與 json
   const jt = o => ({ ok: true, status: 200, text: async () => JSON.stringify(o), json: async () => o });
@@ -1205,7 +1205,7 @@ async function backendTests() {
     for (let i = 0; i < n; i++) { ts.push(base + i * DAY);
       const nul = i >= n - (o.trailingNull || 0);
       cl.push(nul ? null : 100 + i); hi.push(nul ? null : (i === o.nullHighAt ? null : 101 + i));
-      lo.push(nul ? null : 99 + i); op.push(nul ? null : 100 + i); vo.push(nul ? null : 1e6); ac.push(nul ? null : (100 + i) * 0.9); }
+      lo.push(nul ? null : 99 + i); op.push(nul ? null : 100 + i); vo.push(nul ? null : i === o.zeroVolAt ? 0 : 1e6); ac.push(nul ? null : (100 + i) * 0.9); }
     return { chart: { result: [{ timestamp: ts, meta: { shortName: 'X' }, indicators: { quote: [{ close: cl, high: hi, low: lo, open: op, volume: vo }], adjclose: [{ adjclose: ac }] } }] } }; };
   const gsOf = o => ({ getResponseCode: () => 200, getContentText: () => JSON.stringify(o) });
   const ymdOf = t => new Date(t * 1000).toISOString().slice(0, 10).replace(/-/g, '');
@@ -1259,6 +1259,21 @@ async function backendTests() {
   gsFetch = () => gsOf(chart(80, { nullHighAt: 40 }));
   const gn = G.fetchYahoo('AAPL');
   ok('GAS 缺值不產生 NaN', gn.highs.every(Number.isFinite) && gn.rawHighs.every(Number.isFinite));
+
+  // ②b v211 台股個股跳過量 0 的K棒（Yahoo 休市日補的假K棒、停牌日；回測與電腦版資料庫都刪掉量 0 的日子）。
+  //     2026-11-05 實測：2330／8299／6488／3105 在 2026-10-23（全市場休市）都有一根量 0、價不動的K棒。指數與美股不動。
+  { const zDate = ymdOf(base + 50 * DAY), now = new Date((base + 90 * DAY) * 1000);
+    fetchImpl = async () => ({ ok: true, json: async () => chart(80, { zeroVolAt: 50 }) });
+    const wz = await W.yahooChart('2330.TW', '2y', '1d'), wo = await W.yahooChart('6488.TWO', '2y', '1d'), wi = await W.yahooChart('^TWII', '2y', '1d'), wu = await W.yahooChart('AAPL', '2y', '1d');
+    const wsr = await W.dailySeries('2330', now);
+    ok('v211 worker 台股（.TW／.TWO）跳過量 0 的K棒，各陣列長度一致', [wz, wo].every(d => d.closes.length === 79 && d.dates.length === 79 && d.volumes.length === 79 && d.rawCloses.length === 79 && !d.dates.includes(zDate) && d.volumes.every(v => v > 0)), `${wz.closes.length}/${wo.closes.length}`);
+    ok('v211 worker 指數與美股保留量 0 的K棒（指數本來就可能沒有量）', wi.closes.length === 80 && wu.closes.length === 80, `${wi.closes.length}/${wu.closes.length}`);
+    ok('v211 worker 大盤熱度用的個股日線也跳過量 0', wsr.closes.length === 79 && !wsr.dates.includes(zDate), String(wsr.closes.length));
+    gsFetch = () => gsOf(chart(80, { zeroVolAt: 50 }));
+    const gz = G.fetchYahooTW('2330'), gu = G.fetchYahoo('AAPL'), gsr = G.dailySeries('2330', now);
+    ok('v211 GAS 台股跳過量 0 的K棒，結果與 worker 相同', gz.closes.length === 79 && gz.volumes.every(v => v > 0) && JSON.stringify(gz.closes) === JSON.stringify(wz.closes) && gz.lastDate === wz.lastDate, String(gz.closes.length));
+    ok('v211 GAS 美股保留量 0 的K棒；大盤熱度個股日線也跳過，與 worker 相同', gu.closes.length === 80 && JSON.stringify(gsr.dates) === JSON.stringify(wsr.dates), `${gu.closes.length}/${gsr.closes.length}`);
+  }
 
   // ③ period2 不得多抓一天（histuntil 多一天＝前視偏差；range 多一天＝MAE/MFE 算大）
   const limit = Date.parse('2026-09-30T23:59:59Z') / 1000;

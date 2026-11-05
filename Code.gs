@@ -903,9 +903,10 @@ function dailySeries(sym, now) {
       var j = JSON.parse(gsGet(yahooUrl(sym + sfx[s])));
       var res = j.chart && j.chart.result && j.chart.result[0];
       if (!res || !res.indicators || !res.indicators.quote) continue;
-      var q = res.indicators.quote[0], f = adjFactors(res, q), dates = [], closes = [];
+      var q = res.indicators.quote[0], f = adjFactors(res, q), dates = [], closes = [], twStock = /^\d\w*\.TWO?$/.test(sym + sfx[s]);
       for (var i = 0; i < (q.close || []).length; i++) {
         if (q.close[i] == null) continue;
+        if (twStock && !(q.volume && q.volume[i] > 0)) continue;   // v211 與 worker.js yahooChart 對等
         closes.push(q.close[i] * f[i]); dates.push(ymdOfMs(res.timestamp[i] * 1000));
       }
       if (closes.length >= 60) return dropIntraday({ dates: dates, closes: closes, board: sfx[s] === '.TWO' ? '上櫃' : '上市' }, now);
@@ -1515,6 +1516,7 @@ function fetchYahooTW(stockNo, minN) {
       for (var i = 0; i < ts.length; i++) {
         var cc = q.close[i];
         if (cc == null) continue;
+        if (!(q.volume && q.volume[i] > 0)) continue;   // v211 跳過量 0 的K棒（休市假K棒、停牌），理由見 worker.js yahooChart
         var f2 = fArr2[i];
         var hh = q.high[i] == null ? cc : q.high[i], ll = q.low[i] == null ? cc : q.low[i], oo = q.open[i] == null ? cc : q.open[i];
         closes.push(cc * f2); highs.push(hh * f2); lows.push(ll * f2);

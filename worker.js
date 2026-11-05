@@ -335,9 +335,14 @@ async function yahooChart(symbol, range, interval) {
      ② high/low 偶發為 null 時，null*f = 0 或 NaN 會直接灌進 ATR 與關卡計算。
         改：缺值以當日收盤價補（寧可保守，不要 NaN）。 */
   let lastIdx = -1;
+  /* v211 台股個股跳過成交量 0 的K棒：Yahoo 在全市場休市日（例 2026-10-23）會補一根量 0、價不動的假K棒，
+     停牌日也是量 0。回測與電腦版資料庫一律刪掉量 0 的日子；手機留著會讓休市後約 20 天的均量、量比、
+     均成交值少約 5%，窗口也多算一天。指數（^TWII）與美股不動。 */
+  const twStock = /^\d\w*\.TWO?$/.test(symbol);
   for (let i = 0; i < (q.close || []).length; i++) {
     const cl = q.close[i];
     if (cl == null) continue;
+    if (twStock && !(q.volume && q.volume[i] > 0)) continue;
     let f = 1;
     if (adjArr && adjArr[i] != null && cl > 0) { const ff = adjArr[i] / cl; if (isFinite(ff) && ff > 0) f = ff; }
     const hi = q.high[i] == null ? cl : q.high[i], lo = q.low[i] == null ? cl : q.low[i], op = q.open[i] == null ? cl : q.open[i];
