@@ -527,12 +527,13 @@ function fetchYahoo(symbol) {
   if (!res) throw new Error('找不到美股 ' + symbol + '，請確認代碼');
 
   var q = res.indicators.quote[0];
+  if (isTwStockSym(symbol) && !(q.volume instanceof Array)) throw new Error('找不到 ' + symbol + ' 的資料');   // 複審 T-002：台股缺整個量欄不可用，與 worker 相同
   var meta = res.meta;
 
   var fArr = adjFactors(res, q);
   var closes = [], highs = [], lows = [], opens = [], vols = [];
   var rawCloses = [], rawHighs = [], rawLows = [];  // 未還原市價（支撐壓力/BOS用）
-  var zLast = -1, zNN = lastCloseIdx(q), zToday = tpeToday();   // v153：最後一根「實際採用」的K棒索引（結尾若有 null 棒，時間戳不能直接取最後一個）
+  var zLast = -1, zNN = lastCloseIdx(q), zToday = tpeTodayInSession();   // v153：最後一根「實際採用」的K棒索引（結尾若有 null 棒，時間戳不能直接取最後一個）
   for (var zi = 0; zi < (q.close || []).length; zi++) {
     var zc = q.close[zi];
     if (zc == null) continue;
@@ -542,7 +543,7 @@ function fetchYahoo(symbol) {
     var zh = q.high[zi] == null ? zc : q.high[zi], zl = q.low[zi] == null ? zc : q.low[zi], zo = q.open[zi] == null ? zc : q.open[zi];
     closes.push(zc * zf); highs.push(zh * zf);
     lows.push(zl * zf); opens.push(zo * zf);
-    vols.push(q.volume[zi] || 0);
+    vols.push((q.volume && q.volume[zi]) || 0);
     rawCloses.push(zc); rawHighs.push(zh); rawLows.push(zl);
     zLast = zi;
   }
@@ -654,12 +655,15 @@ function xmlText(s) {
 function dedupKey(t) { return String(t).replace(/\s*[|｜].*$/, '').replace(/[\s\u3000!-\/:-@\[-`{-~、。，．：；？！「」『』（）《》〈〉【】…—－～・]+/g, ''); }   // v173 理由見 worker.js
 function ymdOfMs(t) { return new Date(t).toISOString().slice(0, 10).replace(/-/g, ''); }
 /* v211 台股個股（代號數字開頭的 .TW／.TWO，含 0050 基準）跳過量 0 的K棒（休市假K棒、停牌）；
-   最後一根有收盤價、日期是台北今天的保留（盤中第一筆成交前量也是 0，交給前端盤中處理）。與 worker.js skipZeroVolBar 相同 */
+   例外：最後一根有收盤價、日期是台北今天、而且現在是台北 14:00 前（與 dropIntraday 同一個界線）的保留——
+   盤中第一筆成交前量也是 0，交給前端盤中處理；14:00 後今天仍量 0＝今天沒成交，照樣跳過。整個量欄缺漏的回應不可用。
+   與 worker.js 同一套規則 */
+function isTwStockSym(sym) { return /^\d\w*\.TWO?$/.test(sym); }
 function lastCloseIdx(q) { for (var k = (q.close || []).length - 1; k >= 0; k--) if (q.close[k] != null) return k; return -1; }
-function tpeToday() { return Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyyMMdd'); }
+function tpeTodayInSession() { var tp = new Date(Date.now() + 8 * 3600000); return tp.getUTCHours() * 60 + tp.getUTCMinutes() < 14 * 60 ? tp.toISOString().slice(0, 10).replace(/-/g, '') : ''; }
 function skipZeroVolBar(sym, q, i, lastIdx, barYmd, todayYmd) {
-  if (!/^\d\w*\.TWO?$/.test(sym) ||(q.volume && q.volume[i] > 0)) return false;
-  return !(i === lastIdx && barYmd === todayYmd);
+  if (!isTwStockSym(sym) || (q.volume && q.volume[i] > 0)) return false;
+  return !(i === lastIdx && todayYmd && barYmd === todayYmd);
 }
 /* v181 平行預抓：GAS 的 UrlFetch 一個接一個跑，情報面十幾個來源的時間會相加（常見 20～45 秒），
    一個來源卡住就撞到 Worker 的 50 秒上限。fetchIntel 先用 fetchAll 一次發出所有已知網址，
@@ -912,7 +916,8 @@ function dailySeries(sym, now) {
       var j = JSON.parse(gsGet(yahooUrl(sym + sfx[s])));
       var res = j.chart && j.chart.result && j.chart.result[0];
       if (!res || !res.indicators || !res.indicators.quote) continue;
-      var q = res.indicators.quote[0], f = adjFactors(res, q), dates = [], closes = [], lastNN = lastCloseIdx(q), today = tpeToday();
+      var q = res.indicators.quote[0], f = adjFactors(res, q), dates = [], closes = [], lastNN = lastCloseIdx(q), today = tpeTodayInSession();
+      if (isTwStockSym(sym + sfx[s]) && !(q.volume instanceof Array)) continue;   // 複審 T-002：缺整個量欄不可用
       for (var i = 0; i < (q.close || []).length; i++) {
         if (q.close[i] == null) continue;
         if (skipZeroVolBar(sym + sfx[s], q, i, lastNN, ymdOfMs(res.timestamp[i] * 1000), today)) continue;   // v211
@@ -1521,7 +1526,8 @@ function fetchYahooTW(stockNo, minN) {
       var fArr2 = adjFactors(res, q);
       var closes = [], highs = [], lows = [], opens = [], vols = [];
       var rawCloses = [], rawHighs = [], rawLows = [];  // 未還原市價
-      var tLast = -1, lastNN = lastCloseIdx(q), today = tpeToday();
+      if (!(q.volume instanceof Array)) continue;   // 複審 T-002：缺整個量欄不可用（與 worker 回 null 相同）
+      var tLast = -1, lastNN = lastCloseIdx(q), today = tpeTodayInSession();
       for (var i = 0; i < ts.length; i++) {
         var cc = q.close[i];
         if (cc == null) continue;
@@ -1529,7 +1535,7 @@ function fetchYahooTW(stockNo, minN) {
         var f2 = fArr2[i];
         var hh = q.high[i] == null ? cc : q.high[i], ll = q.low[i] == null ? cc : q.low[i], oo = q.open[i] == null ? cc : q.open[i];
         closes.push(cc * f2); highs.push(hh * f2); lows.push(ll * f2);
-        opens.push(oo * f2); vols.push(q.volume[i] || 0);
+        opens.push(oo * f2); vols.push((q.volume && q.volume[i]) || 0);
         rawCloses.push(cc); rawHighs.push(hh); rawLows.push(ll);
         tLast = i;
       }

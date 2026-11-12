@@ -1284,12 +1284,23 @@ async function backendTests() {
     const wb = await W.yahooChart('0050.TW', '2y', '1d'); gsFetch = () => gsOf(chart(80, { zeroVolAt: 50 })); const gb = G.fetchYahoo('0050.TW');
     ok('v211 台股基準 0050.TW：Worker 與 GAS 都跳過量 0，序列與 lastDate 相同', wb.closes.length === 79 && gb.closes.length === 79 && JSON.stringify(wb.closes) === JSON.stringify(gb.closes) && wb.lastDate === gb.lastDate, `${wb.closes.length}/${gb.closes.length}`);
     // 審查 T-002 #2：最後一根是「台北今天」且量 0（盤中第一筆成交前）要保留，交給前端盤中處理；最後一根是過去日期的量 0 照樣跳過
-    const tpe = new Date(Date.now() + 8 * 36e5).toISOString().slice(0, 10), lastTs = Date.parse(tpe + 'T01:00:00Z') / 1000;
+    //     複審 T-002：時鐘固定（不隨跑測試的時間變），14:00 後（與 dropIntraday 同界線）今天仍量 0＝沒成交要跳過；整個量欄缺漏兩端都視為不可用
+    const realNow = Date.now, at = hm => { Date.now = () => Date.parse('2026-11-12T' + hm + ':00Z') - 8 * 36e5; };   // hm＝台北時間
+    const lastTs = Date.parse('2026-11-12T01:00:00Z') / 1000, want0 = '20261112';
     const endAt = (o, t) => { const c = chart(80, o); c.chart.result[0].timestamp = c.chart.result[0].timestamp.map((_, k) => t - (79 - k) * DAY); return c; };
-    const todayZ = endAt({ zeroVolAt: 79 }, lastTs), oldZ = chart(80, { zeroVolAt: 79 }), want0 = tpe.replace(/-/g, '');
-    fetchImpl = async () => ({ ok: true, json: async () => todayZ });
-    const wt = await W.yahooChart('2330.TW', '2y', '1d'); gsFetch = () => gsOf(todayZ); const gt = G.fetchYahooTW('2330');
-    ok('v211 今天的K棒量 0（盤中第一筆成交前）兩端都保留：80 根、lastDate＝今天、價格＝今天', wt.closes.length === 80 && wt.lastDate === want0 && wt.price === wt.closes[79] && gt.closes.length === 80 && gt.lastDate === want0 && gt.price === wt.price, `${wt.closes.length}/${wt.lastDate}｜${gt.closes.length}/${gt.lastDate}`);
+    const todayZ = endAt({ zeroVolAt: 79 }, lastTs), oldZ = chart(80, { zeroVolAt: 79 });
+    const noVol = endAt({}, lastTs); delete noVol.chart.result[0].indicators.quote[0].volume;
+    try {
+      at('09:01'); fetchImpl = async () => ({ ok: true, json: async () => todayZ });
+      const wt = await W.yahooChart('2330.TW', '2y', '1d'); gsFetch = () => gsOf(todayZ); const gt = G.fetchYahooTW('2330');
+      ok('v211 台北 09:01 今天的K棒量 0（盤中第一筆成交前）兩端都保留：80 根、lastDate＝今天、價格＝今天', wt.closes.length === 80 && wt.lastDate === want0 && wt.price === wt.closes[79] && gt.closes.length === 80 && gt.lastDate === want0 && gt.price === wt.price, `${wt.closes.length}/${wt.lastDate}｜${gt.closes.length}/${gt.lastDate}`);
+      at('14:01'); fetchImpl = async () => ({ ok: true, json: async () => todayZ });
+      const wa = await W.yahooChart('2330.TW', '2y', '1d'); gsFetch = () => gsOf(todayZ); const ga = G.fetchYahooTW('2330');
+      ok('v211 複審：台北 14:01 今天仍量 0＝今天沒成交，兩端都跳過（79 根、lastDate＝前一天）', wa.closes.length === 79 && ga.closes.length === 79 && wa.lastDate === '20261111' && ga.lastDate === '20261111', `${wa.closes.length}/${wa.lastDate}｜${ga.closes.length}/${ga.lastDate}`);
+      at('09:01'); fetchImpl = async () => ({ ok: true, json: async () => noVol }); gsFetch = () => gsOf(noVol);
+      let wErr = '', wv = null; try { wv = await W.yahooChart('2330.TW', '2y', '1d'); } catch (e) { wErr = e.message; }
+      ok('v211 複審：整個成交量欄缺漏時，Worker 回 null 不拋錯、GAS 回 null，兩端一致', wv === null && !wErr && G.fetchYahooTW('2330') === null && G.fetchYahooTW('2330', 1) === null,`${wErr}｜${wv && wv.closes.length}`);
+    } finally { Date.now = realNow; }
     fetchImpl = async () => ({ ok: true, json: async () => oldZ });
     const wl = await W.yahooChart('2330.TW', '2y', '1d'); gsFetch = () => gsOf(oldZ); const gl = G.fetchYahooTW('2330');
     ok('v211 最後一根是過去日期的量 0 K棒（休市假K棒）兩端都跳過', wl.closes.length === 79 && gl.closes.length === 79 && wl.lastDate === gl.lastDate && wl.lastDate === ymdOf(base + 78 * DAY), `${wl.closes.length}/${gl.closes.length}`);
