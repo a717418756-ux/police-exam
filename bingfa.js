@@ -745,7 +745,7 @@ function computeTradeGate(ctx) {
       /* v138：19年實測順勢/逆勢/盤整的期望值無差異，只保留有數據支持的高波動禁令
          （高波動時放空每筆−1.4~−1.8%，t≈−4.5；做多較不差但仍為負且不顯著） */
       /* v188 只禁止放空：19 年實測高波動時任意日放空每筆 −1.42%（24 檔，t −6.6）；做多 −0.40% 反而是各盤勢最不差的（平常 −0.83%）。
-         v210 全市場 2,103 檔重驗（同定義，research/a5_a6_a7.js）：放空 −1.70%（119,651 筆，月 t −12.4；平常 −0.91%），扣同日同中期組仍 −0.14%（月 t −4.7）；做多 −0.11%（平常 −0.89%），
+         v210 全市場 2,103 檔重驗（同定義，research/a5_clean.js MODE 0，資料到 2026-11-03，結果 a5_clean_MODE0_結果.txt）：放空 −1.70%（119,651 筆，月 t −12.4；平常 −0.91%），扣同日同中期組仍 −0.14%（月 t −4.7）；做多 −0.11%（平常 −0.89%），
          原本連做多一起禁止沒有數據支持，改為提醒減量 */
       if (regime.regime === '高波動危險') { const tw = D.currency === 'TWD';   // v197 證據是台股，美股只提醒（不外推跨市場）
         (dir === -1 && tw ? fail : warn).push(!tw ? '高波動危險態：台股全市場19年實測此時放空每筆−1.70%（美股未驗證，只提醒）——部位減半' : dir === -1 ? '高波動危險態：全市場2,103檔19年實測此時放空每筆−1.70%（11.9萬筆，平常−0.91%；扣同日同中期組仍差0.14%，t−4.7），禁止放空' : '高波動危險態：全市場19年實測此時做多每筆−0.11%，不比平常差（平常−0.89%），但單日波動大——部位減半'); }
@@ -1146,7 +1146,7 @@ function renderTradeGate(ctx) {
         ${(() => {
           const ce = computeCondEV(D); if (!ce) return '';
           const s = planSide === 'long' ? ce.long : ce.short, v = s.setups.length ? s.setups[0].v : s.base;
-          return `<div style="font-size:10px;margin-bottom:6px;color:${v[0] < 0 ? 'var(--warn)' : 'var(--buy)'}">💰 此情境19年實測期望值 <b>${v[0] >= 0 ? '+' : ''}${v[0].toFixed(2)}%/筆</b>（${s.setups.length ? '型態「' + s.setups[0].name + '」' : '無已回測型態，用同盤勢任意日'}，${v[1].toLocaleString()}筆，已含成本滑價）${v[0] < 0 ? '——紀律門放行只代表沒有明顯禁忌，不代表期望值為正' : ''}</div>`;
+          return `<div style="font-size:10px;margin-bottom:6px;color:${v[0] < 0 ? 'var(--warn)' : 'var(--buy)'}">💰 此情境19年24檔實測期望值 <b>${v[0] >= 0 ? '+' : ''}${v[0].toFixed(2)}%/筆</b>（${s.setups.length ? '型態「' + s.setups[0].name + '」' : '無已回測型態，用同盤勢任意日'}，${v[1].toLocaleString()}筆，已含成本滑價）${v[0] < 0 ? '——紀律門放行只代表沒有明顯禁忌，不代表期望值為正' : ''}</div>`;
         })()}
         <div style="font-size:10px;color:var(--muted);line-height:1.7">
           ${(() => {
