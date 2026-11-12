@@ -321,6 +321,7 @@ async function yahooChart(symbol, range, interval) {
   if (!res || !res.indicators || !res.indicators.quote) return null;
   const q = res.indicators.quote[0];
   const meta = res.meta || {};
+  fillLastClose(res, q);
   // 除權息還原：用 adjclose 因子等比還原整組 OHLC（消除除息假缺口）
   const adjArr = res.indicators.adjclose && res.indicators.adjclose[0] && res.indicators.adjclose[0].adjclose;
   const closes = [], highs = [], lows = [], opens = [], vols = [];
@@ -371,6 +372,19 @@ async function yahooChart(symbol, range, interval) {
    例外：最後一根有收盤價、日期是台北今天、而且現在是台北 14:00 前（與 dropIntraday 同一個界線）的K棒保留——
    盤中第一筆成交前量也是 0，交給前端的盤中處理（價格與 _intraday 標記）。14:00 後今天仍量 0＝今天沒成交，照樣跳過。
    Code.gs 有同一套規則。 */
+/* v212 Yahoo 收盤後有時最後一根K棒的收盤價是空的（2026-11-13 實測：0050.TW、^TWII 的 11/12 棒 close=null，
+   但 open/high/low 與 meta.regularMarketPrice、regularMarketTime 都是當天的）。原本整根跳過，畫面停在前一天的價格與漲跌幅。
+   只在「最後一根、收盤價空、meta 成交時間與這根同一天、meta 價格 > 0」時，用 meta 價格補上（最新一根的還原係數是 1）。
+   Code.gs 有同一套規則。 */
+function fillLastClose(res, q) {
+  const ts = res.timestamp || [], n = ts.length - 1, m = res.meta || {};
+  if (n < 0 || !q.close || q.close.length !== ts.length || q.close[n] != null) return false;
+  if (!(m.regularMarketPrice > 0) || !m.regularMarketTime || ymdOfTs(m.regularMarketTime) !== ymdOfTs(ts[n])) return false;
+  q.close[n] = m.regularMarketPrice;
+  const adj = res.indicators.adjclose && res.indicators.adjclose[0] && res.indicators.adjclose[0].adjclose;
+  if (adj && adj.length === ts.length && adj[n] == null) adj[n] = m.regularMarketPrice;
+  return true;
+}
 function isTwStockSym(sym) { return /^\d\w*\.TWO?$/.test(sym); }
 function lastCloseIdx(q) { for (let k = (q.close || []).length - 1; k >= 0; k--) if (q.close[k] != null) return k; return -1; }
 function tpeTodayInSession() { const tp = new Date(Date.now() + 8 * 3600000); return tp.getUTCHours() * 60 + tp.getUTCMinutes() < 14 * 60 ? tp.toISOString().slice(0, 10).replace(/-/g, '') : ''; }

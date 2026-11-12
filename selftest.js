@@ -36,7 +36,18 @@ function logicTests() {
   const cfg = fs.readFileSync(path.join(ROOT, 'config.js'), 'utf8');
   { // v186 暫存有效期：看資料日期，不看抓了多久（台股用台北時間、美股用美東時間，夏令時間也要對）
     const seg = cfg.slice(cfg.indexOf('const CACHE_TTL ='), cfg.indexOf('/* ── 前端超時保護'));
-    const C = new Function('chipUsable', seg + '\nreturn { cacheUntil, nextWeekdayAt, lastWeekdayFrom };')(ch => !ch.bad);
+    const C = new Function('chipUsable', seg + '\nreturn { cacheUntil, nextWeekdayAt, lastWeekdayFrom, klineLag };')(ch => !ch.bad);
+    { // v212 K線落後：有法人資料佐證才說「落後」，只靠日曆的說「可能」；盤中、已是最新、格式不對都不提示
+      const L = (D, iso) => C.klineLag(D, Date.parse(iso)), tw = (last, chip, x) => Object.assign({ lastDate: last, currency: 'TWD', chip: chip ? { dataDate: chip } : null }, x || {});
+      const a = L(tw('20261111', '20261112'), '2026-11-12T16:59:00Z'), b = L(tw('20261111', null), '2026-11-12T16:59:00Z');
+      ok('v212 K線落後：法人資料到 11/12、K線只到 11/11 → 明確落後（2026-11-13 00:59 實際發生的情況）', a && a.sure === true && a.expected === '20261112' && a.last === '20261111', JSON.stringify(a));
+      ok('v212 K線落後：沒有法人資料時按日曆推算，只說可能（不認得國定假日）', b && b.sure === false && b.expected === '20261112', JSON.stringify(b));
+      ok('v212 K線落後：K線已是最新、盤中、收盤後 30 分鐘內、週末、日期格式不對 → 都不提示',
+        L(tw('20261112', '20261112'), '2026-11-12T16:59:00Z') === null && L(tw('20261111', '20261112', { _intraday: '20261112' }), '2026-11-12T03:00:00Z') === null
+        && L(tw('20261111', '20261111'), '2026-11-12T05:45:00Z') === null && L(tw('20261113', null), '2026-11-15T04:00:00Z') === null && L(tw('', null), '2026-11-12T16:59:00Z') === null);
+      const us = (last) => ({ lastDate: last, currency: 'USD', chip: { dataDate: '20261112' } });
+      ok('v212 K線落後：美股用美東收盤時間推算，且不拿台股法人日期當證據', L(us('20261111'), '2026-11-12T20:00:00Z') === null && (L(us('20261111'), '2026-11-12T22:00:00Z') || {}).sure === false, JSON.stringify(L(us('20261111'), '2026-11-12T22:00:00Z')));
+    }
     const at = x => Date.parse(x), iso = t => new Date(t).toISOString().slice(0, 16);
     const px = (t, d, us) => iso(C.cacheUntil('px', d, at(t), us));
     ok('暫存：台股盤中 5 分鐘（現價會變）', px('2026-10-01T10:00:00+08:00', { lastDate: '20260930' }) === iso(at('2026-10-01T10:05:00+08:00')));
@@ -1300,6 +1311,22 @@ async function backendTests() {
       at('09:01'); fetchImpl = async () => ({ ok: true, json: async () => noVol }); gsFetch = () => gsOf(noVol);
       let wErr = '', wv = null; try { wv = await W.yahooChart('2330.TW', '2y', '1d'); } catch (e) { wErr = e.message; }
       ok('v211 複審：整個成交量欄缺漏時，Worker 回 null 不拋錯、GAS 回 null，兩端一致', wv === null && !wErr && G.fetchYahooTW('2330') === null && G.fetchYahooTW('2330', 1) === null,`${wErr}｜${wv && wv.closes.length}`);
+      // v212 收盤後 Yahoo 末棒收盤價是空的（2026-11-13 實測 0050.TW、^TWII：close=null、open/high/low 有值、meta 有當天成交價與時間）→ 用 meta 補上
+      at('15:00');
+      const mk = (metaTs, px) => { const c = endAt({}, lastTs), r = c.chart.result[0]; r.indicators.quote[0].close[79] = null; r.indicators.adjclose[0].adjclose[79] = null;
+        r.meta.regularMarketPrice = px; r.meta.regularMarketTime = metaTs; return c; };
+      const sameDay = () => mk(lastTs + 4.5 * 3600, 200), otherDay = () => mk(lastTs - DAY + 4.5 * 3600, 200), noPx = () => mk(lastTs + 4.5 * 3600, null);
+      fetchImpl = async () => ({ ok: true, json: async () => sameDay() }); gsFetch = () => gsOf(sameDay());
+      const wf = await W.yahooChart('2330.TW', '2y', '1d'), gf = G.fetchYahooTW('2330'), wi2 = await W.yahooChart('^TWII', '2y', '1d'), gb2 = G.fetchYahoo('0050.TW'), wb2 = await W.yahooChart('0050.TW', '2y', '1d');
+      ok('v212 末棒收盤價空、meta 是同一天：Worker 與 GAS 都補上（80 根、lastDate＝當天、收盤＝meta 價、昨收＝前一根）', [wf, gf].every(d => d.closes.length === 80 && d.lastDate === want0 && d.closes[79] === 200 && d.rawCloses[79] === 200 && d.prevClose === d.closes[78]) && JSON.stringify(wf.closes) === JSON.stringify(gf.closes), `${wf.closes.length}/${wf.lastDate}/${wf.closes[79]}｜${gf.closes.length}/${gf.lastDate}/${gf.closes[79]}`);
+      ok('v212 指數與台股基準 0050 也補上，兩端序列相同', wi2.closes.length === 80 && wi2.closes[79] === 200 && gb2.closes.length === 80 && JSON.stringify(gb2.closes) === JSON.stringify(wb2.closes), `${wi2.closes.length}/${gb2.closes.length}/${wb2.closes.length}`);
+      const wq = await W.yahooQuote('^TWII'), gq = G.yahooQuote('^TWII');
+      ok('v212 大盤報價（yahooQuote）兩端都用補上的收盤當現價（昨收：Worker 用還原價、GAS 用原始價是既有差異，這裡不比）', wq && gq && wq.price === 200 && gq.price === 200 && gq.prevClose === 178, JSON.stringify([wq, gq]));
+      for (const [nm, f] of [['meta 是別天的', otherDay], ['meta 沒有價格', noPx]]) {
+        fetchImpl = async () => ({ ok: true, json: async () => f() }); gsFetch = () => gsOf(f());
+        const w0 = await W.yahooChart('2330.TW', '2y', '1d'), g0 = G.fetchYahooTW('2330');
+        ok('v212 ' + nm + '：不補（不拿別天的價格冒充），兩端都停在前一根', w0.closes.length === 79 && g0.closes.length === 79 && w0.lastDate === '20261111' && g0.lastDate === '20261111', `${w0.closes.length}/${g0.closes.length}`);
+      }
     } finally { Date.now = realNow; }
     fetchImpl = async () => ({ ok: true, json: async () => oldZ });
     const wl = await W.yahooChart('2330.TW', '2y', '1d'); gsFetch = () => gsOf(oldZ); const gl = G.fetchYahooTW('2330');
