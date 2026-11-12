@@ -338,11 +338,11 @@ async function yahooChart(symbol, range, interval) {
   /* v211 台股個股跳過成交量 0 的K棒：Yahoo 在全市場休市日（例 2026-10-23）會補一根量 0、價不動的假K棒，
      停牌日也是量 0。回測與電腦版資料庫一律刪掉量 0 的日子；手機留著會讓休市後約 20 天的均量、量比、
      均成交值少約 5%，窗口也多算一天。指數（^TWII）與美股不動。 */
-  const twStock = /^\d\w*\.TWO?$/.test(symbol);
+  const lastNN = lastCloseIdx(q), today = _tpeDateStr(0).ymd;
   for (let i = 0; i < (q.close || []).length; i++) {
     const cl = q.close[i];
     if (cl == null) continue;
-    if (twStock && !(q.volume && q.volume[i] > 0)) continue;
+    if (skipZeroVolBar(symbol, q, i, lastNN, ymdOfTs(res.timestamp[i]), today)) continue;
     let f = 1;
     if (adjArr && adjArr[i] != null && cl > 0) { const ff = adjArr[i] / cl; if (isFinite(ff) && ff > 0) f = ff; }
     const hi = q.high[i] == null ? cl : q.high[i], lo = q.low[i] == null ? cl : q.low[i], op = q.open[i] == null ? cl : q.open[i];
@@ -364,6 +364,14 @@ async function yahooChart(symbol, range, interval) {
     rawCloses, rawHighs, rawLows,   // 未還原市價（支撐壓力/BOS/CHoCH 用這個，貼近真實心理關卡）
     dates,
   };
+}
+/* v211 台股個股（代號數字開頭的 .TW／.TWO，含 0050 基準）跳過量 0 的K棒（休市假K棒、停牌）。
+   例外：最後一根有收盤價、日期是台北今天的K棒保留——盤中第一筆成交前量也是 0，交給前端的盤中處理（價格與 _intraday 標記）。
+   Code.gs 有同一套規則。 */
+function lastCloseIdx(q) { for (let k = (q.close || []).length - 1; k >= 0; k--) if (q.close[k] != null) return k; return -1; }
+function skipZeroVolBar(sym, q, i, lastIdx, barYmd, todayYmd) {
+  if (!/^\d\w*\.TWO?$/.test(sym) || (q.volume && q.volume[i] > 0)) return false;
+  return !(i === lastIdx && barYmd === todayYmd);
 }
 /* 台股日K時間戳＝當日09:00台北＝01:00Z（v153 已用實際回應確認），UTC 日期即台北日期 */
 function ymdOfTs(ts) { try { return new Date(ts * 1000).toISOString().slice(0, 10).replace(/-/g, ''); } catch (e) { return ''; } }

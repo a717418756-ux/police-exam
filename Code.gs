@@ -532,10 +532,11 @@ function fetchYahoo(symbol) {
   var fArr = adjFactors(res, q);
   var closes = [], highs = [], lows = [], opens = [], vols = [];
   var rawCloses = [], rawHighs = [], rawLows = [];  // 未還原市價（支撐壓力/BOS用）
-  var zLast = -1;   // v153：最後一根「實際採用」的K棒索引（結尾若有 null 棒，時間戳不能直接取最後一個）
+  var zLast = -1, zNN = lastCloseIdx(q), zToday = tpeToday();   // v153：最後一根「實際採用」的K棒索引（結尾若有 null 棒，時間戳不能直接取最後一個）
   for (var zi = 0; zi < (q.close || []).length; zi++) {
     var zc = q.close[zi];
     if (zc == null) continue;
+    if (skipZeroVolBar(symbol, q, zi, zNN, ymdOfMs(res.timestamp[zi] * 1000), zToday)) continue;   // v211 台股基準 0050.TW 與 worker 相同
     var zf = fArr[zi];
     // v153：high/low/open 偶發 null 時以收盤價補，避免 NaN 灌進 ATR 與關卡計算
     var zh = q.high[zi] == null ? zc : q.high[zi], zl = q.low[zi] == null ? zc : q.low[zi], zo = q.open[zi] == null ? zc : q.open[zi];
@@ -652,6 +653,14 @@ function xmlText(s) {
 }
 function dedupKey(t) { return String(t).replace(/\s*[|｜].*$/, '').replace(/[\s\u3000!-\/:-@\[-`{-~、。，．：；？！「」『』（）《》〈〉【】…—－～・]+/g, ''); }   // v173 理由見 worker.js
 function ymdOfMs(t) { return new Date(t).toISOString().slice(0, 10).replace(/-/g, ''); }
+/* v211 台股個股（代號數字開頭的 .TW／.TWO，含 0050 基準）跳過量 0 的K棒（休市假K棒、停牌）；
+   最後一根有收盤價、日期是台北今天的保留（盤中第一筆成交前量也是 0，交給前端盤中處理）。與 worker.js skipZeroVolBar 相同 */
+function lastCloseIdx(q) { for (var k = (q.close || []).length - 1; k >= 0; k--) if (q.close[k] != null) return k; return -1; }
+function tpeToday() { return Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyyMMdd'); }
+function skipZeroVolBar(sym, q, i, lastIdx, barYmd, todayYmd) {
+  if (!/^\d\w*\.TWO?$/.test(sym) ||(q.volume && q.volume[i] > 0)) return false;
+  return !(i === lastIdx && barYmd === todayYmd);
+}
 /* v181 平行預抓：GAS 的 UrlFetch 一個接一個跑，情報面十幾個來源的時間會相加（常見 20～45 秒），
    一個來源卡住就撞到 Worker 的 50 秒上限。fetchIntel 先用 fetchAll 一次發出所有已知網址，
    各來源的解析程式照舊——pfFetch 先查預抓結果，沒有才自己抓。
@@ -903,10 +912,10 @@ function dailySeries(sym, now) {
       var j = JSON.parse(gsGet(yahooUrl(sym + sfx[s])));
       var res = j.chart && j.chart.result && j.chart.result[0];
       if (!res || !res.indicators || !res.indicators.quote) continue;
-      var q = res.indicators.quote[0], f = adjFactors(res, q), dates = [], closes = [], twStock = /^\d\w*\.TWO?$/.test(sym + sfx[s]);
+      var q = res.indicators.quote[0], f = adjFactors(res, q), dates = [], closes = [], lastNN = lastCloseIdx(q), today = tpeToday();
       for (var i = 0; i < (q.close || []).length; i++) {
         if (q.close[i] == null) continue;
-        if (twStock && !(q.volume && q.volume[i] > 0)) continue;   // v211 與 worker.js yahooChart 對等
+        if (skipZeroVolBar(sym + sfx[s], q, i, lastNN, ymdOfMs(res.timestamp[i] * 1000), today)) continue;   // v211
         closes.push(q.close[i] * f[i]); dates.push(ymdOfMs(res.timestamp[i] * 1000));
       }
       if (closes.length >= 60) return dropIntraday({ dates: dates, closes: closes, board: sfx[s] === '.TWO' ? '上櫃' : '上市' }, now);
@@ -1512,11 +1521,11 @@ function fetchYahooTW(stockNo, minN) {
       var fArr2 = adjFactors(res, q);
       var closes = [], highs = [], lows = [], opens = [], vols = [];
       var rawCloses = [], rawHighs = [], rawLows = [];  // 未還原市價
-      var tLast = -1;
+      var tLast = -1, lastNN = lastCloseIdx(q), today = tpeToday();
       for (var i = 0; i < ts.length; i++) {
         var cc = q.close[i];
         if (cc == null) continue;
-        if (!(q.volume && q.volume[i] > 0)) continue;   // v211 跳過量 0 的K棒（休市假K棒、停牌），理由見 worker.js yahooChart
+        if (skipZeroVolBar(symbol, q, i, lastNN, ymdOfMs(ts[i] * 1000), today)) continue;   // v211
         var f2 = fArr2[i];
         var hh = q.high[i] == null ? cc : q.high[i], ll = q.low[i] == null ? cc : q.low[i], oo = q.open[i] == null ? cc : q.open[i];
         closes.push(cc * f2); highs.push(hh * f2); lows.push(ll * f2);

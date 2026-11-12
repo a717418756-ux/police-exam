@@ -1279,6 +1279,20 @@ async function backendTests() {
     const gz = G.fetchYahooTW('2330'), gu = G.fetchYahoo('AAPL'), gsr = G.dailySeries('2330', now);
     ok('v211 GAS 台股跳過量 0 的K棒，結果與 worker 相同', gz.closes.length === 79 && gz.volumes.every(v => v > 0) && JSON.stringify(gz.closes) === JSON.stringify(wz.closes) && gz.lastDate === wz.lastDate, String(gz.closes.length));
     ok('v211 GAS 美股保留量 0 的K棒；大盤熱度個股日線也跳過，與 worker 相同', gu.closes.length === 80 && JSON.stringify(gsr.dates) === JSON.stringify(wsr.dates), `${gu.closes.length}/${gsr.closes.length}`);
+    // 審查 T-002 #1：台股基準 0050.TW 兩端都走過濾（Worker 用 yahooChart、GAS 用 fetchYahoo），序列必須相同
+    fetchImpl = async () => ({ ok: true, json: async () => chart(80, { zeroVolAt: 50 }) });
+    const wb = await W.yahooChart('0050.TW', '2y', '1d'); gsFetch = () => gsOf(chart(80, { zeroVolAt: 50 })); const gb = G.fetchYahoo('0050.TW');
+    ok('v211 台股基準 0050.TW：Worker 與 GAS 都跳過量 0，序列與 lastDate 相同', wb.closes.length === 79 && gb.closes.length === 79 && JSON.stringify(wb.closes) === JSON.stringify(gb.closes) && wb.lastDate === gb.lastDate, `${wb.closes.length}/${gb.closes.length}`);
+    // 審查 T-002 #2：最後一根是「台北今天」且量 0（盤中第一筆成交前）要保留，交給前端盤中處理；最後一根是過去日期的量 0 照樣跳過
+    const tpe = new Date(Date.now() + 8 * 36e5).toISOString().slice(0, 10), lastTs = Date.parse(tpe + 'T01:00:00Z') / 1000;
+    const endAt = (o, t) => { const c = chart(80, o); c.chart.result[0].timestamp = c.chart.result[0].timestamp.map((_, k) => t - (79 - k) * DAY); return c; };
+    const todayZ = endAt({ zeroVolAt: 79 }, lastTs), oldZ = chart(80, { zeroVolAt: 79 }), want0 = tpe.replace(/-/g, '');
+    fetchImpl = async () => ({ ok: true, json: async () => todayZ });
+    const wt = await W.yahooChart('2330.TW', '2y', '1d'); gsFetch = () => gsOf(todayZ); const gt = G.fetchYahooTW('2330');
+    ok('v211 今天的K棒量 0（盤中第一筆成交前）兩端都保留：80 根、lastDate＝今天、價格＝今天', wt.closes.length === 80 && wt.lastDate === want0 && wt.price === wt.closes[79] && gt.closes.length === 80 && gt.lastDate === want0 && gt.price === wt.price, `${wt.closes.length}/${wt.lastDate}｜${gt.closes.length}/${gt.lastDate}`);
+    fetchImpl = async () => ({ ok: true, json: async () => oldZ });
+    const wl = await W.yahooChart('2330.TW', '2y', '1d'); gsFetch = () => gsOf(oldZ); const gl = G.fetchYahooTW('2330');
+    ok('v211 最後一根是過去日期的量 0 K棒（休市假K棒）兩端都跳過', wl.closes.length === 79 && gl.closes.length === 79 && wl.lastDate === gl.lastDate && wl.lastDate === ymdOf(base + 78 * DAY), `${wl.closes.length}/${gl.closes.length}`);
   }
 
   // ③ period2 不得多抓一天（histuntil 多一天＝前視偏差；range 多一天＝MAE/MFE 算大）
