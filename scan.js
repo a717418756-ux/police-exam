@@ -11,7 +11,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['scan.js'] = 210; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['scan.js'] = 213; } catch (e) {}
 
 /* v115修：前端原送15檔/批，但 Code.gs（GAS後端）上限只取前10檔——
    使用GAS的人每批會默默遺失5檔（不成功也不算失敗，直接消失，總數對不上）。
@@ -257,17 +257,19 @@ async function runScanInner() {
           closes: it.closes, highs: it.highs, lows: it.lows, volumes: it.volumes,
           opens: it.opens || undefined, price: it.price, lastDate: it.lastDate, _intraday: it._intraday,   // v184 量價判斷要知道最後一根是昨天（barPx）
           // v182：勢能分用「今天漲還是跌」判斷量價；原本沒給前一日收盤→ price > undefined 永遠 false，量增一律算成「量增價跌」
-          prevClose: it.closes[it.closes.length - (it._trimmed ? 1 : 2)],
+          dates: it.dates, gaps: it.gaps,
+          prevClose: it.prevClose === null ? null : it.closes[it.closes.length - (it._trimmed ? 1 : 2)],
           /* v152：原本把「還原價」直接當成 rawCloses 塞進去，於是掃描用還原價算
              ATR／20日高低，個股頁用原始價，同一檔兩邊結論可能不同。後端已補傳原始價；
              ||closes 是相容舊後端的退路（舊後端沒這欄位時至少不會壞掉）。 */
           rawCloses: it.rawCloses || it.closes, rawHighs: it.rawHighs || it.highs,
           rawLows: it.rawLows || it.lows,
         };
+        const gaps = recentKlineGaps(D);
         const pf = prefilterStock(D);
-        if (!pf.pass) { rows.push({ code: item.code, price: item.price, filtered: true, why: pf.why }); continue; }
+        if (!pf.pass) { rows.push({ code: item.code, price: item.price, filtered: true, why: pf.why, gaps }); continue; }
         const ev = evalScanConditions(D, dir);
-        rows.push({ code: item.code, price: item.price, turnover: pf.amt, cur: D.currency, ...ev });
+        rows.push({ code: item.code, price: item.price, turnover: pf.amt, cur: D.currency, gaps, ...ev });
       }
     } catch (e) {
       batch.forEach(c => rows.push({ code: c, err: true, errMsg: e.message }));
@@ -326,7 +328,7 @@ function renderScanResult(rows, dir, secs, deadTrack) {
     const col = r.score >= 1 ? 'var(--buy)' : r.score > 0 ? 'var(--warn)' : 'var(--muted)';
     h += `<div style="border:1px solid ${col}40;border-radius:8px;padding:9px 11px;margin-bottom:7px;background:${col}08">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
-        <span style="font-size:13px;font-weight:700">${r.code} <span style="font-family:var(--mono);font-size:11px;color:var(--muted)">${r.price != null ? fmt(r.price) : ''}</span>${r.turnover ? `<span style="font-size:10px;color:var(--muted2);margin-left:6px">日均${(r.turnover / 1e8).toFixed(1)}億${r.cur === 'TWD' ? '' : '美元'}</span>` : ''}</span>
+        <span style="font-size:13px;font-weight:700">${r.code} <span style="font-family:var(--mono);font-size:11px;color:var(--muted)">${r.price != null ? fmt(r.price) : ''}</span>${r.gaps && r.gaps.length ? ` <span style="font-size:10px;color:var(--warn)">K線缺日 ${r.gaps.map(d => d.slice(4, 6) + '/' + d.slice(6)).join('、')}</span>` : ''}${r.turnover ? `<span style="font-size:10px;color:var(--muted2);margin-left:6px">日均${(r.turnover / 1e8).toFixed(1)}億${r.cur === 'TWD' ? '' : '美元'}</span>` : ''}</span>
         <span style="font-size:11px;font-weight:700;color:${col}">${r.ex == null ? '無中期分組' : `該組3個月 ${r.ex > 0 ? '+' : ''}${r.ex}%`}｜順風 ${r.pass.length}／逆風 ${r.fail.length}</span>
       </div>
       ${r.pass.map(p => `<div style="font-size:10px;color:var(--buy);line-height:1.5">✓ ${p}</div>`).join('')}
@@ -350,7 +352,7 @@ function renderScanResult(rows, dir, secs, deadTrack) {
         請先確認後端已更新至最新版；若持續如此，暫時把此結果視為不可用，改用逐檔分析。</div>`;
     }
     h += `<details style="margin-top:10px"><summary style="font-size:11px;color:var(--muted2);cursor:pointer">被前置門檻擋下的 ${filt.length} 檔（點開看原因）</summary>
-      <div style="margin-top:6px">${filt.map(f => `<div style="font-size:10px;color:var(--muted2);line-height:1.6">・<b>${f.code}</b>：${f.why}</div>`).join('')}</div>
+      <div style="margin-top:6px">${filt.map(f => `<div style="font-size:10px;color:var(--muted2);line-height:1.6">・<b>${f.code}</b>：${f.why}${f.gaps && f.gaps.length ? '｜K線缺日 ' + f.gaps.map(d => d.slice(4, 6) + '/' + d.slice(6)).join('、') : ''}</div>`).join('')}</div>
       <div style="font-size:9px;color:var(--muted2);margin-top:6px">門檻：日均成交額≥1億（借券/滑價）、非短線炒作（20日漲>40%＋爆量4倍）、ATR≥1.2%（要有波動才做得出價差）</div></details>`;
   }
   box.innerHTML = h;

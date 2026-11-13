@@ -54,7 +54,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 210; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 213; } catch (e) {}
 
 /* v159：marginChg5 名為「5日變化」，但後端資料不足 6 筆時是拿現有最舊那筆當基準，
    實際可能只跨 2~3 天。2 天漲 4% 與 5 天漲 4% 意義完全不同，直接套同一個門檻
@@ -123,7 +123,7 @@ function computeShiPower(D, rsRating) {
 
   // ③ 成交量分（20%）：量增價漲為佳
   let volScore = 50;
-  if (v.length >= 6) {
+  if (v.length >= 6 && barPrev(D) > 0) {
     const vr = v[v.length-1] / (v.slice(-6,-1).reduce((a,b)=>a+b,0)/5);
     const priceUp = barPx(D) > barPrev(D);   // v184 量是最後一根K棒的，漲跌也要同一根
     if (priceUp && vr > 1.5) volScore = 90;         // 量增價漲

@@ -32,14 +32,19 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['advanced.js'] = 198; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['advanced.js'] = 213; } catch (e) {}
 
 /* ── 大盤基準快取（避免每檔都重抓）─────────────────────────────────── */
 let _benchCache = {};   // key → { d: { closes, lastDate }, t, until }（v177：台美各自計時；v186 有效期看資料日期，見 cacheUntil）
 /* v183：個股在盤中會去掉今天未完成的K棒（trimIntradayBar），大盤原本沒去——兩條序列從尾端對齊時
    差了一天，盤中的 Beta/Alpha 全部錯位（實測 2330 的 Beta 0.65 變 0.06）。用同一個規則去掉。
    v186：暫存存原始序列，每次取用時依「當下」去掉（暫存可能是盤中抓的、收盤後才用） */
-const benchTrim = (j, us) => trimIntradayBar({ closes: j.closes.slice(), lastDate: j.lastDate, currency: us ? 'USD' : 'TWD' }).closes;
+const benchTrim = (j, us) => {
+  const d = trimIntradayBar({ closes: j.closes.slice(), dates: j.dates, lastDate: j.lastDate, currency: us ? 'USD' : 'TWD' });
+  // 指標以尾端對齊。基準近一年仍有缺日就不算超額或 Beta。
+  const first = d.dates && d.dates[Math.max(0, d.closes.length - 253)];
+  return first && j.gaps && j.gaps.some(date => date > first) ? null : d.closes;
+};
 async function fetchBenchmark(isTW) {
   const key = isTW ? 'tw' : 'us';
   const hit = await pcGet(_benchCache, key, 'bench');
@@ -49,7 +54,7 @@ async function fetchBenchmark(isTW) {
     const r = await fetchT(`${GAS_URL}?action=benchmark&market=${key}`);
     const j = await r.json();
     if (j.ok && j.closes) {
-      const d = { closes: j.closes, lastDate: j.lastDate };
+      const d = { closes: j.closes, lastDate: j.lastDate, dates: j.dates, gaps: j.gaps };
       pcSet(_benchCache, key, 'bench', d, cacheUntil('px', d, Date.now(), !isTW));
       return benchTrim(d, !isTW);
     }

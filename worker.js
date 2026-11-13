@@ -72,6 +72,7 @@ const TWSE_REPORTS = {
   T86:      ['fund/T86', 'rwd/zh/fund/T86', 'exchangeReport/T86'],
   MI_MARGN: ['rwd/zh/marginTrading/MI_MARGN', 'exchangeReport/MI_MARGN', 'exchange/MI_MARGN'],
   BWIBBU_d: ['rwd/zh/afterTrading/BWIBBU_d', 'exchangeReport/BWIBBU_d', 'exchange/BWIBBU_d'],
+  STOCK_DAY: ['rwd/zh/afterTrading/STOCK_DAY'],
 };
 const _twseOK = {};   // 記住每份報表實際可用的路徑
 async function twseGet(report, qs) {
@@ -204,7 +205,7 @@ export default {
         const mkt = p.get('market') || 'tw';
         const sym = mkt === 'us' ? 'SPY' : '0050.TW';
         const d = await fetchYahoo(sym);
-        return json({ ok: true, closes: d.closes, lastDate: d.lastDate || '' });   // v183：前端要據此去掉盤中未完成K棒，才能與個股對齊
+        return json({ ok: true, closes: d.closes, lastDate: d.lastDate || '', dates: d.dates, gaps: d.gaps });   // v183：前端要據此去掉盤中未完成K棒，才能與個股對齊
       }
       // 大盤環境
       if (action === 'market') {
@@ -234,7 +235,7 @@ async function scanOne(code) {
     if (attempt) await new Promise(r => setTimeout(r, 600));   // 被限流時退避再試
     try {
       let d = null;
-      if (isTW) { for (const sfx of ['.TW', '.TWO']) { d = await yahooChart(code + sfx, '2y', '1d'); if (d && d.closes.length) break; d = null; } }
+      if (isTW) { for (const sfx of ['.TW', '.TWO']) { d = await yahooChart(code + sfx, '2y', '1d', attempt ? 0 : 1); if (d && d.closes.length) break; d = null; } }
       else d = await yahooChart(code, '2y', '1d');
       if (!d) { why = isTW ? '查無K線（.TW/.TWO 皆無回應）——非上市櫃／已下市，或 Yahoo 當下限流' : '查無此代碼的K線'; continue; }
       // 真的不足60日就不必重試了，重試幾次都一樣
@@ -243,7 +244,7 @@ async function scanOne(code) {
         closes: d.closes, highs: d.highs, lows: d.lows,
         rawCloses: d.rawCloses, rawHighs: d.rawHighs, rawLows: d.rawLows,
         volumes: d.volumes, opens: d.opens || null,
-        price: d.closes[d.closes.length - 1], lastDate: d.lastDate || '' };
+        price: d.closes[d.closes.length - 1], lastDate: d.lastDate || '', dates: d.dates, gaps: d.gaps, prevClose: d.prevClose };
     } catch (e) { why = String(e && e.message || e); }
   }
   return { code, ok: false, error: (why || '未知錯誤') + '（已重試1次）' };
@@ -312,7 +313,7 @@ async function fetchYahoo(symbol) {
 }
 
 /* ── Yahoo Chart API 共用 ── */
-async function yahooChart(symbol, range, interval) {
+async function yahooChart(symbol, range, interval, gapMonthLimit = 2) {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=${interval}&range=${range}&includeAdjustedClose=true`;
   const resp = await fetchT(url, { headers: UA });
   if (!resp.ok) { if (resp.status === 404) return null; throw new Error(`Yahoo 回應 HTTP ${resp.status}（限流或暫時故障，請稍後再查）`); }   // v197 原本一律變成「找不到此股」
@@ -341,7 +342,9 @@ async function yahooChart(symbol, range, interval) {
      均成交值少約 5%，窗口也多算一天。指數（^TWII）與美股不動。 */
   // 複審 T-002：整個成交量欄缺漏的台股回應不可用（無法判斷哪幾天有成交），回 null，與 GAS 相同
   if (isTwStockSym(symbol) && !Array.isArray(q.volume)) return null;
-  const lastNN = lastCloseIdx(q), today = tpeTodayInSession();
+  const today = tpeTodayInSession();
+  const gaps = interval === '1d' ? await repairChartGaps(symbol, res, q, today, gapMonthLimit) : [];
+  const lastNN = lastCloseIdx(q);
   for (let i = 0; i < (q.close || []).length; i++) {
     const cl = q.close[i];
     if (cl == null) continue;
@@ -360,7 +363,8 @@ async function yahooChart(symbol, range, interval) {
   return {
     name: meta.shortName || meta.symbol || symbol,
     price: closes[last], open: opens[last], high: highs[last], low: lows[last],
-    prevClose: closes[last - 1] || closes[last], volume: vols[last],
+    prevClose: missingPreviousClose(gaps, dates) ? null : closes[last - 1] || closes[last], volume: vols[last],
+    gaps,
     avgVol5: vols.slice(-5).reduce((a, b) => a + b, 0) / Math.min(5, vols.length),
     closes, highs, lows, volumes: vols, opens,
     lastDate: (function(){ try { const d=new Date(res.timestamp[lastIdx]*1000); return d.toISOString().slice(0,10).replace(/-/g,''); } catch(e){ return ''; } })(),   // v153：對齊「最後一根實際採用的K棒」，而非最後一個時間戳
@@ -399,6 +403,79 @@ function fillLastClose(res, q) {
 }
 /* 審查 T-010 #3：時間戳要在 Date 的範圍內（秒，±8.64e12），否則兩端一律當無效（GAS 的 toISOString 會拋錯） */
 function validTs(t) { return typeof t === 'number' && t > 0 && t < 8.64e12; }
+
+/* v213 只處理兩根可用 K 棒之間的空收盤。尾端佔位與零量休市棒沿用 v211/v212。
+   TWSE 用原始 OHLC 及成交股數，和 Yahoo 的量口徑可能不同。
+   有該日 adjclose 就直接用；否則兩側因子一致才沿用下一根，避免跨除權息硬補。 */
+function chartGaps(symbol, res, q, today) {
+  var gaps = [], pending = [], ts = res.timestamp || [], seen = false, last = lastCloseIdx(q);
+  if (!isTwStockSym(symbol) || !q.close || q.close.length !== ts.length) return gaps;
+  for (var i = 0; i < ts.length; i++) {
+    if (!validTs(ts[i])) continue;
+    var date = ymdOfTs(ts[i]);
+    if (q.close[i] == null) {
+      if (seen && q.volume[i] !== 0) pending.push({ index: i, date: date });
+    } else if (!skipZeroVolBar(symbol, q, i, last, date, today)) {
+      gaps = gaps.concat(pending);
+      pending = [];
+      seen = true;
+    }
+  }
+  return gaps;
+}
+function gapMonths(gaps, limit) {
+  var months = {}, dates = [];
+  for (var i = gaps.length - 1; i >= 0 && dates.length < limit; i--) {
+    var date = gaps[i].date, month = date.slice(0, 6);
+    if (!months[month]) { months[month] = true; dates.push(date); }
+  }
+  return dates;
+}
+function restoreGapRows(res, q, gaps, report, month) {
+  if (!report || report.stat !== 'OK' || !Array.isArray(report.data)) return;
+  if (!Array.isArray(q.open) || !Array.isArray(q.high) || !Array.isArray(q.low)) return;
+  var adj = res.indicators.adjclose && res.indicators.adjclose[0] && res.indicators.adjclose[0].adjclose;
+  var rows = {};
+  for (var j = 0; j < report.data.length; j++) {
+    var row = report.data[j];
+    if (Array.isArray(row)) rows[rocToYmd(row[0])] = row;
+  }
+  for (var g = 0; g < gaps.length; g++) {
+    var gap = gaps[g], k = gap.index, r = rows[gap.date];
+    if (!r || gap.date.slice(0, 6) !== month || q.close[k] != null) continue;
+    var open = num(r[3]), high = num(r[4]), low = num(r[5]), close = num(r[6]), volume = num(r[1]);
+    if (![open, high, low, close, volume].every(function (x) { return isFinite(x) && x > 0; })) continue;
+    if (high < Math.max(open, close) || low > Math.min(open, close)) continue;
+    if (!Array.isArray(adj)) continue;
+    if (!(adj[k] > 0 && isFinite(adj[k]))) {
+      var left = k - 1, right = k + 1;
+      while (left >= 0 && !(q.close[left] > 0 && q.volume[left] > 0)) left--;
+      while (right < q.close.length && !(q.close[right] > 0 && q.volume[right] > 0)) right++;
+      var before = adj[left] / q.close[left], after = adj[right] / q.close[right];
+      // Yahoo 的價格用浮點數，容許微小捨入誤差。
+      if (!(before > 0 && after > 0 && Math.abs(before / after - 1) < 1e-5)) continue;
+      adj[k] = close * after;
+    }
+    q.open[k] = open; q.high[k] = high; q.low[k] = low; q.close[k] = close; q.volume[k] = volume;
+  }
+}
+function missingPreviousClose(gaps, dates) {
+  var last = dates.length - 1;
+  return gaps.some(function (date) { return date < dates[last] && (last === 0 || date > dates[last - 1]); });
+}
+
+async function repairChartGaps(symbol, res, q, today, limit) {
+  const gaps = chartGaps(symbol, res, q, today);
+  if (gaps.length && symbol.endsWith('.TW')) {
+    for (const date of gapMonths(gaps, limit)) {
+      try {
+        const report = await twseGet('STOCK_DAY', 'response=json&date=' + date + '&stockNo=' + encodeURIComponent(symbol.slice(0, -3)));
+        restoreGapRows(res, q, gaps, report, date.slice(0, 6));
+      } catch (e) { /* 保留缺日標記 */ }
+    }
+  }
+  return gaps.filter(gap => q.close[gap.index] == null).map(gap => gap.date);
+}
 function isTwStockSym(sym) { return /^\d\w*\.TWO?$/.test(sym); }
 function lastCloseIdx(q) { for (let k = (q.close || []).length - 1; k >= 0; k--) if (q.close[k] != null) return k; return -1; }
 function tpeTodayInSession() { const tp = new Date(Date.now() + 8 * 3600000); return tp.getUTCHours() * 60 + tp.getUTCMinutes() < 14 * 60 ? tp.toISOString().slice(0, 10).replace(/-/g, '') : ''; }
@@ -1437,7 +1514,7 @@ async function yahooQuote(symbol) {
   try {
     const r = await yahooChart(symbol, '5d', '1d');
     if (!r || r.closes.length < 2) return null;   // v182：只有一根K棒時沒有前一日收盤，不可用自己當前收算出 0%
-    return { price: r.price, prevClose: r.prevClose, changePct: ((r.price - r.prevClose) / r.prevClose * 100) };
+    return { price: r.price, prevClose: r.prevClose, changePct: r.prevClose > 0 ? (r.price - r.prevClose) / r.prevClose * 100 : null };
   } catch (e) { return null; }
 }
 

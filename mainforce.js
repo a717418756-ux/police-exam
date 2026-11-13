@@ -37,7 +37,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['mainforce.js'] = 208; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['mainforce.js'] = 213; } catch (e) {}
 
 /* ══ A. OBV 能量潮 ════════════════════════════════════════════════════
    收漲日加量、收跌日減量的累積線。價與 OBV 背離 = 主力偷跑：
@@ -103,10 +103,11 @@ function computeMainForce(D) {
 
   // ── 量價異常 ──
   const vr = n >= 6 ? v[n-1] / (v.slice(-6, -1).reduce((a, b) => a + b, 0) / 5) : 1;
-  const chg1 = (barPx(D) - barPrev(D)) / barPrev(D) * 100;   // v184 與 vr 同一根K棒
+  const previous = barPrev(D);
+  const chg1 = previous > 0 ? (barPx(D) - previous) / previous * 100 : null;   // v184 與 vr 同一根K棒
   let downStreak = 0;
   for (let i = n - 1; i > 0; i--) { if (c[i] < c[i-1]) downStreak++; else break; }
-  if (vr > 1.8 && chg1 < -2) {
+  if (chg1 != null && vr > 1.8 && chg1 < -2) {
     if (downStreak >= 3 && calcRSI(c, 14) <= 30) {   // v188 PSY 併入 RSI（相關 0.88）；回測與即時用同一條（原本回測固定 PSY=50，這條永遠不成立）
       add('恐慌殺盤', 30, `連跌${downStreak}天+爆量長黑+RSI超賣（散戶不計價殺出）`);
     } else {

@@ -41,7 +41,7 @@ var TWSE_REPORTS = {
   T86:       ['fund/T86', 'rwd/zh/fund/T86', 'exchangeReport/T86'],
   MI_MARGN:  ['rwd/zh/marginTrading/MI_MARGN', 'exchangeReport/MI_MARGN', 'exchange/MI_MARGN'],
   BWIBBU_d:  ['rwd/zh/afterTrading/BWIBBU_d', 'exchangeReport/BWIBBU_d', 'exchange/BWIBBU_d'],
-  STOCK_DAY: ['exchangeReport/STOCK_DAY', 'rwd/zh/afterTrading/STOCK_DAY']
+  STOCK_DAY: ['rwd/zh/afterTrading/STOCK_DAY', 'exchangeReport/STOCK_DAY']
 };
 var _twseOK = {};
 function twseGet(report, qs) {
@@ -155,7 +155,7 @@ function doGet(e) {
       for (var at = 0; at < 2; at++) {
         if (at) Utilities.sleep(600);   // 被限流時退避再試
         try {
-          dd = /^\d/.test(cd) ? fetchYahooTW(cd, 1) : fetchYahoo(cd);   // v187 與個股查詢同一個判斷
+          dd = /^\d/.test(cd) ? fetchYahooTW(cd, 1, at ? 0 : 1) : fetchYahoo(cd);   // v187 與個股查詢同一個判斷
           if (dd && dd.closes && dd.closes.length >= 60) break;
           /* v207 與 worker.js 對等：真的不足60日就不重試（重試幾次都一樣，白等 600ms＋一次請求）；
              原本和「查無K線」寫成同一句，scan.js 只要看到「查無K線」就計入死代碼——新上市股會被誤除名 */
@@ -167,7 +167,7 @@ function doGet(e) {
       else if (dd) {
         results.push({ code: cd, ok: true, closes: dd.closes, highs: dd.highs, lows: dd.lows,
           rawCloses: dd.rawCloses, rawHighs: dd.rawHighs, rawLows: dd.rawLows,
-          volumes: dd.volumes, opens: dd.opens || null, price: dd.closes[dd.closes.length - 1], lastDate: dd.lastDate || '' });
+          volumes: dd.volumes, opens: dd.opens || null, price: dd.closes[dd.closes.length - 1], lastDate: dd.lastDate || '', dates: dd.dates, gaps: dd.gaps, prevClose: dd.prevClose });
       } else results.push({ code: cd, ok: false, error: (why || '未知錯誤') + '（已重試1次）' });
     }
     return ContentService.createTextOutput(JSON.stringify({ ok: true, results: results })).setMimeType(ContentService.MimeType.JSON);
@@ -214,7 +214,7 @@ function doGet(e) {
       } else {
         benchData = fetchYahoo('0050.TW'); // 台股用 0050（透過 Yahoo 較快）
       }
-      result = { ok: true, closes: benchData.closes, lastDate: benchData.lastDate || '' };   // v183 理由見 worker.js
+      result = { ok: true, closes: benchData.closes, lastDate: benchData.lastDate || '', dates: benchData.dates, gaps: benchData.gaps };   // v183 理由見 worker.js
     } catch (err) {
       result = { ok: false, error: String(err.message || err) };
     }
@@ -531,10 +531,11 @@ function fetchYahoo(symbol) {
   var meta = res.meta;
 
   fillLastClose(res, q);   // v212
-  var fArr = adjFactors(res, q);
+  var zToday = tpeTodayInSession(), gaps = repairChartGaps(symbol, res, q, zToday, 2);
+  var fArr = adjFactors(res, q), dates = [];
   var closes = [], highs = [], lows = [], opens = [], vols = [];
   var rawCloses = [], rawHighs = [], rawLows = [];  // 未還原市價（支撐壓力/BOS用）
-  var zLast = -1, zNN = lastCloseIdx(q), zToday = tpeTodayInSession();   // v153：最後一根「實際採用」的K棒索引（結尾若有 null 棒，時間戳不能直接取最後一個）
+  var zLast = -1, zNN = lastCloseIdx(q);   // v153：最後一根「實際採用」的K棒索引（結尾若有 null 棒，時間戳不能直接取最後一個）
   for (var zi = 0; zi < (q.close || []).length; zi++) {
     var zc = q.close[zi];
     if (zc == null) continue;
@@ -546,6 +547,7 @@ function fetchYahoo(symbol) {
     lows.push(zl * zf); opens.push(zo * zf);
     vols.push((q.volume && q.volume[zi]) || 0);
     rawCloses.push(zc); rawHighs.push(zh); rawLows.push(zl);
+    if (isTwStockSym(symbol)) dates.push(gapYmd(res.timestamp[zi]));
     zLast = zi;
   }
 
@@ -560,7 +562,8 @@ function fetchYahoo(symbol) {
     open: opens[opens.length - 1],
     high: highs[highs.length - 1],
     low: lows[lows.length - 1],
-    prevClose: prev,
+    prevClose: isTwStockSym(symbol) ? (missingPreviousClose(gaps, dates) ? null : closes[closes.length - 2] || closes[0]) : prev,
+    dates: dates, gaps: gaps,
     volume: vols[vols.length - 1],
     avgVol5: avgN(vols, 5),
     closes: closes, highs: highs, lows: lows, volumes: vols, opens: opens,
@@ -678,6 +681,82 @@ function fillLastClose(res, q) {
   return true;
 }
 function validTs(t) { return typeof t === 'number' && t > 0 && t < 8.64e12; }   // 審查 T-010 #3：與 worker 相同，超出 Date 範圍一律無效，不拋錯
+
+/* v213 只處理兩根可用 K 棒之間的空收盤。尾端佔位與零量休市棒沿用 v211/v212。
+   TWSE 用原始 OHLC 及成交股數，和 Yahoo 的量口徑可能不同。
+   有該日 adjclose 就直接用；否則兩側因子一致才沿用下一根，避免跨除權息硬補。 */
+function chartGaps(symbol, res, q, today) {
+  var gaps = [], pending = [], ts = res.timestamp || [], seen = false, last = lastCloseIdx(q);
+  if (!isTwStockSym(symbol) || !q.close || q.close.length !== ts.length) return gaps;
+  for (var i = 0; i < ts.length; i++) {
+    if (!validTs(ts[i])) continue;
+    var date = gapYmd(ts[i]);
+    if (q.close[i] == null) {
+      if (seen && q.volume[i] !== 0) pending.push({ index: i, date: date });
+    } else if (!skipZeroVolBar(symbol, q, i, last, date, today)) {
+      gaps = gaps.concat(pending);
+      pending = [];
+      seen = true;
+    }
+  }
+  return gaps;
+}
+function gapMonths(gaps, limit) {
+  var months = {}, dates = [];
+  for (var i = gaps.length - 1; i >= 0 && dates.length < limit; i--) {
+    var date = gaps[i].date, month = date.slice(0, 6);
+    if (!months[month]) { months[month] = true; dates.push(date); }
+  }
+  return dates;
+}
+function restoreGapRows(res, q, gaps, report, month) {
+  if (!report || report.stat !== 'OK' || !Array.isArray(report.data)) return;
+  if (!Array.isArray(q.open) || !Array.isArray(q.high) || !Array.isArray(q.low)) return;
+  var adj = res.indicators.adjclose && res.indicators.adjclose[0] && res.indicators.adjclose[0].adjclose;
+  var rows = {};
+  for (var j = 0; j < report.data.length; j++) {
+    var row = report.data[j];
+    if (Array.isArray(row)) rows[rocToYmd(row[0])] = row;
+  }
+  for (var g = 0; g < gaps.length; g++) {
+    var gap = gaps[g], k = gap.index, r = rows[gap.date];
+    if (!r || gap.date.slice(0, 6) !== month || q.close[k] != null) continue;
+    var open = num(r[3]), high = num(r[4]), low = num(r[5]), close = num(r[6]), volume = num(r[1]);
+    if (![open, high, low, close, volume].every(function (x) { return isFinite(x) && x > 0; })) continue;
+    if (high < Math.max(open, close) || low > Math.min(open, close)) continue;
+    if (!Array.isArray(adj)) continue;
+    if (!(adj[k] > 0 && isFinite(adj[k]))) {
+      var left = k - 1, right = k + 1;
+      while (left >= 0 && !(q.close[left] > 0 && q.volume[left] > 0)) left--;
+      while (right < q.close.length && !(q.close[right] > 0 && q.volume[right] > 0)) right++;
+      var before = adj[left] / q.close[left], after = adj[right] / q.close[right];
+      // Yahoo 的價格用浮點數，容許微小捨入誤差。
+      if (!(before > 0 && after > 0 && Math.abs(before / after - 1) < 1e-5)) continue;
+      adj[k] = close * after;
+    }
+    q.open[k] = open; q.high[k] = high; q.low[k] = low; q.close[k] = close; q.volume[k] = volume;
+  }
+}
+function missingPreviousClose(gaps, dates) {
+  var last = dates.length - 1;
+  return gaps.some(function (date) { return date < dates[last] && (last === 0 || date > dates[last - 1]); });
+}
+
+function gapYmd(ts) { return ymdOfMs(ts * 1000); }
+function repairChartGaps(symbol, res, q, today, limit) {
+  var gaps = chartGaps(symbol, res, q, today);
+  if (gaps.length && /\.TW$/.test(symbol)) {
+    var dates = gapMonths(gaps, limit);
+    for (var i = 0; i < dates.length; i++) {
+      var date = dates[i];
+      try {
+        var report = twseGet('STOCK_DAY', 'response=json&date=' + date + '&stockNo=' + encodeURIComponent(symbol.slice(0, -3)));
+        restoreGapRows(res, q, gaps, report, date.slice(0, 6));
+      } catch (e) { /* 保留缺日標記 */ }
+    }
+  }
+  return gaps.filter(function (gap) { return q.close[gap.index] == null; }).map(function (gap) { return gap.date; });
+}
 function isTwStockSym(sym) { return /^\d\w*\.TWO?$/.test(sym); }
 function lastCloseIdx(q) { for (var k = (q.close || []).length - 1; k >= 0; k--) if (q.close[k] != null) return k; return -1; }
 function tpeTodayInSession() { var tp = new Date(Date.now() + 8 * 3600000); return tp.getUTCHours() * 60 + tp.getUTCMinutes() < 14 * 60 ? tp.toISOString().slice(0, 10).replace(/-/g, '') : ''; }
@@ -937,8 +1016,10 @@ function dailySeries(sym, now) {
       var res = j.chart && j.chart.result && j.chart.result[0];
       if (!res || !res.indicators || !res.indicators.quote) continue;
       var q = res.indicators.quote[0]; fillLastClose(res, q);   // v212
-      var f = adjFactors(res, q), dates = [], closes = [], lastNN = lastCloseIdx(q), today = tpeTodayInSession();
-      if (isTwStockSym(sym + sfx[s]) && !(q.volume instanceof Array)) continue;   // 複審 T-002：缺整個量欄不可用
+      if (isTwStockSym(sym + sfx[s]) && !Array.isArray(q.volume)) continue;
+      var today = tpeTodayInSession();
+      repairChartGaps(sym + sfx[s], res, q, today, 2);
+      var f = adjFactors(res, q), dates = [], closes = [], lastNN = lastCloseIdx(q);
       for (var i = 0; i < (q.close || []).length; i++) {
         if (q.close[i] == null) continue;
         if (skipZeroVolBar(sym + sfx[s], q, i, lastNN, ymdOfMs(res.timestamp[i] * 1000), today)) continue;   // v211
@@ -1529,7 +1610,7 @@ function fetchHistUntil(code, until) {
 /** ──────────────────────────────────────────────────────────
  *  fetchYahooTW — 用 Yahoo 一次抓台股一年K線（取代逐月 TWSE，大幅加速）
  *  ────────────────────────────────────────────────────────── */
-function fetchYahooTW(stockNo, minN) {
+function fetchYahooTW(stockNo, minN, gapMonthLimit) {
   minN = minN || 60;   // v207 掃描傳 1：拿到短序列才能回「僅 N 個交易日」（與 worker.js scanOne 對等），個股查詢維持 60
   // 先試 .TW（上市），失敗再試 .TWO（上櫃）
   var suffixes = ['.TW', '.TWO'], twShort = null, staleMsg = '';   // v187 剛轉上市的檢查，理由見 worker.js
@@ -1546,11 +1627,12 @@ function fetchYahooTW(stockNo, minN) {
       var meta = res.meta || {};
       var ts = res.timestamp || [];
       fillLastClose(res, q);   // v212
-      var fArr2 = adjFactors(res, q);
+      if (!Array.isArray(q.volume)) continue;
+      var today = tpeTodayInSession(), gaps = repairChartGaps(symbol, res, q, today, gapMonthLimit == null ? 2 : gapMonthLimit);
+      var fArr2 = adjFactors(res, q), dates = [];
       var closes = [], highs = [], lows = [], opens = [], vols = [];
       var rawCloses = [], rawHighs = [], rawLows = [];  // 未還原市價
-      if (!(q.volume instanceof Array)) continue;   // 複審 T-002：缺整個量欄不可用（與 worker 回 null 相同）
-      var tLast = -1, lastNN = lastCloseIdx(q), today = tpeTodayInSession();
+      var tLast = -1, lastNN = lastCloseIdx(q);
       for (var i = 0; i < ts.length; i++) {
         var cc = q.close[i];
         if (cc == null) continue;
@@ -1560,6 +1642,7 @@ function fetchYahooTW(stockNo, minN) {
         closes.push(cc * f2); highs.push(hh * f2); lows.push(ll * f2);
         opens.push(oo * f2); vols.push((q.volume && q.volume[i]) || 0);
         rawCloses.push(cc); rawHighs.push(hh); rawLows.push(ll);
+        dates.push(gapYmd(ts[i]));
         tLast = i;
       }
       var ld = ''; try { ld = Utilities.formatDate(new Date(ts[tLast] * 1000), 'UTC', 'yyyyMMdd'); } catch (e3) {}
@@ -1571,7 +1654,8 @@ function fetchYahooTW(stockNo, minN) {
         name: meta.shortName || meta.symbol || stockNo,
         code: stockNo, currency: 'TWD', listed: s === 0,
         price: closes[last], open: opens[last], high: highs[last], low: lows[last],
-        prevClose: closes[last - 1] || closes[last],
+        prevClose: missingPreviousClose(gaps, dates) ? null : closes[last - 1] || closes[last],
+        dates: dates, gaps: gaps,
         volume: vols[last],
         avgVol5: vols.slice(-5).reduce(function(a,b){return a+b;},0) / Math.min(5, vols.length),
         closes: closes, highs: highs, lows: lows, volumes: vols, opens: opens,
