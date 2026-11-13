@@ -661,14 +661,23 @@ function ymdOfMs(t) { return new Date(t).toISOString().slice(0, 10).replace(/-/g
    與 worker.js 同一套規則 */
 /* v212 Yahoo 收盤後最後一根K棒的收盤價有時是空的：同一天的 meta 成交價補上（理由與條件見 worker.js fillLastClose，兩端相同） */
 function fillLastClose(res, q) {
-  var ts = res.timestamp || [], n = ts.length - 1, m = res.meta || {};
-  if (n < 0 || !q.close || q.close.length !== ts.length || q.close[n] != null) return false;
-  if (!(m.regularMarketPrice > 0) || !m.regularMarketTime || ymdOfMs(m.regularMarketTime * 1000) !== ymdOfMs(ts[n] * 1000)) return false;
-  q.close[n] = m.regularMarketPrice;
+  var ts = res.timestamp || [], m = res.meta || {}, mt = m.regularMarketTime;
+  var reg = m.currentTradingPeriod && m.currentTradingPeriod.regular, end = reg && reg.end;
+  if (!q.close || q.close.length !== ts.length || !(m.regularMarketPrice > 0) || !validTs(mt) || !validTs(end)) return false;
+  var mY = ymdOfMs(mt * 1000);
+  if (mY === ymdOfMs(end * 1000) && Date.now() / 1000 < end + 1800) return false;   // 盤中不補（審查 T-010 #2）
+  var k = ts.length - 1;
+  for (; k >= 0; k--) { if (q.close[k] != null) return false; if (ymdOfMs(ts[k] * 1000) === mY) break; }   // 尾端空佔位棒往前找同一天（審查 T-010 #1）
+  if (k < 0) return false;
+  q.close[k] = m.regularMarketPrice;
   var adj = res.indicators.adjclose && res.indicators.adjclose[0] && res.indicators.adjclose[0].adjclose;
-  if (adj && adj.length === ts.length && adj[n] == null) adj[n] = m.regularMarketPrice;
+  if (adj && adj.length === ts.length && adj[k] == null) adj[k] = m.regularMarketPrice;
+  if (q.high && q.high[k] == null && m.regularMarketDayHigh > 0) q.high[k] = m.regularMarketDayHigh;
+  if (q.low && q.low[k] == null && m.regularMarketDayLow > 0) q.low[k] = m.regularMarketDayLow;
+  if (q.volume instanceof Array && q.volume[k] == null && m.regularMarketVolume > 0) q.volume[k] = m.regularMarketVolume;
   return true;
 }
+function validTs(t) { return typeof t === 'number' && t > 0 && t < 8.64e12; }   // 審查 T-010 #3：與 worker 相同，超出 Date 範圍一律無效，不拋錯
 function isTwStockSym(sym) { return /^\d\w*\.TWO?$/.test(sym); }
 function lastCloseIdx(q) { for (var k = (q.close || []).length - 1; k >= 0; k--) if (q.close[k] != null) return k; return -1; }
 function tpeTodayInSession() { var tp = new Date(Date.now() + 8 * 3600000); return tp.getUTCHours() * 60 + tp.getUTCMinutes() < 14 * 60 ? tp.toISOString().slice(0, 10).replace(/-/g, '') : ''; }

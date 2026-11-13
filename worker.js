@@ -372,19 +372,33 @@ async function yahooChart(symbol, range, interval) {
    例外：最後一根有收盤價、日期是台北今天、而且現在是台北 14:00 前（與 dropIntraday 同一個界線）的K棒保留——
    盤中第一筆成交前量也是 0，交給前端的盤中處理（價格與 _intraday 標記）。14:00 後今天仍量 0＝今天沒成交，照樣跳過。
    Code.gs 有同一套規則。 */
-/* v212 Yahoo 收盤後有時最後一根K棒的收盤價是空的（2026-11-13 實測：0050.TW、^TWII 的 11/12 棒 close=null，
-   但 open/high/low 與 meta.regularMarketPrice、regularMarketTime 都是當天的）。原本整根跳過，畫面停在前一天的價格與漲跌幅。
-   只在「最後一根、收盤價空、meta 成交時間與這根同一天、meta 價格 > 0」時，用 meta 價格補上（最新一根的還原係數是 1）。
-   Code.gs 有同一套規則。 */
+/* v212 Yahoo 收盤後有時當天的K棒是空的（2026-11-13 實測：0050.TW、^TWII 的 11/12 棒 close=null；
+   0050 那根連 OHLC 和量都是 null，後面還跟著一根 11/13 的空佔位棒），但 meta 的成交價、時間、當日高低、量都是 11/12 的。
+   原本整根跳過，畫面停在前一天的價格與漲跌幅。補值條件（全部成立才補，Code.gs 有同一套規則）：
+   ① meta 價格 > 0、成交時間是有效時間戳、有本交易日的收盤時間（currentTradingPeriod.regular.end）；
+   ② 不是盤中：meta 那天就是本交易日時，要過了收盤 30 分鐘（與台股 14:00、前端 klineLag 同一個界線）——
+      盤中補值會把未收盤的棒算進「至少 60 根」的門檻（審查 T-010 #2）；
+   ③ 從尾端往前找：遇到有收盤價的棒就停（不補中間的洞），只補日期與 meta 成交時間同一天的空棒；它後面的空佔位棒照舊跳過。
+   補上：收盤＝meta 價（最新一根還原係數是 1）；高、低、量是 null 時用 meta 的當日高、低、量；開盤沒有來源，照原規則以收盤代替。 */
 function fillLastClose(res, q) {
-  const ts = res.timestamp || [], n = ts.length - 1, m = res.meta || {};
-  if (n < 0 || !q.close || q.close.length !== ts.length || q.close[n] != null) return false;
-  if (!(m.regularMarketPrice > 0) || !m.regularMarketTime || ymdOfTs(m.regularMarketTime) !== ymdOfTs(ts[n])) return false;
-  q.close[n] = m.regularMarketPrice;
+  const ts = res.timestamp || [], m = res.meta || {}, mt = m.regularMarketTime;
+  const reg = m.currentTradingPeriod && m.currentTradingPeriod.regular, end = reg && reg.end;
+  if (!q.close || q.close.length !== ts.length || !(m.regularMarketPrice > 0) || !validTs(mt) || !validTs(end)) return false;
+  const mY = ymdOfTs(mt);
+  if (mY === ymdOfTs(end) && Date.now() / 1000 < end + 1800) return false;
+  let k = ts.length - 1;
+  for (; k >= 0; k--) { if (q.close[k] != null) return false; if (ymdOfTs(ts[k]) === mY) break; }
+  if (k < 0) return false;
+  q.close[k] = m.regularMarketPrice;
   const adj = res.indicators.adjclose && res.indicators.adjclose[0] && res.indicators.adjclose[0].adjclose;
-  if (adj && adj.length === ts.length && adj[n] == null) adj[n] = m.regularMarketPrice;
+  if (adj && adj.length === ts.length && adj[k] == null) adj[k] = m.regularMarketPrice;
+  if (q.high && q.high[k] == null && m.regularMarketDayHigh > 0) q.high[k] = m.regularMarketDayHigh;
+  if (q.low && q.low[k] == null && m.regularMarketDayLow > 0) q.low[k] = m.regularMarketDayLow;
+  if (Array.isArray(q.volume) && q.volume[k] == null && m.regularMarketVolume > 0) q.volume[k] = m.regularMarketVolume;
   return true;
 }
+/* 審查 T-010 #3：時間戳要在 Date 的範圍內（秒，±8.64e12），否則兩端一律當無效（GAS 的 toISOString 會拋錯） */
+function validTs(t) { return typeof t === 'number' && t > 0 && t < 8.64e12; }
 function isTwStockSym(sym) { return /^\d\w*\.TWO?$/.test(sym); }
 function lastCloseIdx(q) { for (let k = (q.close || []).length - 1; k >= 0; k--) if (q.close[k] != null) return k; return -1; }
 function tpeTodayInSession() { const tp = new Date(Date.now() + 8 * 3600000); return tp.getUTCHours() * 60 + tp.getUTCMinutes() < 14 * 60 ? tp.toISOString().slice(0, 10).replace(/-/g, '') : ''; }

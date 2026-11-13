@@ -88,7 +88,7 @@ ECO、MFD、STI、FUSION、PSY（併入 RSI）、崩跌預警、專屬量化分�
 | scan.js／layout.js／help.js | 掃描、分頁、說明 | GitHub Pages |
 | worker.js | 後端（Cloudflare） | Worker 編輯器 |
 | Code.gs | 後端（GAS，ES5） | GAS 編輯器 |
-| selftest.js | 自我檢查（767 項，需 playwright；本機沒有 backtest_conditional.js 時略過 ADX 一致性檢查） | 不部署 |
+| selftest.js | 自我檢查（773 項，需 playwright；本機沒有 backtest_conditional.js 時略過 ADX 一致性檢查，少 2 項） | 不部署 |
 | backtest_conditional.js／backtest_standalone.js | 19 年回測 | 不部署 |
 | research/ | 研究腳本與全市場下載 | 不部署 |
 
