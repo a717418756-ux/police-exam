@@ -155,7 +155,7 @@ function doGet(e) {
       for (var at = 0; at < 2; at++) {
         if (at) Utilities.sleep(600);   // 被限流時退避再試
         try {
-          dd = /^\d/.test(cd) ? fetchYahooTW(cd, 1, at ? 0 : 1) : fetchYahoo(cd);   // v187 與個股查詢同一個判斷
+          dd = /^\d/.test(cd) ? fetchYahooTW(cd, 1, at ? 0 : 2) : fetchYahoo(cd);   // v187 與個股查詢同一個判斷
           if (dd && dd.closes && dd.closes.length >= 60) break;
           /* v207 與 worker.js 對等：真的不足60日就不重試（重試幾次都一樣，白等 600ms＋一次請求）；
              原本和「查無K線」寫成同一句，scan.js 只要看到「查無K線」就計入死代碼——新上市股會被誤除名 */
@@ -531,7 +531,7 @@ function fetchYahoo(symbol) {
   var meta = res.meta;
 
   fillLastClose(res, q);   // v212
-  var zToday = tpeTodayInSession(), gaps = repairChartGaps(symbol, res, q, zToday, 2);
+  var zToday = tpeTodayInSession(), gaps = repairChartGaps(symbol, res, q, zToday, 4);
   var fArr = adjFactors(res, q), dates = [];
   var closes = [], highs = [], lows = [], opens = [], vols = [];
   var rawCloses = [], rawHighs = [], rawLows = [];  // 未還原市價（支撐壓力/BOS用）
@@ -547,7 +547,7 @@ function fetchYahoo(symbol) {
     lows.push(zl * zf); opens.push(zo * zf);
     vols.push((q.volume && q.volume[zi]) || 0);
     rawCloses.push(zc); rawHighs.push(zh); rawLows.push(zl);
-    if (isTwStockSym(symbol)) dates.push(gapYmd(res.timestamp[zi]));
+    dates.push(validTs(res.timestamp[zi]) ? gapYmd(res.timestamp[zi]) : '');
     zLast = zi;
   }
 
@@ -683,7 +683,7 @@ function fillLastClose(res, q) {
 function validTs(t) { return typeof t === 'number' && t > 0 && t < 8.64e12; }   // 審查 T-010 #3：與 worker 相同，超出 Date 範圍一律無效，不拋錯
 
 /* v213 只處理兩根可用 K 棒之間的空收盤。尾端佔位與零量休市棒沿用 v211/v212。
-   TWSE 用原始 OHLC 及成交股數，和 Yahoo 的量口徑可能不同。
+   TWSE 的 OHLC 及股數先換成 Yahoo 的配股／分割尺度，成交量口徑仍可能不同。
    有該日 adjclose 就直接用；否則兩側因子一致才沿用下一根，避免跨除權息硬補。 */
 function chartGaps(symbol, res, q, today) {
   var gaps = [], pending = [], ts = res.timestamp || [], seen = false, last = lastCloseIdx(q);
@@ -701,41 +701,39 @@ function chartGaps(symbol, res, q, today) {
   }
   return gaps;
 }
-function gapMonths(gaps, limit) {
-  var months = {}, dates = [];
-  for (var i = gaps.length - 1; i >= 0 && dates.length < limit; i--) {
-    var date = gaps[i].date, month = date.slice(0, 6);
-    if (!months[month]) { months[month] = true; dates.push(date); }
-  }
-  return dates;
+/* 用缺口兩側原有的 Yahoo K 棒與同日證交所收盤核對配股和分割尺度。 */
+function gapAnchors(q, ts, gap) {
+  var left = gap.index - 1, right = gap.index + 1;
+  while (left >= 0 && !(validTs(ts[left]) && q.close[left] > 0 && q.volume[left] > 0)) left--;
+  while (right < ts.length && !(validTs(ts[right]) && q.close[right] > 0 && q.volume[right] > 0)) right++;
+  if (left < 0 || right >= ts.length) return null;
+  return { left: left, right: right, dates: [gap.date, gapYmd(ts[left]), gapYmd(ts[right])] };
 }
-function restoreGapRows(res, q, gaps, report, month) {
+function gapReportRows(rows, report) {
   if (!report || report.stat !== 'OK' || !Array.isArray(report.data)) return;
-  if (!Array.isArray(q.open) || !Array.isArray(q.high) || !Array.isArray(q.low)) return;
-  var adj = res.indicators.adjclose && res.indicators.adjclose[0] && res.indicators.adjclose[0].adjclose;
-  var rows = {};
-  for (var j = 0; j < report.data.length; j++) {
-    var row = report.data[j];
+  for (var i = 0; i < report.data.length; i++) {
+    var row = report.data[i];
     if (Array.isArray(row)) rows[rocToYmd(row[0])] = row;
   }
-  for (var g = 0; g < gaps.length; g++) {
-    var gap = gaps[g], k = gap.index, r = rows[gap.date];
-    if (!r || gap.date.slice(0, 6) !== month || q.close[k] != null) continue;
-    var open = num(r[3]), high = num(r[4]), low = num(r[5]), close = num(r[6]), volume = num(r[1]);
-    if (![open, high, low, close, volume].every(function (x) { return isFinite(x) && x > 0; })) continue;
-    if (high < Math.max(open, close) || low > Math.min(open, close)) continue;
-    if (!Array.isArray(adj)) continue;
-    if (!(adj[k] > 0 && isFinite(adj[k]))) {
-      var left = k - 1, right = k + 1;
-      while (left >= 0 && !(q.close[left] > 0 && q.volume[left] > 0)) left--;
-      while (right < q.close.length && !(q.close[right] > 0 && q.volume[right] > 0)) right++;
-      var before = adj[left] / q.close[left], after = adj[right] / q.close[right];
-      // Yahoo 的價格用浮點數，容許微小捨入誤差。
-      if (!(before > 0 && after > 0 && Math.abs(before / after - 1) < 1e-5)) continue;
-      adj[k] = close * after;
-    }
-    q.open[k] = open; q.high[k] = high; q.low[k] = low; q.close[k] = close; q.volume[k] = volume;
+}
+function restoreGapRows(res, q, gap, anchors, rows) {
+  var k = gap.index, row = rows[gap.date], leftRow = rows[anchors.dates[1]], rightRow = rows[anchors.dates[2]];
+  if (!row || !leftRow || !rightRow || !Array.isArray(q.open) || !Array.isArray(q.high) || !Array.isArray(q.low)) return;
+  var open = num(row[3]), high = num(row[4]), low = num(row[5]), close = num(row[6]), volume = num(row[1]);
+  if (![open, high, low, close, volume].every(function (x) { return isFinite(x) && x > 0; })) return;
+  if (high < Math.max(open, close) || low > Math.min(open, close)) return;
+  var left = anchors.left, right = anchors.right;
+  var leftScale = q.close[left] / num(leftRow[6]), scale = q.close[right] / num(rightRow[6]);
+  if (!(isFinite(scale) && scale > 0 && Math.abs(leftScale / scale - 1) < 0.001)) return;
+  var adj = res.indicators.adjclose && res.indicators.adjclose[0] && res.indicators.adjclose[0].adjclose;
+  if (!Array.isArray(adj)) return;
+  if (!(adj[k] > 0 && isFinite(adj[k]))) {
+    var before = adj[left] / q.close[left], after = adj[right] / q.close[right];
+    if (!(before > 0 && after > 0 && Math.abs(before / after - 1) < 1e-5)) return;
+    adj[k] = close * scale * after;
   }
+  q.open[k] = open * scale; q.high[k] = high * scale; q.low[k] = low * scale;
+  q.close[k] = close * scale; q.volume[k] = Math.round(volume / scale);
 }
 function missingPreviousClose(gaps, dates) {
   var last = dates.length - 1;
@@ -746,13 +744,24 @@ function gapYmd(ts) { return ymdOfMs(ts * 1000); }
 function repairChartGaps(symbol, res, q, today, limit) {
   var gaps = chartGaps(symbol, res, q, today);
   if (gaps.length && /\.TW$/.test(symbol)) {
-    var dates = gapMonths(gaps, limit);
-    for (var i = 0; i < dates.length; i++) {
-      var date = dates[i];
-      try {
-        var report = twseGet('STOCK_DAY', 'response=json&date=' + date + '&stockNo=' + encodeURIComponent(symbol.slice(0, -3)));
-        restoreGapRows(res, q, gaps, report, date.slice(0, 6));
-      } catch (e) { /* 保留缺日標記 */ }
+    var rows = {}, tried = {}, requests = 0, ts = res.timestamp;
+    // 先記住原始錨點，避免剛補的 K 棒被拿來驗證下一個缺口。
+    var anchors = gaps.map(function (gap) { return gapAnchors(q, ts, gap); });
+    var stockNo = encodeURIComponent(symbol.slice(0, -3));
+    for (var i = gaps.length - 1; i >= 0; i--) {
+      if (!anchors[i]) continue;
+      var dates = anchors[i].dates;
+      for (var j = 0; j < dates.length; j++) {
+        var date = dates[j], month = date.slice(0, 6);
+        if (tried[month] || requests >= limit) continue;
+        tried[month] = true;
+        requests++;
+        try {
+          var report = twseGet('STOCK_DAY', 'response=json&date=' + date + '&stockNo=' + stockNo);
+          gapReportRows(rows, report);
+        } catch (e) { /* 保留缺日標記 */ }
+      }
+      restoreGapRows(res, q, gaps[i], anchors[i], rows);
     }
   }
   return gaps.filter(function (gap) { return q.close[gap.index] == null; }).map(function (gap) { return gap.date; });
@@ -1018,7 +1027,7 @@ function dailySeries(sym, now) {
       var q = res.indicators.quote[0]; fillLastClose(res, q);   // v212
       if (isTwStockSym(sym + sfx[s]) && !Array.isArray(q.volume)) continue;
       var today = tpeTodayInSession();
-      repairChartGaps(sym + sfx[s], res, q, today, 2);
+      repairChartGaps(sym + sfx[s], res, q, today, 4);
       var f = adjFactors(res, q), dates = [], closes = [], lastNN = lastCloseIdx(q);
       for (var i = 0; i < (q.close || []).length; i++) {
         if (q.close[i] == null) continue;
@@ -1628,7 +1637,7 @@ function fetchYahooTW(stockNo, minN, gapMonthLimit) {
       var ts = res.timestamp || [];
       fillLastClose(res, q);   // v212
       if (!Array.isArray(q.volume)) continue;
-      var today = tpeTodayInSession(), gaps = repairChartGaps(symbol, res, q, today, gapMonthLimit == null ? 2 : gapMonthLimit);
+      var today = tpeTodayInSession(), gaps = repairChartGaps(symbol, res, q, today, gapMonthLimit == null ? 4 : gapMonthLimit);
       var fArr2 = adjFactors(res, q), dates = [];
       var closes = [], highs = [], lows = [], opens = [], vols = [];
       var rawCloses = [], rawHighs = [], rawLows = [];  // 未還原市價

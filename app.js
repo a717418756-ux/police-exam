@@ -1,6 +1,6 @@
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['app.js'] = 213; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['app.js'] = 214; } catch (e) {}
 
 // ══════════════════════════════════════════════════════════════════════
 // 短線雷達 Pro — 風險優先分層決策系統
@@ -644,15 +644,18 @@ async function go(){
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('情報面',err); }
 
     // RS Rating / Beta / Alpha / 兵法系統（需大盤基準）
-    fetchBenchmark(D.currency==='TWD').then(bench=>{
+    fetchBenchmark(D.currency==='TWD').then(benchmark=>{
       if(window._activeCode && window._activeCode!==D.code) return;  // 已換股，丟棄遲到基準，避免用舊D重畫決策層
-      const first = D.dates && D.dates[Math.max(0, D.closes.length - 253)];
-      if (first && D.gaps && D.gaps.some(date => date > first)) bench = null;
+      const stockGaps = comparisonGaps(D), benchGaps = benchmark ? benchmark.gaps : [];
+      const gapNote = [['個股', stockGaps], ['大盤基準', benchGaps]]
+        .filter(([, dates]) => dates.length)
+        .map(([label, dates]) => `${label} K 線缺日 ${dates.map(md).join('、')}`).join('｜');
+      const bench = !gapNote && benchmark ? benchmark.closes : null;
       let rsRating=null;
       try{
         const rs=computeRSRating(D, bench);
         rsRating=rs.excess!=null?rs.rating:null;   // v187 大盤沒抓到時那是「絕對報酬」，不可當相對強弱餵進勢能（RS 卡自己會標明）
-        renderRSRating(rs);
+        renderRSRating(rs, gapNote);
       }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('RS評級',err); }
       try{ renderBetaAlpha(computeBetaAlpha(D, bench)); }
       catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('BetaAlpha',err); }
