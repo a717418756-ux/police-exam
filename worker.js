@@ -387,7 +387,7 @@ function fillLastClose(res, q) {
   const mY = ymdOfTs(mt);
   if (mY === ymdOfTs(end) && Date.now() / 1000 < end + 1800) return false;
   let k = ts.length - 1;
-  for (; k >= 0; k--) { if (q.close[k] != null) return false; if (ymdOfTs(ts[k]) === mY) break; }
+  for (; k >= 0; k--) { if (q.close[k] != null) return false; if (validTs(ts[k]) && ymdOfTs(ts[k]) === mY) break; }   // 複審 T-010：空棒的時間戳是壞值就略過，繼續往前找
   if (k < 0) return false;
   q.close[k] = m.regularMarketPrice;
   const adj = res.indicators.adjclose && res.indicators.adjclose[0] && res.indicators.adjclose[0].adjclose;

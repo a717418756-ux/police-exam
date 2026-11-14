@@ -1350,6 +1350,11 @@ async function backendTests() {
         at('09:01'); fetchImpl = async () => ({ ok: true, json: async () => c59() }); gsFetch = () => gsOf(c59());
         let we = '', ge = '', gq59; try { await W.fetchYahooTW('2330'); } catch (e) { we = e.message; } try { gq59 = G.fetchYahooTW('2330'); } catch (e) { ge = e.message; }
         ok('v212 審查 #2：59 根完整＋1 根盤中空棒，兩端都不放行（Worker 回不足 60 日，GAS 回 null）', /只有 59 個交易日/.test(we) && (gq59 === null || /只有 59 個交易日/.test(ge)), `${we}｜${ge}｜${gq59 && gq59.closes && gq59.closes.length}`); }
+      // 複審 T-010：尾端空棒自己的時間戳是壞值（11/12 空棒、1e20 空棒、11/13 空棒，meta 是 11/12）→ 兩端都略過壞值、補到 11/12，GAS 不可拋錯丟掉整份回應
+      const badBar = () => { const c = real0050(), r = c.chart.result[0], qq = r.indicators.quote[0]; r.timestamp.splice(80, 0, 1e20); ['open', 'high', 'low', 'close', 'volume'].forEach(f => qq[f].splice(80, 0, null)); r.indicators.adjclose[0].adjclose.splice(80, 0, null); return c; };
+      Date.now = () => Date.parse('2026-11-13T07:08:00+08:00'); fetchImpl = async () => ({ ok: true, json: async () => badBar() }); gsFetch = () => gsOf(badBar());
+      const wbb = await W.yahooChart('2330.TW', '2y', '1d'), gbb = G.fetchYahooTW('2330'), gbq = G.fetchYahoo('0050.TW');
+      ok('v212 複審：尾端空棒的時間戳是壞值 → 兩端都略過它、照樣補到 11/12（80 根），GAS 不丟掉整份回應', wbb.closes.length === 80 && wbb.lastDate === want0 && gbb && gbb.closes.length === 80 && gbb.lastDate === want0 && gbq.closes.length === 80 && JSON.stringify(wbb.closes) === JSON.stringify(gbb.closes), `${wbb.closes.length}/${gbb && gbb.closes.length}/${gbq.closes.length}`);
       // 審查 T-010 #3：meta 成交時間超出 Date 範圍 → 兩端都不補也不拋錯，保留 79 根
       const badTs = () => mk(1e15, 200);
       at('15:00'); fetchImpl = async () => ({ ok: true, json: async () => badTs() }); gsFetch = () => gsOf(badTs());

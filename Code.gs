@@ -667,7 +667,7 @@ function fillLastClose(res, q) {
   var mY = ymdOfMs(mt * 1000);
   if (mY === ymdOfMs(end * 1000) && Date.now() / 1000 < end + 1800) return false;   // 盤中不補（審查 T-010 #2）
   var k = ts.length - 1;
-  for (; k >= 0; k--) { if (q.close[k] != null) return false; if (ymdOfMs(ts[k] * 1000) === mY) break; }   // 尾端空佔位棒往前找同一天（審查 T-010 #1）
+  for (; k >= 0; k--) { if (q.close[k] != null) return false; if (validTs(ts[k]) && ymdOfMs(ts[k] * 1000) === mY) break; }   // 尾端空佔位棒往前找同一天（審查 T-010 #1）
   if (k < 0) return false;
   q.close[k] = m.regularMarketPrice;
   var adj = res.indicators.adjclose && res.indicators.adjclose[0] && res.indicators.adjclose[0].adjclose;
