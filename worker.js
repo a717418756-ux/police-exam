@@ -235,8 +235,8 @@ async function scanOne(code) {
     if (attempt) await new Promise(r => setTimeout(r, 600));   // 被限流時退避再試
     try {
       let d = null;
-      if (isTW) { for (const sfx of ['.TW', '.TWO']) { d = await yahooChart(code + sfx, '2y', '1d', attempt ? 0 : 2); if (d && d.closes.length) break; d = null; } }
-      else d = await yahooChart(code, '2y', '1d');
+      if (isTW) { for (const sfx of ['.TW', '.TWO']) { d = await yahooChart(code + sfx, '2y', '1d', 0); if (d && d.closes.length) break; d = null; } }
+      else d = await yahooChart(code, '2y', '1d', 0);
       if (!d) { why = isTW ? '查無K線（.TW/.TWO 皆無回應）——非上市櫃／已下市，或 Yahoo 當下限流' : '查無此代碼的K線'; continue; }
       // 真的不足60日就不必重試了，重試幾次都一樣
       if (d.closes.length < 60) return { code, ok: false, error: `僅 ${d.closes.length} 個交易日（新上市或長期停牌），不足60日無法計算指標` };
@@ -252,10 +252,11 @@ async function scanOne(code) {
 
 /* ── 台股：Yahoo 一次抓K線 + T86 籌碼（平行，超快）── */
 async function fetchTaiwan(stockNo) {
-  // 平行抓 K 線與籌碼（GAS 是序列，這裡平行，更快）
+  // Yahoo 可以和籌碼平行，但補值的 TWSE 請求等 T86 結束。
+  const chipTask = fetchTaiwanChip(stockNo).catch(() => null);
   const [kline, chip, corp] = await Promise.all([
-    fetchYahooTW(stockNo),
-    fetchTaiwanChip(stockNo).catch(() => null),
+    fetchYahooTW(stockNo, async () => { const chip = await chipTask; return !!chip && !chip.headMiss; }),
+    chipTask,
     fetchCorpEvents(stockNo).catch(e => ({ err: e.message })),
   ]);
   if (!kline) throw new Error('找不到 ' + stockNo + ' 的資料');
@@ -288,10 +289,10 @@ async function fetchCorpEvents(code) {
 }
 
 /* ── Yahoo 台股（.TW 上市 → .TWO 上櫃）── */
-async function fetchYahooTW(stockNo) {
+async function fetchYahooTW(stockNo, permitGapFetch) {
   let tw = null;
   for (const suffix of ['.TW', '.TWO']) {
-    const r = await yahooChart(stockNo + suffix, '2y', '1d');
+    const r = await yahooChart(stockNo + suffix, '2y', '1d', 4, permitGapFetch);
     if (!r || !r.closes.length) continue;
     /* v187 剛從上櫃轉上市：.TW 還不滿 60 日，.TWO 卻留著轉板前的舊K線——原本直接拿舊的，畫面只寫「K線至某月」，
        舊股價配上最新的法人資料。上櫃那份比上市那份舊，就明講，不拿來分析 */
@@ -313,7 +314,7 @@ async function fetchYahoo(symbol) {
 }
 
 /* ── Yahoo Chart API 共用 ── */
-async function yahooChart(symbol, range, interval, gapMonthLimit = 4) {
+async function yahooChart(symbol, range, interval, gapMonthLimit = 4, permitGapFetch) {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=${interval}&range=${range}&includeAdjustedClose=true`;
   const resp = await fetchT(url, { headers: UA });
   if (!resp.ok) { if (resp.status === 404) return null; throw new Error(`Yahoo 回應 HTTP ${resp.status}（限流或暫時故障，請稍後再查）`); }   // v197 原本一律變成「找不到此股」
@@ -343,7 +344,7 @@ async function yahooChart(symbol, range, interval, gapMonthLimit = 4) {
   // 複審 T-002：整個成交量欄缺漏的台股回應不可用（無法判斷哪幾天有成交），回 null，與 GAS 相同
   if (isTwStockSym(symbol) && !Array.isArray(q.volume)) return null;
   const today = tpeTodayInSession();
-  const gaps = interval === '1d' ? await repairChartGaps(symbol, res, q, today, gapMonthLimit) : [];
+  const gaps = interval === '1d' ? await repairChartGaps(symbol, res, q, today, gapMonthLimit, permitGapFetch) : [];
   const lastNN = lastCloseIdx(q);
   for (let i = 0; i < (q.close || []).length; i++) {
     const cl = q.close[i];
@@ -462,10 +463,48 @@ function missingPreviousClose(gaps, dates) {
   return gaps.some(function (date) { return date < dates[last] && (last === 0 || date > dates[last - 1]); });
 }
 
-async function repairChartGaps(symbol, res, q, today, limit) {
+
+const GAP_REPORT_COOLDOWN = 60;
+const gapReportInflight = new Map();
+async function loadGapReport(stockNo, month, permitFetch, budget) {
+  const url = 'https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?response=json&date=' + month + '01&stockNo=' + stockNo;
+  const cache = typeof caches !== 'undefined' ? caches.default : null;
+  const cooldownKey = 'https://www.twse.com.tw/.stockradar/gap-report-cooldown';
+  try {
+    const hit = cache && await cache.match(url);
+    if (hit) return await hit.json();
+  } catch (e) { /* 快取不可用時走正常請求 */ }
+  if (permitFetch && !await permitFetch()) return null;
+  try { if (cache && await cache.match(cooldownKey)) return null; } catch (e) {}
+  if (gapReportInflight.has(url)) return gapReportInflight.get(url);
+
+  const remaining = budget();
+  if (remaining <= 0) return null;
+  const pending = (async () => {
+    const r = await fetchT(url, { headers: UA, redirect: 'manual' }, remaining);
+    if ((r.status >= 300 && r.status < 400) || r.status === 429 || r.status === 403) {
+      if (cache) try { await cache.put(cooldownKey, new Response('1', { headers: { 'Cache-Control': 'max-age=' + GAP_REPORT_COOLDOWN } })); } catch (e) {}
+      return null;
+    }
+    if (!r.ok) return null;
+    const report = await r.json();
+    if (!report || report.stat !== 'OK' || !Array.isArray(report.data) || !report.data.length) return null;
+    const ttl = month < _tpeDateStr(0).ymd.slice(0, 6) ? 21600 : 300;
+    if (cache) try {
+      await cache.put(url, new Response(JSON.stringify(report), { headers: { 'Cache-Control': 'max-age=' + ttl, 'Content-Type': 'application/json' } }));
+    } catch (e) {}
+    return report;
+  })();
+  gapReportInflight.set(url, pending);
+  try { return await pending; } finally { gapReportInflight.delete(url); }
+}
+
+async function repairChartGaps(symbol, res, q, today, limit, permitGapFetch) {
   const gaps = chartGaps(symbol, res, q, today);
-  if (gaps.length && /\.TW$/.test(symbol)) {
+  if (limit > 0 && gaps.length && /\.TW$/.test(symbol)) {
     var rows = {}, tried = {}, requests = 0, ts = res.timestamp;
+    let deadline;
+    const budget = () => (deadline ??= Date.now() + 3000) - Date.now();
     // 先記住原始錨點，避免剛補的 K 棒被拿來驗證下一個缺口。
     var anchors = gaps.map(function (gap) { return gapAnchors(q, ts, gap); });
     var stockNo = encodeURIComponent(symbol.slice(0, -3));
@@ -478,9 +517,10 @@ async function repairChartGaps(symbol, res, q, today, limit) {
         tried[month] = true;
         requests++;
         try {
-          var report = await twseGet('STOCK_DAY', 'response=json&date=' + date + '&stockNo=' + stockNo);
-          gapReportRows(rows, report);
-        } catch (e) { /* 保留缺日標記 */ }
+          var report = await loadGapReport(stockNo, month, permitGapFetch, budget);
+          if (report) gapReportRows(rows, report);
+          else requests = limit;
+        } catch (e) { requests = limit; }
       }
       restoreGapRows(res, q, gaps[i], anchors[i], rows);
     }

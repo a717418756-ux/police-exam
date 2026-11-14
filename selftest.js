@@ -1445,7 +1445,7 @@ async function backendTests() {
         Math.abs((d.closes[i] / d.closes[i - 1] - 1) * 100 + 2.18023255813953) < 1e-9 &&
         d.volumes[i] === 138078921 && Math.abs(d.prevClose - 100.95 * 0.9) < 1e-9 &&
         Math.abs((d.price / d.prevClose - 1) * 100 - 1.63447251114413) < 1e-9;
-    }) && etf.calls.length === 2 && etf.calls.every(u => /date=20261112&stockNo=0050/.test(u)));
+    }) && etf.calls.length === 2 && etf.calls.every(u => /date=20261101&stockNo=0050/.test(u)));
     const benchmark = G.fetchYahoo('0050.TW');
     ok('v213 0050 基準：GAS 和 Worker 的收盤序列相同', JSON.stringify(benchmark.closes) === JSON.stringify(etf.worker.closes));
     const handler = {};
@@ -1464,7 +1464,7 @@ async function backendTests() {
     ok('v214 跨月核對配股尺度：OHLC 乘以 10/11，成交量反向換算', scaled.both.every(d =>
       !d.gaps.length && near(d.rawCloses[79], 6570 / 11, 1e-8) && near(d.rawHighs[79], 600, 1e-8) &&
       near(d.rawLows[79], 6400 / 11, 1e-8) && near(d.opens[79], 6500 / 11 * 0.9, 1e-8) &&
-      d.volumes[79] === 121000) && scaled.calls.length === 4 && scaled.calls.some(u => /date=20250731/.test(u)));
+      d.volumes[79] === 121000) && scaled.calls.length === 4 && scaled.calls.some(u => /date=20250701/.test(u)));
     const splitAtGap = await checkGap('2025-08-01', '1519', splitRow, { scale: 10 / 11, rightScale: 1 });
     const noAnchor = await checkGap('2025-08-01', '1519', splitRow, { missingAnchor: true });
     ok('v214 配股尺度不一致或少一側官方收盤時保留缺日', [splitAtGap, noAnchor].every(x =>
@@ -1483,6 +1483,77 @@ async function backendTests() {
     const us = await checkGap('2026-11-12', 'AAPL', null, { suffix: '' });
     ok('v213 上櫃只報缺日；美股與指數不啟用補值', otc.calls.length === 0 && otc.both.every(d => d.gaps.join() === '20250801') &&
       us.calls.length === 0 && us.both.every(d => !d.gaps.length) && !(await W.yahooChart('^TWII', '2y', '1d')).gaps.length);
+
+    // v215：重播 rv2 的 307，共用同一個網站的 T86 在觸發限流後也會被擋。
+    const makeLimited = () => {
+      const c = chart(82), r = c.chart.result[0];
+      r.timestamp = r.timestamp.map((_, i) => Date.parse('2026-11-13T01:00Z') / 1000 + (i - 81) * DAY);
+      for (const k of ['open', 'high', 'low', 'close', 'volume']) r.indicators.quote[0][k][80] = null;
+      return c;
+    };
+    const codes = ['2330', '2317', '0050', '2885', '1519', '2881', '2454', '2308', '2603', '1101'];
+    const scanUrl = 'https://w.test/?action=scan&codes=' + codes.join(',');
+    function limitedRoute() {
+      const log = [];
+      let blocked = false;
+      return { log, request(u) {
+        u = String(u);
+        if (/STOCK_DAY/.test(u)) { log.push('STOCK_DAY'); blocked = true; return { status: 307 }; }
+        if (/\/T86\?/.test(u)) {
+          log.push('T86');
+          if (blocked) return { status: 307 };
+          return { data: { stat: 'OK', fields: ['證券代號', '外陸資買賣超股數(不含外資自營商)', '投信買賣超股數', '自營商買賣超股數'], data: [['2330', '1000', '1000', '1000']] } };
+        }
+        return { data: /finance\/chart/.test(u) ? makeLimited() : [] };
+      } };
+    }
+    const limitW = limitedRoute(), limitG = limitedRoute();
+    fetchImpl = async (u, opts) => {
+      const x = limitW.request(u);
+      if (x.status) limitW.log.push(opts.redirect);
+      return x.status ? { ok: false, status: x.status } : jt(x.data);
+    };
+    gsFetch = (u, opts) => {
+      const x = limitG.request(u);
+      if (x.status) limitG.log.push(opts && opts.followRedirects);
+      return x.status ? { getResponseCode: () => x.status } : gsOf(x.data);
+    };
+    const scanW = (await (await handler.handler.fetch(new Request(scanUrl), {})).json()).results;
+    const scanG = JSON.parse(G.doGet({ parameter: { action: 'scan', codes: codes.join(',') } })).results;
+    ok('v215 掃描 10 檔保留缺日且兩端都零次 STOCK_DAY', !limitW.log.length && !limitG.log.length &&
+      [scanW, scanG].every(list => list.length === 10 && list.every(d => d.ok && d.gaps.join() === '20261112' && d.prevClose === null)), JSON.stringify([limitW.log, limitG.log, scanW[0]?.gaps, scanG[0]?.gaps, scanW[0]?.prevClose, scanG[0]?.prevClose]));
+    const directW = await W.fetchTaiwan('2330'), directG = G.fetchTaiwan('2330');
+    ok('v215 個股優先完成 T86，補值遇 307 不追轉址、不再試，兩端保留同樣缺日與法人資料',
+      [directW, directG].every(d => d.chip && d.chip.days > 0 && d.prevClose === null && d.gaps.join() === '20261112') &&
+      [limitW, limitG].every(l => l.log[0] === 'T86' && l.log.lastIndexOf('T86') < l.log.indexOf('STOCK_DAY') &&
+        l.log.filter(x => x === 'STOCK_DAY').length === 1) &&
+      limitW.log.at(-1) === 'manual' && limitG.log.at(-1) === false, JSON.stringify([limitW.log, limitG.log, directW.gaps, directG.gaps, directW.chip?.days, directG.chip?.days]));
+
+    const previousCaches = global.caches, previousCacheService = global.CacheService;
+    const workerCache = new Map(), gasCache = new Map();
+    global.caches = { default: { match: async k => workerCache.get(k)?.clone(), put: async (k, v) => { workerCache.set(k, v.clone()); } } };
+    global.CacheService = { getScriptCache: () => ({ get: k => gasCache.get(k), put: (k, v) => { gasCache.set(k, v); } }) };
+    try {
+      const first = await checkGap('2025-08-01', '2330', stockRow);
+      const cached = await checkGap('2025-08-01', '2330', null);
+      ok('v215 跨月補值的成功月報可重用，兩端都不重打證交所', first.calls.length === 4 && cached.calls.length === 0 &&
+        cached.both.every(d => d.gaps.length === 0 && d.rawCloses[79] === 1140));
+      const before = [limitW.log.length, limitG.log.length];
+      fetchImpl = async u => {
+        const x = limitW.request(u);
+        return x.status ? { ok: false, status: x.status } : jt(x.data);
+      };
+      gsFetch = u => { const x = limitG.request(u); return x.status ? { getResponseCode: () => x.status } : gsOf(x.data); };
+      await W.yahooChart('0050.TW', '2y', '1d');
+      G.fetchYahoo('0050.TW');
+      const second = [await W.yahooChart('006208.TW', '2y', '1d'), G.fetchYahoo('006208.TW')];
+      ok('v215 307 後不同代號也遵守補值冷卻，已有月報快取保留', limitW.log.length === before[0] + 1 &&
+        limitG.log.length === before[1] + 1 && second.every(d => d.gaps.join() === '20261112') &&
+        [workerCache.size, gasCache.size].every(n => n === 3), JSON.stringify([before, limitW.log.length, limitG.log.length, second.map(d => d.gaps), workerCache.size, gasCache.size]));
+    } finally {
+      global.caches = previousCaches; global.CacheService = previousCacheService;
+    }
+
   }
 
   // ③ period2 不得多抓一天（histuntil 多一天＝前視偏差；range 多一天＝MAE/MFE 算大）

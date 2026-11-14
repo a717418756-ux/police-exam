@@ -155,7 +155,7 @@ function doGet(e) {
       for (var at = 0; at < 2; at++) {
         if (at) Utilities.sleep(600);   // 被限流時退避再試
         try {
-          dd = /^\d/.test(cd) ? fetchYahooTW(cd, 1, at ? 0 : 2) : fetchYahoo(cd);   // v187 與個股查詢同一個判斷
+          dd = /^\d/.test(cd) ? fetchYahooTW(cd, 1, 0) : fetchYahoo(cd, 0);   // v187 與個股查詢同一個判斷
           if (dd && dd.closes && dd.closes.length >= 60) break;
           /* v207 與 worker.js 對等：真的不足60日就不重試（重試幾次都一樣，白等 600ms＋一次請求）；
              原本和「查無K線」寫成同一句，scan.js 只要看到「查無K線」就計入死代碼——新上市股會被誤除名 */
@@ -262,10 +262,19 @@ function doGet(e) {
 function fetchTaiwan(stockNo) {
   // ── 優先用 Yahoo 一次抓完（快：1次請求 vs TWSE 逐月12次）──
   try {
-    var ydata = fetchYahooTW(stockNo);
+    var chipReady = false, yahooChip = null;
+    var loadChip = function () {
+      if (!chipReady) {
+        chipReady = true;
+        try { yahooChip = fetchTaiwanChip(stockNo); } catch (e) {}
+      }
+      return !!yahooChip && !yahooChip.headMiss;
+    };
+    var ydata = fetchYahooTW(stockNo, 60, 4, loadChip);
     if (ydata && ydata.closes && ydata.closes.length >= 60) {
       // 籌碼仍從 TWSE T86 抓
-      ydata.chip = fetchTaiwanChip(stockNo);
+      loadChip();
+      ydata.chip = yahooChip;
       if (!ydata.chip) ydata.chipErr = '證交所三大法人（T86）近期資料全部抓不到（限流、改版或此股沒有法人資料）';   // v197 與 worker.js 對等
       return attachCorp(ydata, stockNo, ydata.listed);
     }
@@ -515,7 +524,7 @@ function fetchTaiwanChip(stockNo) {
 }
 
 /** ── 美股：Yahoo Finance ─────────────────────────────────── */
-function fetchYahoo(symbol) {
+function fetchYahoo(symbol, gapMonthLimit) {
   var url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + symbol +
             '?interval=1d&range=2y&includeAdjustedClose=true';   // v197 與 worker.js 對等
   var resp = UrlFetchApp.fetch(url, {
@@ -531,7 +540,7 @@ function fetchYahoo(symbol) {
   var meta = res.meta;
 
   fillLastClose(res, q);   // v212
-  var zToday = tpeTodayInSession(), gaps = repairChartGaps(symbol, res, q, zToday, 4);
+  var zToday = tpeTodayInSession(), gaps = repairChartGaps(symbol, res, q, zToday, gapMonthLimit == null ? 4 : gapMonthLimit);
   var fArr = adjFactors(res, q), dates = [];
   var closes = [], highs = [], lows = [], opens = [], vols = [];
   var rawCloses = [], rawHighs = [], rawLows = [];  // 未還原市價（支撐壓力/BOS用）
@@ -741,9 +750,36 @@ function missingPreviousClose(gaps, dates) {
 }
 
 function gapYmd(ts) { return ymdOfMs(ts * 1000); }
-function repairChartGaps(symbol, res, q, today, limit) {
+
+var GAP_REPORT_COOLDOWN = 60;
+function loadGapReport(stockNo, month, permitFetch) {
+  var cache = null, key = 'gapReport:' + stockNo + ':' + month, cooldownKey = 'gapReport:cooldown';
+  try {
+    cache = CacheService.getScriptCache();
+    var hit = cache.get(key);
+    if (hit) return JSON.parse(hit);
+  } catch (e) { /* 快取不可用時走正常請求 */ }
+  if (permitFetch && !permitFetch()) return null;
+  try { if (cache && cache.get(cooldownKey)) return null; } catch (e) {}
+
+  var url = 'https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?response=json&date=' + month + '01&stockNo=' + stockNo;
+  var r = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: false, headers: { 'User-Agent': 'Mozilla/5.0' } });
+  var status = r.getResponseCode();
+  if ((status >= 300 && status < 400) || status === 429 || status === 403) {
+    if (cache) try { cache.put(cooldownKey, '1', GAP_REPORT_COOLDOWN); } catch (e) {}
+    return null;
+  }
+  if (status !== 200) return null;
+  var report = JSON.parse(r.getContentText());
+  if (!report || report.stat !== 'OK' || !Array.isArray(report.data) || !report.data.length) return null;
+  var ttl = month < ymdOfMs(Date.now() + 8 * 3600000).slice(0, 6) ? 21600 : 300;
+  if (cache) try { cache.put(key, JSON.stringify(report), ttl); } catch (e) {}
+  return report;
+}
+
+function repairChartGaps(symbol, res, q, today, limit, permitGapFetch) {
   var gaps = chartGaps(symbol, res, q, today);
-  if (gaps.length && /\.TW$/.test(symbol)) {
+  if (limit > 0 && gaps.length && /\.TW$/.test(symbol)) {
     var rows = {}, tried = {}, requests = 0, ts = res.timestamp;
     // 先記住原始錨點，避免剛補的 K 棒被拿來驗證下一個缺口。
     var anchors = gaps.map(function (gap) { return gapAnchors(q, ts, gap); });
@@ -757,9 +793,10 @@ function repairChartGaps(symbol, res, q, today, limit) {
         tried[month] = true;
         requests++;
         try {
-          var report = twseGet('STOCK_DAY', 'response=json&date=' + date + '&stockNo=' + stockNo);
-          gapReportRows(rows, report);
-        } catch (e) { /* 保留缺日標記 */ }
+          var report = loadGapReport(stockNo, month, permitGapFetch);
+          if (report) gapReportRows(rows, report);
+          else requests = limit;
+        } catch (e) { requests = limit; }
       }
       restoreGapRows(res, q, gaps[i], anchors[i], rows);
     }
@@ -1619,7 +1656,7 @@ function fetchHistUntil(code, until) {
 /** ──────────────────────────────────────────────────────────
  *  fetchYahooTW — 用 Yahoo 一次抓台股一年K線（取代逐月 TWSE，大幅加速）
  *  ────────────────────────────────────────────────────────── */
-function fetchYahooTW(stockNo, minN, gapMonthLimit) {
+function fetchYahooTW(stockNo, minN, gapMonthLimit, permitGapFetch) {
   minN = minN || 60;   // v207 掃描傳 1：拿到短序列才能回「僅 N 個交易日」（與 worker.js scanOne 對等），個股查詢維持 60
   // 先試 .TW（上市），失敗再試 .TWO（上櫃）
   var suffixes = ['.TW', '.TWO'], twShort = null, staleMsg = '';   // v187 剛轉上市的檢查，理由見 worker.js
@@ -1637,7 +1674,7 @@ function fetchYahooTW(stockNo, minN, gapMonthLimit) {
       var ts = res.timestamp || [];
       fillLastClose(res, q);   // v212
       if (!Array.isArray(q.volume)) continue;
-      var today = tpeTodayInSession(), gaps = repairChartGaps(symbol, res, q, today, gapMonthLimit == null ? 4 : gapMonthLimit);
+      var today = tpeTodayInSession(), gaps = repairChartGaps(symbol, res, q, today, gapMonthLimit == null ? 4 : gapMonthLimit, permitGapFetch);
       var fArr2 = adjFactors(res, q), dates = [];
       var closes = [], highs = [], lows = [], opens = [], vols = [];
       var rawCloses = [], rawHighs = [], rawLows = [];  // 未還原市價
