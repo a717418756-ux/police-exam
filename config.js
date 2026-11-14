@@ -11,7 +11,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 
 // ▼▼▼ 每次改版把這個數字 +1（例如 6 → 7），就會自動清除舊快取 ▼▼▼
-const APP_VERSION = 212;
+const APP_VERSION = 215;
 
 /* ── 快取存活時間（統一常數，v95）─────────────────────────────────────
    v95修：原本四個快取各自寫死不同TTL（股價5分/融資5分/大盤10分/縱深10分），
@@ -43,7 +43,7 @@ const RISK_RULE = { perTrade: 2, monthly: 6 };
    app.js 啟動時比對，不符就直接點名是哪個檔沒更新——
    以前只能靠「畫面文字怎麼還是舊的」去猜，這種事發生過不只一次。 */
 const FILE_VERS = {
-  'help.js': 210, 'db.js': 198, 'market.js': 188, 'enhance.js': 210, 'advanced.js': 198, 'smc.js': 198, 'mainforce.js': 208, 'mtf.js': 197, 'bingfa.js': 210, 'layout.js': 188, 'journal.js': 210, 'scan.js': 210, 'intel.js': 199, 'app.js': 212
+  'help.js': 210, 'db.js': 198, 'market.js': 188, 'enhance.js': 213, 'advanced.js': 214, 'smc.js': 198, 'mainforce.js': 213, 'mtf.js': 197, 'bingfa.js': 213, 'layout.js': 188, 'journal.js': 210, 'scan.js': 213, 'intel.js': 199, 'app.js': 214
 };
 
 /* 證據等級登記（文件；各規則直接寫在使用它的地方）
@@ -114,7 +114,18 @@ function weekdayTradeDate(lagDays, at) {   // 只跳週末的推算
    價格也要用同一根——現價配昨天的量＝把兩天拼在一起（量增價漲可能是昨天爆量下跌＋今天盤中上漲）。
    收盤後 barPx＝現價、barPrev＝昨收，行為不變 */
 const barPx = D => D._intraday ? D.closes[D.closes.length - 1] : D.price;
-const barPrev = D => D._intraday ? D.closes[D.closes.length - 2] : D.prevClose;
+const barPrev = D => {
+  if (!D._intraday) return D.prevClose;
+  const dates = D.dates, n = D.closes.length;
+  if (dates && D.gaps && D.gaps.some(date => date > dates[n - 2] && date < dates[n - 1])) return null;
+  return D.closes[n - 2];
+};
+
+function recentKlineGaps(D) {
+  if (!D.gaps || !D.gaps.length || !D.dates) return [];
+  const first = D.dates[Math.max(0, D.closes.length - 20)];
+  return D.gaps.filter(date => date > first);
+}
 
 function checkDataFreshness(dataDate, lagDays) {
   if (!dataDate) return null;

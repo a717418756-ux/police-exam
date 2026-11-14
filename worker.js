@@ -72,6 +72,7 @@ const TWSE_REPORTS = {
   T86:      ['fund/T86', 'rwd/zh/fund/T86', 'exchangeReport/T86'],
   MI_MARGN: ['rwd/zh/marginTrading/MI_MARGN', 'exchangeReport/MI_MARGN', 'exchange/MI_MARGN'],
   BWIBBU_d: ['rwd/zh/afterTrading/BWIBBU_d', 'exchangeReport/BWIBBU_d', 'exchange/BWIBBU_d'],
+  STOCK_DAY: ['rwd/zh/afterTrading/STOCK_DAY'],
 };
 const _twseOK = {};   // 記住每份報表實際可用的路徑
 async function twseGet(report, qs) {
@@ -204,7 +205,7 @@ export default {
         const mkt = p.get('market') || 'tw';
         const sym = mkt === 'us' ? 'SPY' : '0050.TW';
         const d = await fetchYahoo(sym);
-        return json({ ok: true, closes: d.closes, lastDate: d.lastDate || '' });   // v183：前端要據此去掉盤中未完成K棒，才能與個股對齊
+        return json({ ok: true, closes: d.closes, lastDate: d.lastDate || '', dates: d.dates, gaps: d.gaps });   // v183：前端要據此去掉盤中未完成K棒，才能與個股對齊
       }
       // 大盤環境
       if (action === 'market') {
@@ -234,8 +235,8 @@ async function scanOne(code) {
     if (attempt) await new Promise(r => setTimeout(r, 600));   // 被限流時退避再試
     try {
       let d = null;
-      if (isTW) { for (const sfx of ['.TW', '.TWO']) { d = await yahooChart(code + sfx, '2y', '1d'); if (d && d.closes.length) break; d = null; } }
-      else d = await yahooChart(code, '2y', '1d');
+      if (isTW) { for (const sfx of ['.TW', '.TWO']) { d = await yahooChart(code + sfx, '2y', '1d', 0); if (d && d.closes.length) break; d = null; } }
+      else d = await yahooChart(code, '2y', '1d', 0);
       if (!d) { why = isTW ? '查無K線（.TW/.TWO 皆無回應）——非上市櫃／已下市，或 Yahoo 當下限流' : '查無此代碼的K線'; continue; }
       // 真的不足60日就不必重試了，重試幾次都一樣
       if (d.closes.length < 60) return { code, ok: false, error: `僅 ${d.closes.length} 個交易日（新上市或長期停牌），不足60日無法計算指標` };
@@ -243,7 +244,7 @@ async function scanOne(code) {
         closes: d.closes, highs: d.highs, lows: d.lows,
         rawCloses: d.rawCloses, rawHighs: d.rawHighs, rawLows: d.rawLows,
         volumes: d.volumes, opens: d.opens || null,
-        price: d.closes[d.closes.length - 1], lastDate: d.lastDate || '' };
+        price: d.closes[d.closes.length - 1], lastDate: d.lastDate || '', dates: d.dates, gaps: d.gaps, prevClose: d.prevClose };
     } catch (e) { why = String(e && e.message || e); }
   }
   return { code, ok: false, error: (why || '未知錯誤') + '（已重試1次）' };
@@ -251,10 +252,11 @@ async function scanOne(code) {
 
 /* ── 台股：Yahoo 一次抓K線 + T86 籌碼（平行，超快）── */
 async function fetchTaiwan(stockNo) {
-  // 平行抓 K 線與籌碼（GAS 是序列，這裡平行，更快）
+  // Yahoo 可以和籌碼平行，但補值的 TWSE 請求等 T86 結束。
+  const chipTask = fetchTaiwanChip(stockNo).catch(() => null);
   const [kline, chip, corp] = await Promise.all([
-    fetchYahooTW(stockNo),
-    fetchTaiwanChip(stockNo).catch(() => null),
+    fetchYahooTW(stockNo, async () => { const chip = await chipTask; return !!chip && !chip.headMiss; }),
+    chipTask,
     fetchCorpEvents(stockNo).catch(e => ({ err: e.message })),
   ]);
   if (!kline) throw new Error('找不到 ' + stockNo + ' 的資料');
@@ -287,10 +289,10 @@ async function fetchCorpEvents(code) {
 }
 
 /* ── Yahoo 台股（.TW 上市 → .TWO 上櫃）── */
-async function fetchYahooTW(stockNo) {
+async function fetchYahooTW(stockNo, permitGapFetch) {
   let tw = null;
   for (const suffix of ['.TW', '.TWO']) {
-    const r = await yahooChart(stockNo + suffix, '2y', '1d');
+    const r = await yahooChart(stockNo + suffix, '2y', '1d', 4, permitGapFetch);
     if (!r || !r.closes.length) continue;
     /* v187 剛從上櫃轉上市：.TW 還不滿 60 日，.TWO 卻留著轉板前的舊K線——原本直接拿舊的，畫面只寫「K線至某月」，
        舊股價配上最新的法人資料。上櫃那份比上市那份舊，就明講，不拿來分析 */
@@ -312,7 +314,7 @@ async function fetchYahoo(symbol) {
 }
 
 /* ── Yahoo Chart API 共用 ── */
-async function yahooChart(symbol, range, interval) {
+async function yahooChart(symbol, range, interval, gapMonthLimit = 4, permitGapFetch) {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=${interval}&range=${range}&includeAdjustedClose=true`;
   const resp = await fetchT(url, { headers: UA });
   if (!resp.ok) { if (resp.status === 404) return null; throw new Error(`Yahoo 回應 HTTP ${resp.status}（限流或暫時故障，請稍後再查）`); }   // v197 原本一律變成「找不到此股」
@@ -341,7 +343,9 @@ async function yahooChart(symbol, range, interval) {
      均成交值少約 5%，窗口也多算一天。指數（^TWII）與美股不動。 */
   // 複審 T-002：整個成交量欄缺漏的台股回應不可用（無法判斷哪幾天有成交），回 null，與 GAS 相同
   if (isTwStockSym(symbol) && !Array.isArray(q.volume)) return null;
-  const lastNN = lastCloseIdx(q), today = tpeTodayInSession();
+  const today = tpeTodayInSession();
+  const gaps = interval === '1d' ? await repairChartGaps(symbol, res, q, today, gapMonthLimit, permitGapFetch) : [];
+  const lastNN = lastCloseIdx(q);
   for (let i = 0; i < (q.close || []).length; i++) {
     const cl = q.close[i];
     if (cl == null) continue;
@@ -360,7 +364,8 @@ async function yahooChart(symbol, range, interval) {
   return {
     name: meta.shortName || meta.symbol || symbol,
     price: closes[last], open: opens[last], high: highs[last], low: lows[last],
-    prevClose: closes[last - 1] || closes[last], volume: vols[last],
+    prevClose: missingPreviousClose(gaps, dates) ? null : closes[last - 1] || closes[last], volume: vols[last],
+    gaps,
     avgVol5: vols.slice(-5).reduce((a, b) => a + b, 0) / Math.min(5, vols.length),
     closes, highs, lows, volumes: vols, opens,
     lastDate: (function(){ try { const d=new Date(res.timestamp[lastIdx]*1000); return d.toISOString().slice(0,10).replace(/-/g,''); } catch(e){ return ''; } })(),   // v153：對齊「最後一根實際採用的K棒」，而非最後一個時間戳
@@ -399,6 +404,129 @@ function fillLastClose(res, q) {
 }
 /* 審查 T-010 #3：時間戳要在 Date 的範圍內（秒，±8.64e12），否則兩端一律當無效（GAS 的 toISOString 會拋錯） */
 function validTs(t) { return typeof t === 'number' && t > 0 && t < 8.64e12; }
+
+/* v213 只處理兩根可用 K 棒之間的空收盤。尾端佔位與零量休市棒沿用 v211/v212。
+   TWSE 的 OHLC 及股數先換成 Yahoo 的配股／分割尺度，成交量口徑仍可能不同。
+   有該日 adjclose 就直接用；否則兩側因子一致才沿用下一根，避免跨除權息硬補。 */
+function chartGaps(symbol, res, q, today) {
+  var gaps = [], pending = [], ts = res.timestamp || [], seen = false, last = lastCloseIdx(q);
+  if (!isTwStockSym(symbol) || !q.close || q.close.length !== ts.length) return gaps;
+  for (var i = 0; i < ts.length; i++) {
+    if (!validTs(ts[i])) continue;
+    var date = ymdOfTs(ts[i]);
+    if (q.close[i] == null) {
+      if (seen && q.volume[i] !== 0) pending.push({ index: i, date: date });
+    } else if (!skipZeroVolBar(symbol, q, i, last, date, today)) {
+      gaps = gaps.concat(pending);
+      pending = [];
+      seen = true;
+    }
+  }
+  return gaps;
+}
+/* 用缺口兩側原有的 Yahoo K 棒與同日證交所收盤核對配股和分割尺度。 */
+function gapAnchors(q, ts, gap) {
+  var left = gap.index - 1, right = gap.index + 1;
+  while (left >= 0 && !(validTs(ts[left]) && q.close[left] > 0 && q.volume[left] > 0)) left--;
+  while (right < ts.length && !(validTs(ts[right]) && q.close[right] > 0 && q.volume[right] > 0)) right++;
+  if (left < 0 || right >= ts.length) return null;
+  return { left: left, right: right, dates: [gap.date, ymdOfTs(ts[left]), ymdOfTs(ts[right])] };
+}
+function gapReportRows(rows, report) {
+  if (!report || report.stat !== 'OK' || !Array.isArray(report.data)) return;
+  for (var i = 0; i < report.data.length; i++) {
+    var row = report.data[i];
+    if (Array.isArray(row)) rows[rocToYmd(row[0])] = row;
+  }
+}
+function restoreGapRows(res, q, gap, anchors, rows) {
+  var k = gap.index, row = rows[gap.date], leftRow = rows[anchors.dates[1]], rightRow = rows[anchors.dates[2]];
+  if (!row || !leftRow || !rightRow || !Array.isArray(q.open) || !Array.isArray(q.high) || !Array.isArray(q.low)) return;
+  var open = num(row[3]), high = num(row[4]), low = num(row[5]), close = num(row[6]), volume = num(row[1]);
+  if (![open, high, low, close, volume].every(function (x) { return isFinite(x) && x > 0; })) return;
+  if (high < Math.max(open, close) || low > Math.min(open, close)) return;
+  var left = anchors.left, right = anchors.right;
+  var leftScale = q.close[left] / num(leftRow[6]), scale = q.close[right] / num(rightRow[6]);
+  if (!(isFinite(scale) && scale > 0 && Math.abs(leftScale / scale - 1) < 0.001)) return;
+  var adj = res.indicators.adjclose && res.indicators.adjclose[0] && res.indicators.adjclose[0].adjclose;
+  if (!Array.isArray(adj)) return;
+  if (!(adj[k] > 0 && isFinite(adj[k]))) {
+    var before = adj[left] / q.close[left], after = adj[right] / q.close[right];
+    if (!(before > 0 && after > 0 && Math.abs(before / after - 1) < 1e-5)) return;
+    adj[k] = close * scale * after;
+  }
+  q.open[k] = open * scale; q.high[k] = high * scale; q.low[k] = low * scale;
+  q.close[k] = close * scale; q.volume[k] = Math.round(volume / scale);
+}
+function missingPreviousClose(gaps, dates) {
+  var last = dates.length - 1;
+  return gaps.some(function (date) { return date < dates[last] && (last === 0 || date > dates[last - 1]); });
+}
+
+
+const GAP_REPORT_COOLDOWN = 60;
+const gapReportInflight = new Map();
+async function loadGapReport(stockNo, month, permitFetch, budget) {
+  const url = 'https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?response=json&date=' + month + '01&stockNo=' + stockNo;
+  const cache = typeof caches !== 'undefined' ? caches.default : null;
+  const cooldownKey = 'https://www.twse.com.tw/.stockradar/gap-report-cooldown';
+  try {
+    const hit = cache && await cache.match(url);
+    if (hit) return await hit.json();
+  } catch (e) { /* 快取不可用時走正常請求 */ }
+  if (permitFetch && !await permitFetch()) return null;
+  try { if (cache && await cache.match(cooldownKey)) return null; } catch (e) {}
+  if (gapReportInflight.has(url)) return gapReportInflight.get(url);
+
+  const remaining = budget();
+  if (remaining <= 0) return null;
+  const pending = (async () => {
+    const r = await fetchT(url, { headers: UA, redirect: 'manual' }, remaining);
+    if ((r.status >= 300 && r.status < 400) || r.status === 429 || r.status === 403) {
+      if (cache) try { await cache.put(cooldownKey, new Response('1', { headers: { 'Cache-Control': 'max-age=' + GAP_REPORT_COOLDOWN } })); } catch (e) {}
+      return null;
+    }
+    if (!r.ok) return null;
+    const report = await r.json();
+    if (!report || report.stat !== 'OK' || !Array.isArray(report.data) || !report.data.length) return null;
+    const ttl = month < _tpeDateStr(0).ymd.slice(0, 6) ? 21600 : 300;
+    if (cache) try {
+      await cache.put(url, new Response(JSON.stringify(report), { headers: { 'Cache-Control': 'max-age=' + ttl, 'Content-Type': 'application/json' } }));
+    } catch (e) {}
+    return report;
+  })();
+  gapReportInflight.set(url, pending);
+  try { return await pending; } finally { gapReportInflight.delete(url); }
+}
+
+async function repairChartGaps(symbol, res, q, today, limit, permitGapFetch) {
+  const gaps = chartGaps(symbol, res, q, today);
+  if (limit > 0 && gaps.length && /\.TW$/.test(symbol)) {
+    var rows = {}, tried = {}, requests = 0, ts = res.timestamp;
+    let deadline;
+    const budget = () => (deadline ??= Date.now() + 3000) - Date.now();
+    // 先記住原始錨點，避免剛補的 K 棒被拿來驗證下一個缺口。
+    var anchors = gaps.map(function (gap) { return gapAnchors(q, ts, gap); });
+    var stockNo = encodeURIComponent(symbol.slice(0, -3));
+    for (var i = gaps.length - 1; i >= 0; i--) {
+      if (!anchors[i]) continue;
+      var dates = anchors[i].dates;
+      for (var j = 0; j < dates.length; j++) {
+        var date = dates[j], month = date.slice(0, 6);
+        if (tried[month] || requests >= limit) continue;
+        tried[month] = true;
+        requests++;
+        try {
+          var report = await loadGapReport(stockNo, month, permitGapFetch, budget);
+          if (report) gapReportRows(rows, report);
+          else requests = limit;
+        } catch (e) { requests = limit; }
+      }
+      restoreGapRows(res, q, gaps[i], anchors[i], rows);
+    }
+  }
+  return gaps.filter(gap => q.close[gap.index] == null).map(gap => gap.date);
+}
 function isTwStockSym(sym) { return /^\d\w*\.TWO?$/.test(sym); }
 function lastCloseIdx(q) { for (let k = (q.close || []).length - 1; k >= 0; k--) if (q.close[k] != null) return k; return -1; }
 function tpeTodayInSession() { const tp = new Date(Date.now() + 8 * 3600000); return tp.getUTCHours() * 60 + tp.getUTCMinutes() < 14 * 60 ? tp.toISOString().slice(0, 10).replace(/-/g, '') : ''; }
@@ -1437,7 +1565,7 @@ async function yahooQuote(symbol) {
   try {
     const r = await yahooChart(symbol, '5d', '1d');
     if (!r || r.closes.length < 2) return null;   // v182：只有一根K棒時沒有前一日收盤，不可用自己當前收算出 0%
-    return { price: r.price, prevClose: r.prevClose, changePct: ((r.price - r.prevClose) / r.prevClose * 100) };
+    return { price: r.price, prevClose: r.prevClose, changePct: r.prevClose > 0 ? (r.price - r.prevClose) / r.prevClose * 100 : null };
   } catch (e) { return null; }
 }
 

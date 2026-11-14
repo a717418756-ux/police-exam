@@ -1,6 +1,6 @@
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['app.js'] = 212; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['app.js'] = 214; } catch (e) {}
 
 // ══════════════════════════════════════════════════════════════════════
 // 短線雷達 Pro — 風險優先分層決策系統
@@ -80,7 +80,7 @@ function trimIntradayBar(j) {
     const [tz, open, close] = SESS[j.currency === 'USD' ? 'us' : 'tw'], p = zoneParts(Date.now(), tz);
     const ymd = p.ymd, during = p.wd >= 1 && p.wd <= 5 && p.min >= open && p.min < close;
     if (!during || String(j.lastDate || '') !== ymd) return j;
-    ['closes', 'highs', 'lows', 'volumes', 'opens', 'rawCloses', 'rawHighs', 'rawLows']
+    ['closes', 'highs', 'lows', 'volumes', 'opens', 'rawCloses', 'rawHighs', 'rawLows', 'dates']
       .forEach(k => { if (Array.isArray(j[k]) && j[k].length > 1) j[k] = j[k].slice(0, -1); });
     j._trimmed = true;
     j._intraday = ymd;     // 供橫幅與時間標籤顯示「盤中未定案」
@@ -504,11 +504,12 @@ async function go(){
     const atr=calcATR(D.rawHighs||D.highs, D.rawLows||D.lows, D.rawCloses||D.closes, 14);
 
     // stock bar
-    const chg=D.price-D.prevClose,chgP=D.prevClose?chg/D.prevClose*100:0;
+    const hasPrev = D.prevClose > 0;
+    const chg = hasPrev ? D.price - D.prevClose : null, chgP = hasPrev ? chg / D.prevClose * 100 : null;
     const cur=D.currency==='TWD'?'':'$';
     $('sb-name').textContent=D.name;$('sb-code').textContent=D.code;
     $('sb-price').textContent=cur+fmt(D.price);
-    const sc=$('sb-chg');sc.textContent=`${chg>=0?'+':''}${fmt(chg)} (${chgP>=0?'+':''}${chgP.toFixed(2)}%)`;sc.className='sb-chg '+(chg>=0?'up':'dn');
+    const sc=$('sb-chg');sc.textContent=hasPrev ? `${chg>=0?'+':''}${fmt(chg)} (${chgP>=0?'+':''}${chgP.toFixed(2)}%)` : '—';sc.className=hasPrev ? 'sb-chg '+(chg>=0?'up':'dn') : 'sb-chg';
     $('m-open').textContent=cur+fmt(D.open);$('m-high').textContent=cur+fmt(D.high);
     $('m-low').textContent=cur+fmt(D.low);$('m-prev').textContent=cur+fmt(D.prevClose);
     $('m-atr').textContent=fmt(atr);
@@ -526,10 +527,12 @@ async function go(){
     const lagTxt = !lag ? '' : lag.sure ? `⚠️ 落後：法人資料已到 ${md(lag.expected)}，價格與判斷仍是 ${md(lag.last)} 的｜` : `可能落後或休市（應有 ${md(lag.expected)}）｜`;
     const kTxt = D._intraday ? '盤中·判斷用前一交易日K｜' : (lastK.length>=8 ? `K線至${lastK.slice(4,6)}/${lastK.slice(6,8)}｜${lagTxt}` : '');
     // v186 暫存可能是幾小時前、甚至前一天抓的：講清楚是哪天幾點，並給「重新抓取」
+    const gaps = recentKlineGaps(D);
+    const gapTxt = gaps.length ? `⚠️ K線缺日 ${gaps.map(md).join('、')}${hasPrev ? '' : '，漲跌幅暫不顯示'}｜` : '';
     const ftDay = new Date().toDateString() === ft.toDateString() ? '' : `${ft.getMonth()+1}/${ft.getDate()} `;
     const ageTxt = ageSec < 60 ? `${ageSec}秒前` : ageSec < 3600 ? `${Math.round(ageSec/60)}分前` : `${Math.round(ageSec/3600)}小時前`;
-    tp.textContent=`v${APP_VERSION}｜${kTxt}${ftDay}${String(ft.getHours()).padStart(2,'0')}:${String(ft.getMinutes()).padStart(2,'0')}抓取${window._dataFromCache ? '（暫存）' : '（即時）'}`;
-    tp.style.display='block'; tp.style.color = lag && lag.sure ? 'var(--warn)' : '';
+    tp.textContent=`v${APP_VERSION}｜${kTxt}${gapTxt}${ftDay}${String(ft.getHours()).padStart(2,'0')}:${String(ft.getMinutes()).padStart(2,'0')}抓取${window._dataFromCache ? '（暫存）' : '（即時）'}`;
+    tp.style.display='block'; tp.style.color = gaps.length || (lag && lag.sure) ? 'var(--warn)' : '';
     const hold = (window._dataUntil || 0) - (window._dataFetchedAt || 0);   // 依當初訂的有效期講沿用的理由，不一律說「已是最新」
     tp.title = window._dataFromCache ? `此結果使用 ${ageTxt}抓取的資料：${hold <= CACHE_TTL ? '盤中 5 分鐘內重查沿用' : hold <= CACHE_RETRY ? '最新一天的資料當時還沒到齊（尚未公布、抓取不完整或休市），30 分鐘內會自動再抓' : '資料已是最新那一天的，在它可能更新之前（開盤、16:00 盤後）沿用'}。要立刻重抓請按旁邊的 ⟳。` : '此結果為剛抓取的即時資料';
     $('refresh-btn').style.display='flex';
@@ -641,13 +644,18 @@ async function go(){
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('情報面',err); }
 
     // RS Rating / Beta / Alpha / 兵法系統（需大盤基準）
-    fetchBenchmark(D.currency==='TWD').then(bench=>{
+    fetchBenchmark(D.currency==='TWD').then(benchmark=>{
       if(window._activeCode && window._activeCode!==D.code) return;  // 已換股，丟棄遲到基準，避免用舊D重畫決策層
+      const stockGaps = comparisonGaps(D), benchGaps = benchmark ? benchmark.gaps : [];
+      const gapNote = [['個股', stockGaps], ['大盤基準', benchGaps]]
+        .filter(([, dates]) => dates.length)
+        .map(([label, dates]) => `${label} K 線缺日 ${dates.map(md).join('、')}`).join('｜');
+      const bench = !gapNote && benchmark ? benchmark.closes : null;
       let rsRating=null;
       try{
         const rs=computeRSRating(D, bench);
         rsRating=rs.excess!=null?rs.rating:null;   // v187 大盤沒抓到時那是「絕對報酬」，不可當相對強弱餵進勢能（RS 卡自己會標明）
-        renderRSRating(rs);
+        renderRSRating(rs, gapNote);
       }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('RS評級',err); }
       try{ renderBetaAlpha(computeBetaAlpha(D, bench)); }
       catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('BetaAlpha',err); }
