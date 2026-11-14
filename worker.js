@@ -335,14 +335,21 @@ async function yahooChart(symbol, range, interval) {
      ② high/low 偶發為 null 時，null*f = 0 或 NaN 會直接灌進 ATR 與關卡計算。
         改：缺值以當日收盤價補（寧可保守，不要 NaN）。 */
   let lastIdx = -1;
+  /* v211 台股個股跳過成交量 0 的K棒：Yahoo 在全市場休市日（例 2026-10-23）會補一根量 0、價不動的假K棒，
+     停牌日也是量 0。回測與電腦版資料庫一律刪掉量 0 的日子；手機留著會讓休市後約 20 天的均量、量比、
+     均成交值少約 5%，窗口也多算一天。指數（^TWII）與美股不動。 */
+  // 複審 T-002：整個成交量欄缺漏的台股回應不可用（無法判斷哪幾天有成交），回 null，與 GAS 相同
+  if (isTwStockSym(symbol) && !Array.isArray(q.volume)) return null;
+  const lastNN = lastCloseIdx(q), today = tpeTodayInSession();
   for (let i = 0; i < (q.close || []).length; i++) {
     const cl = q.close[i];
     if (cl == null) continue;
+    if (skipZeroVolBar(symbol, q, i, lastNN, ymdOfTs(res.timestamp[i]), today)) continue;
     let f = 1;
     if (adjArr && adjArr[i] != null && cl > 0) { const ff = adjArr[i] / cl; if (isFinite(ff) && ff > 0) f = ff; }
     const hi = q.high[i] == null ? cl : q.high[i], lo = q.low[i] == null ? cl : q.low[i], op = q.open[i] == null ? cl : q.open[i];
     closes.push(cl * f); highs.push(hi * f); lows.push(lo * f);
-    opens.push(op * f); vols.push(q.volume[i] || 0);
+    opens.push(op * f); vols.push((q.volume && q.volume[i]) || 0);
     rawCloses.push(cl); rawHighs.push(hi); rawLows.push(lo);
     dates.push(ymdOfTs(res.timestamp[i]));
     lastIdx = i;
@@ -359,6 +366,17 @@ async function yahooChart(symbol, range, interval) {
     rawCloses, rawHighs, rawLows,   // 未還原市價（支撐壓力/BOS/CHoCH 用這個，貼近真實心理關卡）
     dates,
   };
+}
+/* v211 台股個股（代號數字開頭的 .TW／.TWO，含 0050 基準）跳過量 0 的K棒（休市假K棒、停牌）。
+   例外：最後一根有收盤價、日期是台北今天、而且現在是台北 14:00 前（與 dropIntraday 同一個界線）的K棒保留——
+   盤中第一筆成交前量也是 0，交給前端的盤中處理（價格與 _intraday 標記）。14:00 後今天仍量 0＝今天沒成交，照樣跳過。
+   Code.gs 有同一套規則。 */
+function isTwStockSym(sym) { return /^\d\w*\.TWO?$/.test(sym); }
+function lastCloseIdx(q) { for (let k = (q.close || []).length - 1; k >= 0; k--) if (q.close[k] != null) return k; return -1; }
+function tpeTodayInSession() { const tp = new Date(Date.now() + 8 * 3600000); return tp.getUTCHours() * 60 + tp.getUTCMinutes() < 14 * 60 ? tp.toISOString().slice(0, 10).replace(/-/g, '') : ''; }
+function skipZeroVolBar(sym, q, i, lastIdx, barYmd, todayYmd) {
+  if (!isTwStockSym(sym) || (q.volume && q.volume[i] > 0)) return false;
+  return !(i === lastIdx && todayYmd && barYmd === todayYmd);
 }
 /* 台股日K時間戳＝當日09:00台北＝01:00Z（v153 已用實際回應確認），UTC 日期即台北日期 */
 function ymdOfTs(ts) { try { return new Date(ts * 1000).toISOString().slice(0, 10).replace(/-/g, ''); } catch (e) { return ''; } }
