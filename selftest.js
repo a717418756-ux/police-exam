@@ -36,7 +36,18 @@ function logicTests() {
   const cfg = fs.readFileSync(path.join(ROOT, 'config.js'), 'utf8');
   { // v186 暫存有效期：看資料日期，不看抓了多久（台股用台北時間、美股用美東時間，夏令時間也要對）
     const seg = cfg.slice(cfg.indexOf('const CACHE_TTL ='), cfg.indexOf('/* ── 前端超時保護'));
-    const C = new Function('chipUsable', seg + '\nreturn { cacheUntil, nextWeekdayAt, lastWeekdayFrom };')(ch => !ch.bad);
+    const C = new Function('chipUsable', seg + '\nreturn { cacheUntil, nextWeekdayAt, lastWeekdayFrom, klineLag };')(ch => !ch.bad);
+    { // v212 K線落後：有法人資料佐證才說「落後」，只靠日曆的說「可能」；盤中、已是最新、格式不對都不提示
+      const L = (D, iso) => C.klineLag(D, Date.parse(iso)), tw = (last, chip, x) => Object.assign({ lastDate: last, currency: 'TWD', chip: chip ? { dataDate: chip } : null }, x || {});
+      const a = L(tw('20261111', '20261112'), '2026-11-12T16:59:00Z'), b = L(tw('20261111', null), '2026-11-12T16:59:00Z');
+      ok('v212 K線落後：法人資料到 11/12、K線只到 11/11 → 明確落後（2026-11-13 00:59 實際發生的情況）', a && a.sure === true && a.expected === '20261112' && a.last === '20261111', JSON.stringify(a));
+      ok('v212 K線落後：沒有法人資料時按日曆推算，只說可能（不認得國定假日）', b && b.sure === false && b.expected === '20261112', JSON.stringify(b));
+      ok('v212 K線落後：K線已是最新、盤中、收盤後 30 分鐘內、週末、日期格式不對 → 都不提示',
+        L(tw('20261112', '20261112'), '2026-11-12T16:59:00Z') === null && L(tw('20261111', '20261112', { _intraday: '20261112' }), '2026-11-12T03:00:00Z') === null
+        && L(tw('20261111', '20261111'), '2026-11-12T05:45:00Z') === null && L(tw('20261113', null), '2026-11-15T04:00:00Z') === null && L(tw('', null), '2026-11-12T16:59:00Z') === null);
+      const us = (last) => ({ lastDate: last, currency: 'USD', chip: { dataDate: '20261112' } });
+      ok('v212 K線落後：美股用美東收盤時間推算，且不拿台股法人日期當證據', L(us('20261111'), '2026-11-12T20:00:00Z') === null && (L(us('20261111'), '2026-11-12T22:00:00Z') || {}).sure === false, JSON.stringify(L(us('20261111'), '2026-11-12T22:00:00Z')));
+    }
     const at = x => Date.parse(x), iso = t => new Date(t).toISOString().slice(0, 16);
     const px = (t, d, us) => iso(C.cacheUntil('px', d, at(t), us));
     ok('暫存：台股盤中 5 分鐘（現價會變）', px('2026-10-01T10:00:00+08:00', { lastDate: '20260930' }) === iso(at('2026-10-01T10:05:00+08:00')));
@@ -1163,7 +1174,7 @@ async function backendTests() {
   let fetchImpl = async () => { throw new Error('未設定'); };
   global.fetch = (...a) => fetchImpl(...a);
   const W = {};
-  new Function('module', src + '\nmodule.yahooChart=yahooChart;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTaifexFutures=fetchTaifexFutures;module.fetchTaifexPCR=fetchTaifexPCR;module.fetchMargin=fetchMargin;module.fetchTopPool=fetchTopPool;module.rocToYmd=rocToYmd;module.eventStudy=eventStudy;module.infoTilt=infoTilt;module.validateAI=validateAI;module.parseRSS=parseRSS;module.parsePTT=parsePTT;module.parseAnnounce=parseAnnounce;module.fetchIntel=fetchIntel;module.dropIntraday=dropIntraday;module.fetchNews=fetchNews;module.fetchIntelRouted=fetchIntelRouted;module.dedupKey=dedupKey;module.heat=heat;module.parseFinMindNews=parseFinMindNews;module.dayMoves=dayMoves;module.mergeDays=mergeDays;module.intelPrompt=intelPrompt;module.revSurprise=revSurprise;module.fetchNewsEn=fetchNewsEn;module.normCite=normCite;module.yahooQuote=yahooQuote;module.numN=numN;module.peN=peN;module.fetchDeepChip=fetchDeepChip;module.fetchMarket=fetchMarket;module.fetchFundamental=fetchFundamental;module.saveIntelSnap=saveIntelSnap;module.listIntelSnaps=listIntelSnaps;module.snapFwd=snapFwd;module.fetchTaiwan=fetchTaiwan;module.dailySeries=dailySeries;')(W);
+  new Function('module', src + '\nmodule.yahooChart=yahooChart;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTaifexFutures=fetchTaifexFutures;module.fetchTaifexPCR=fetchTaifexPCR;module.fetchMargin=fetchMargin;module.fetchTopPool=fetchTopPool;module.rocToYmd=rocToYmd;module.eventStudy=eventStudy;module.infoTilt=infoTilt;module.validateAI=validateAI;module.parseRSS=parseRSS;module.parsePTT=parsePTT;module.parseAnnounce=parseAnnounce;module.fetchIntel=fetchIntel;module.dropIntraday=dropIntraday;module.fetchNews=fetchNews;module.fetchIntelRouted=fetchIntelRouted;module.dedupKey=dedupKey;module.heat=heat;module.parseFinMindNews=parseFinMindNews;module.dayMoves=dayMoves;module.mergeDays=mergeDays;module.intelPrompt=intelPrompt;module.revSurprise=revSurprise;module.fetchNewsEn=fetchNewsEn;module.normCite=normCite;module.yahooQuote=yahooQuote;module.numN=numN;module.peN=peN;module.fetchDeepChip=fetchDeepChip;module.fetchMarket=fetchMarket;module.fetchFundamental=fetchFundamental;module.saveIntelSnap=saveIntelSnap;module.listIntelSnaps=listIntelSnaps;module.snapFwd=snapFwd;module.fetchTaiwan=fetchTaiwan;module.dailySeries=dailySeries;module.fetchYahooTW=fetchYahooTW;')(W);
   const W2 = W;
 
   // Code.gs：補上 GAS 全域物件
@@ -1300,6 +1311,55 @@ async function backendTests() {
       at('09:01'); fetchImpl = async () => ({ ok: true, json: async () => noVol }); gsFetch = () => gsOf(noVol);
       let wErr = '', wv = null; try { wv = await W.yahooChart('2330.TW', '2y', '1d'); } catch (e) { wErr = e.message; }
       ok('v211 複審：整個成交量欄缺漏時，Worker 回 null 不拋錯、GAS 回 null，兩端一致', wv === null && !wErr && G.fetchYahooTW('2330') === null && G.fetchYahooTW('2330', 1) === null,`${wErr}｜${wv && wv.closes.length}`);
+      // v212 收盤後 Yahoo 末棒收盤價是空的（2026-11-13 實測 0050.TW、^TWII：close=null、open/high/low 有值、meta 有當天成交價與時間）→ 用 meta 補上
+      at('15:00');
+      // 本交易日收盤時間（Yahoo meta.currentTradingPeriod.regular.end；台股 13:30＝當日 01:00Z＋4.5 小時）
+      const reg = t => ({ regular: { start: t, end: t + 4.5 * 3600 } });
+      const mk = (metaTs, px) => { const c = endAt({}, lastTs), r = c.chart.result[0]; r.indicators.quote[0].close[79] = null; r.indicators.adjclose[0].adjclose[79] = null;
+        r.meta.regularMarketPrice = px; r.meta.regularMarketTime = metaTs; r.meta.currentTradingPeriod = reg(lastTs); return c; };
+      const sameDay = () => mk(lastTs + 4.5 * 3600, 200), otherDay = () => mk(lastTs - DAY + 4.5 * 3600, 200), noPx = () => mk(lastTs + 4.5 * 3600, null);
+      fetchImpl = async () => ({ ok: true, json: async () => sameDay() }); gsFetch = () => gsOf(sameDay());
+      const wf = await W.yahooChart('2330.TW', '2y', '1d'), gf = G.fetchYahooTW('2330'), wi2 = await W.yahooChart('^TWII', '2y', '1d'), gb2 = G.fetchYahoo('0050.TW'), wb2 = await W.yahooChart('0050.TW', '2y', '1d');
+      ok('v212 末棒收盤價空、meta 是同一天：Worker 與 GAS 都補上（80 根、lastDate＝當天、收盤＝meta 價、昨收＝前一根）', [wf, gf].every(d => d.closes.length === 80 && d.lastDate === want0 && d.closes[79] === 200 && d.rawCloses[79] === 200 && d.prevClose === d.closes[78]) && JSON.stringify(wf.closes) === JSON.stringify(gf.closes), `${wf.closes.length}/${wf.lastDate}/${wf.closes[79]}｜${gf.closes.length}/${gf.lastDate}/${gf.closes[79]}`);
+      ok('v212 指數與台股基準 0050 也補上，兩端序列相同', wi2.closes.length === 80 && wi2.closes[79] === 200 && gb2.closes.length === 80 && JSON.stringify(gb2.closes) === JSON.stringify(wb2.closes), `${wi2.closes.length}/${gb2.closes.length}/${wb2.closes.length}`);
+      const wq = await W.yahooQuote('^TWII'), gq = G.yahooQuote('^TWII');
+      ok('v212 大盤報價（yahooQuote）兩端都用補上的收盤當現價（昨收：Worker 用還原價、GAS 用原始價是既有差異，這裡不比）', wq && gq && wq.price === 200 && gq.price === 200 && gq.prevClose === 178, JSON.stringify([wq, gq]));
+      for (const [nm, f] of [['meta 是別天的', otherDay], ['meta 沒有價格', noPx]]) {
+        fetchImpl = async () => ({ ok: true, json: async () => f() }); gsFetch = () => gsOf(f());
+        const w0 = await W.yahooChart('2330.TW', '2y', '1d'), g0 = G.fetchYahooTW('2330');
+        ok('v212 ' + nm + '：不補（不拿別天的價格冒充），兩端都停在前一根', w0.closes.length === 79 && g0.closes.length === 79 && w0.lastDate === '20261111' && g0.lastDate === '20261111', `${w0.closes.length}/${g0.closes.length}`);
+      }
+      // 審查 T-010 #1（2026-11-13 07:08 真實 0050.TW）：11/12 那根 OHLC 和量全是 null，後面還有一根 11/13 的空佔位棒；
+      //     meta 是 11/12 13:30 的成交價、當日高低與量，currentTradingPeriod 已是 11/13 → 補 11/12，11/13 照舊跳過
+      const real0050 = () => { const c = endAt({}, lastTs), r = c.chart.result[0], qq = r.indicators.quote[0];
+        r.timestamp.push(lastTs + DAY); ['open', 'high', 'low', 'close', 'volume'].forEach(f => qq[f].push(null)); r.indicators.adjclose[0].adjclose.push(null);
+        ['open', 'high', 'low', 'close', 'volume'].forEach(f => { qq[f][79] = null; }); r.indicators.adjclose[0].adjclose[79] = null;
+        Object.assign(r.meta, { regularMarketPrice: 200, regularMarketTime: lastTs + 4.5 * 3600 + 2, regularMarketDayHigh: 210, regularMarketDayLow: 190, regularMarketVolume: 137651148, currentTradingPeriod: reg(lastTs + DAY) });
+        return c; };
+      Date.now = () => Date.parse('2026-11-13T07:08:00+08:00');
+      fetchImpl = async () => ({ ok: true, json: async () => real0050() }); gsFetch = () => gsOf(real0050());
+      const wr = await W.yahooChart('0050.TW', '2y', '1d'), gr = G.fetchYahoo('0050.TW'), wr2 = await W.yahooChart('2330.TW', '2y', '1d'), gr2 = G.fetchYahooTW('2330');
+      ok('v212 審查 #1：當天整根是空的、後面還有空佔位棒 → 兩端都補當天（收盤、高、低、量取 meta），佔位棒仍跳過', [wr, gr, wr2, gr2].every(d => d.closes.length === 80 && d.lastDate === want0 && d.rawCloses[79] === 200 && d.rawHighs[79] === 210 && d.rawLows[79] === 190 && d.volumes[79] === 137651148) && JSON.stringify(wr.closes) === JSON.stringify(gr.closes), [wr, gr, wr2, gr2].map(d => `${d.closes.length}/${d.lastDate}/${d.volumes[79]}`).join('｜'));
+      // 審查 T-010 #2：台北 09:01 盤中，今天那根收盤價空、meta 是今天的盤中價 → 不補（未收盤的棒不能算進「至少 60 根」）；收盤 30 分鐘後才補
+      const intra = () => mk(lastTs + 3600, 200);
+      at('09:01'); fetchImpl = async () => ({ ok: true, json: async () => intra() }); gsFetch = () => gsOf(intra());
+      const wm = await W.yahooChart('2330.TW', '2y', '1d'), gm = G.fetchYahooTW('2330', 1);
+      at('13:59'); const wm2 = await W.yahooChart('2330.TW', '2y', '1d'); at('14:00'); const wm3 = await W.yahooChart('2330.TW', '2y', '1d'), gm3 = G.fetchYahooTW('2330');
+      ok('v212 審查 #2：盤中（09:01、13:59）不補，兩端都 79 根；14:00（收盤 30 分鐘）才補成 80 根', wm.closes.length === 79 && gm.closes.length === 79 && wm2.closes.length === 79 && wm3.closes.length === 80 && gm3.closes.length === 80, `${wm.closes.length}/${gm.closes.length}/${wm2.closes.length}/${wm3.closes.length}/${gm3.closes.length}`);
+      { const c59 = () => { const c = mk(lastTs + 3600, 200), r = c.chart.result[0]; r.timestamp = r.timestamp.slice(20); r.indicators.quote[0] = Object.fromEntries(Object.entries(r.indicators.quote[0]).map(([k, v]) => [k, v.slice(20)])); r.indicators.adjclose[0].adjclose = r.indicators.adjclose[0].adjclose.slice(20); return c; };
+        at('09:01'); fetchImpl = async () => ({ ok: true, json: async () => c59() }); gsFetch = () => gsOf(c59());
+        let we = '', ge = '', gq59; try { await W.fetchYahooTW('2330'); } catch (e) { we = e.message; } try { gq59 = G.fetchYahooTW('2330'); } catch (e) { ge = e.message; }
+        ok('v212 審查 #2：59 根完整＋1 根盤中空棒，兩端都不放行（Worker 回不足 60 日，GAS 回 null）', /只有 59 個交易日/.test(we) && (gq59 === null || /只有 59 個交易日/.test(ge)), `${we}｜${ge}｜${gq59 && gq59.closes && gq59.closes.length}`); }
+      // 複審 T-010：尾端空棒自己的時間戳是壞值（11/12 空棒、1e20 空棒、11/13 空棒，meta 是 11/12）→ 兩端都略過壞值、補到 11/12，GAS 不可拋錯丟掉整份回應
+      const badBar = () => { const c = real0050(), r = c.chart.result[0], qq = r.indicators.quote[0]; r.timestamp.splice(80, 0, 1e20); ['open', 'high', 'low', 'close', 'volume'].forEach(f => qq[f].splice(80, 0, null)); r.indicators.adjclose[0].adjclose.splice(80, 0, null); return c; };
+      Date.now = () => Date.parse('2026-11-13T07:08:00+08:00'); fetchImpl = async () => ({ ok: true, json: async () => badBar() }); gsFetch = () => gsOf(badBar());
+      const wbb = await W.yahooChart('2330.TW', '2y', '1d'), gbb = G.fetchYahooTW('2330'), gbq = G.fetchYahoo('0050.TW');
+      ok('v212 複審：尾端空棒的時間戳是壞值 → 兩端都略過它、照樣補到 11/12（80 根），GAS 不丟掉整份回應', wbb.closes.length === 80 && wbb.lastDate === want0 && gbb && gbb.closes.length === 80 && gbb.lastDate === want0 && gbq.closes.length === 80 && JSON.stringify(wbb.closes) === JSON.stringify(gbb.closes), `${wbb.closes.length}/${gbb && gbb.closes.length}/${gbq.closes.length}`);
+      // 審查 T-010 #3：meta 成交時間超出 Date 範圍 → 兩端都不補也不拋錯，保留 79 根
+      const badTs = () => mk(1e15, 200);
+      at('15:00'); fetchImpl = async () => ({ ok: true, json: async () => badTs() }); gsFetch = () => gsOf(badTs());
+      const wbd = await W.yahooChart('2330.TW', '2y', '1d'), gbd = G.fetchYahooTW('2330');
+      ok('v212 審查 #3：meta 時間是壞值 → 兩端都不補、不拋錯，同為 79 根', wbd.closes.length === 79 && gbd && gbd.closes.length === 79 && JSON.stringify(wbd.closes) === JSON.stringify(gbd.closes), `${wbd.closes.length}/${gbd && gbd.closes.length}`);
     } finally { Date.now = realNow; }
     fetchImpl = async () => ({ ok: true, json: async () => oldZ });
     const wl = await W.yahooChart('2330.TW', '2y', '1d'); gsFetch = () => gsOf(oldZ); const gl = G.fetchYahooTW('2330');

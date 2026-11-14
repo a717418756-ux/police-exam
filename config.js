@@ -11,7 +11,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 
 // ▼▼▼ 每次改版把這個數字 +1（例如 6 → 7），就會自動清除舊快取 ▼▼▼
-const APP_VERSION = 211;
+const APP_VERSION = 212;
 
 /* ── 快取存活時間（統一常數，v95）─────────────────────────────────────
    v95修：原本四個快取各自寫死不同TTL（股價5分/融資5分/大盤10分/縱深10分），
@@ -43,7 +43,7 @@ const RISK_RULE = { perTrade: 2, monthly: 6 };
    app.js 啟動時比對，不符就直接點名是哪個檔沒更新——
    以前只能靠「畫面文字怎麼還是舊的」去猜，這種事發生過不只一次。 */
 const FILE_VERS = {
-  'help.js': 210, 'db.js': 198, 'market.js': 188, 'enhance.js': 210, 'advanced.js': 198, 'smc.js': 198, 'mainforce.js': 208, 'mtf.js': 197, 'bingfa.js': 210, 'layout.js': 188, 'journal.js': 210, 'scan.js': 210, 'intel.js': 199, 'app.js': 208
+  'help.js': 210, 'db.js': 198, 'market.js': 188, 'enhance.js': 210, 'advanced.js': 198, 'smc.js': 198, 'mainforce.js': 208, 'mtf.js': 197, 'bingfa.js': 210, 'layout.js': 188, 'journal.js': 210, 'scan.js': 210, 'intel.js': 199, 'app.js': 212
 };
 
 /* 證據等級登記（文件；各規則直接寫在使用它的地方）
@@ -166,6 +166,20 @@ function lastWeekdayFrom(t, tz, min) {   // 「當地 min 分之後才算這一�
 const inSession = (t, tz, open, close) => { const p = zoneParts(t, tz); return p.wd >= 1 && p.wd <= 5 && p.min >= open && p.min < close; };
 // 台股 09:00～14:00（與 trimIntradayBar 同一段）；美股 09:30～16:30（收盤後半小時內報價仍可能修正）
 const SESS = { tw: [TZ_TW, 540, 840], us: [TZ_US, 570, 990] };
+/* v212 K線是否落後（2026-11-13 實測：收盤後 Yahoo 末棒收盤價是空的，畫面停在前一天卻沒有任何提示）。
+   sure＝有證據：法人資料（T86）的日期比 K線新，代表那天確實有交易；
+   否則只按「週一～五、收盤後 30 分鐘」推算應有的日期——不認得國定假日，所以只說「可能」。盤中（_intraday）不算落後。 */
+function klineLag(D, now) {
+  const last = String((D && D.lastDate) || '');
+  if (!/^\d{8}$/.test(last) || D._intraday) return null;
+  const chipD = D.currency === 'TWD' && D.chip && /^\d{8}$/.test(String(D.chip.dataDate || '')) ? String(D.chip.dataDate) : '';
+  if (chipD > last) return { sure: true, expected: chipD, last };
+  const [tz, , close] = SESS[D.currency === 'USD' ? 'us' : 'tw'];
+  let t = now || Date.now(), p = zoneParts(t, tz);
+  if (p.min < close + 30) { t -= 864e5; p = zoneParts(t, tz); }
+  while (p.wd === 0 || p.wd === 6) { t -= 864e5; p = zoneParts(t, tz); }
+  return p.ymd > last ? { sure: false, expected: p.ymd, last } : null;
+}
 function cacheUntil(kind, d, t, us) {
   const retry = t + CACHE_RETRY, [tz, open, close] = SESS[us ? 'us' : 'tw'];
   const ymd = x => String(x || '').replace(/-/g, '');

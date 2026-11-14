@@ -530,6 +530,7 @@ function fetchYahoo(symbol) {
   if (isTwStockSym(symbol) && !(q.volume instanceof Array)) throw new Error('找不到 ' + symbol + ' 的資料');   // 複審 T-002：台股缺整個量欄不可用，與 worker 相同
   var meta = res.meta;
 
+  fillLastClose(res, q);   // v212
   var fArr = adjFactors(res, q);
   var closes = [], highs = [], lows = [], opens = [], vols = [];
   var rawCloses = [], rawHighs = [], rawLows = [];  // 未還原市價（支撐壓力/BOS用）
@@ -658,6 +659,25 @@ function ymdOfMs(t) { return new Date(t).toISOString().slice(0, 10).replace(/-/g
    例外：最後一根有收盤價、日期是台北今天、而且現在是台北 14:00 前（與 dropIntraday 同一個界線）的保留——
    盤中第一筆成交前量也是 0，交給前端盤中處理；14:00 後今天仍量 0＝今天沒成交，照樣跳過。整個量欄缺漏的回應不可用。
    與 worker.js 同一套規則 */
+/* v212 Yahoo 收盤後最後一根K棒的收盤價有時是空的：同一天的 meta 成交價補上（理由與條件見 worker.js fillLastClose，兩端相同） */
+function fillLastClose(res, q) {
+  var ts = res.timestamp || [], m = res.meta || {}, mt = m.regularMarketTime;
+  var reg = m.currentTradingPeriod && m.currentTradingPeriod.regular, end = reg && reg.end;
+  if (!q.close || q.close.length !== ts.length || !(m.regularMarketPrice > 0) || !validTs(mt) || !validTs(end)) return false;
+  var mY = ymdOfMs(mt * 1000);
+  if (mY === ymdOfMs(end * 1000) && Date.now() / 1000 < end + 1800) return false;   // 盤中不補（審查 T-010 #2）
+  var k = ts.length - 1;
+  for (; k >= 0; k--) { if (q.close[k] != null) return false; if (validTs(ts[k]) && ymdOfMs(ts[k] * 1000) === mY) break; }   // 尾端空佔位棒往前找同一天（審查 T-010 #1）
+  if (k < 0) return false;
+  q.close[k] = m.regularMarketPrice;
+  var adj = res.indicators.adjclose && res.indicators.adjclose[0] && res.indicators.adjclose[0].adjclose;
+  if (adj && adj.length === ts.length && adj[k] == null) adj[k] = m.regularMarketPrice;
+  if (q.high && q.high[k] == null && m.regularMarketDayHigh > 0) q.high[k] = m.regularMarketDayHigh;
+  if (q.low && q.low[k] == null && m.regularMarketDayLow > 0) q.low[k] = m.regularMarketDayLow;
+  if (q.volume instanceof Array && q.volume[k] == null && m.regularMarketVolume > 0) q.volume[k] = m.regularMarketVolume;
+  return true;
+}
+function validTs(t) { return typeof t === 'number' && t > 0 && t < 8.64e12; }   // 審查 T-010 #3：與 worker 相同，超出 Date 範圍一律無效，不拋錯
 function isTwStockSym(sym) { return /^\d\w*\.TWO?$/.test(sym); }
 function lastCloseIdx(q) { for (var k = (q.close || []).length - 1; k >= 0; k--) if (q.close[k] != null) return k; return -1; }
 function tpeTodayInSession() { var tp = new Date(Date.now() + 8 * 3600000); return tp.getUTCHours() * 60 + tp.getUTCMinutes() < 14 * 60 ? tp.toISOString().slice(0, 10).replace(/-/g, '') : ''; }
@@ -916,7 +936,8 @@ function dailySeries(sym, now) {
       var j = JSON.parse(gsGet(yahooUrl(sym + sfx[s])));
       var res = j.chart && j.chart.result && j.chart.result[0];
       if (!res || !res.indicators || !res.indicators.quote) continue;
-      var q = res.indicators.quote[0], f = adjFactors(res, q), dates = [], closes = [], lastNN = lastCloseIdx(q), today = tpeTodayInSession();
+      var q = res.indicators.quote[0]; fillLastClose(res, q);   // v212
+      var f = adjFactors(res, q), dates = [], closes = [], lastNN = lastCloseIdx(q), today = tpeTodayInSession();
       if (isTwStockSym(sym + sfx[s]) && !(q.volume instanceof Array)) continue;   // 複審 T-002：缺整個量欄不可用
       for (var i = 0; i < (q.close || []).length; i++) {
         if (q.close[i] == null) continue;
@@ -1335,6 +1356,7 @@ function yahooQuote(symbol) {
   /* v182：原本用 meta.chartPreviousClose——那是「整段圖表（5日）開始前」的收盤，漲跌幅其實是約 5 日變化，
      與 worker.js（取前一根K棒）不一致。改成跟 worker 一樣：最後兩根有效收盤；不足兩根就不給（不寫 0%） */
   var q = res.indicators && res.indicators.quote && res.indicators.quote[0], cl = [];
+  if (q) fillLastClose(res, q);   // v212 與 worker（yahooQuote 走 yahooChart）相同
   for (var i = 0; q && i < (q.close || []).length; i++) if (q.close[i] != null) cl.push(q.close[i]);
   if (cl.length < 2) return null;
   var price = cl[cl.length - 1], prev = cl[cl.length - 2];
@@ -1523,6 +1545,7 @@ function fetchYahooTW(stockNo, minN) {
       var q = res.indicators.quote[0];
       var meta = res.meta || {};
       var ts = res.timestamp || [];
+      fillLastClose(res, q);   // v212
       var fArr2 = adjFactors(res, q);
       var closes = [], highs = [], lows = [], opens = [], vols = [];
       var rawCloses = [], rawHighs = [], rawLows = [];  // 未還原市價

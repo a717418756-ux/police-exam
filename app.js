@@ -1,6 +1,6 @@
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['app.js'] = 208; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['app.js'] = 212; } catch (e) {}
 
 // ══════════════════════════════════════════════════════════════════════
 // 短線雷達 Pro — 風險優先分層決策系統
@@ -521,12 +521,15 @@ async function go(){
     const tp=$('time-pill');
     const ageSec = Math.round((Date.now() - (window._dataFetchedAt || Date.now())) / 1000);
     const lastK = D.lastDate ? String(D.lastDate) : '';   // v141：改用本次查詢的D（_lastD此時還是上一檔，會顯示錯日期）
-    const kTxt = D._intraday ? '盤中·判斷用前一交易日K｜' : (lastK.length>=8 ? `K線至${lastK.slice(4,6)}/${lastK.slice(6,8)}｜` : '');
+    /* v212 K線落後要講出來（價格、漲跌幅、進場與停損價都是那一天的）：有法人資料佐證就明講，只靠日曆推算的寫「可能」 */
+    const lag = klineLag(D), md = s => `${s.slice(4,6)}/${s.slice(6,8)}`;
+    const lagTxt = !lag ? '' : lag.sure ? `⚠️ 落後：法人資料已到 ${md(lag.expected)}，價格與判斷仍是 ${md(lag.last)} 的｜` : `可能落後或休市（應有 ${md(lag.expected)}）｜`;
+    const kTxt = D._intraday ? '盤中·判斷用前一交易日K｜' : (lastK.length>=8 ? `K線至${lastK.slice(4,6)}/${lastK.slice(6,8)}｜${lagTxt}` : '');
     // v186 暫存可能是幾小時前、甚至前一天抓的：講清楚是哪天幾點，並給「重新抓取」
     const ftDay = new Date().toDateString() === ft.toDateString() ? '' : `${ft.getMonth()+1}/${ft.getDate()} `;
     const ageTxt = ageSec < 60 ? `${ageSec}秒前` : ageSec < 3600 ? `${Math.round(ageSec/60)}分前` : `${Math.round(ageSec/3600)}小時前`;
     tp.textContent=`v${APP_VERSION}｜${kTxt}${ftDay}${String(ft.getHours()).padStart(2,'0')}:${String(ft.getMinutes()).padStart(2,'0')}抓取${window._dataFromCache ? '（暫存）' : '（即時）'}`;
-    tp.style.display='block';
+    tp.style.display='block'; tp.style.color = lag && lag.sure ? 'var(--warn)' : '';
     const hold = (window._dataUntil || 0) - (window._dataFetchedAt || 0);   // 依當初訂的有效期講沿用的理由，不一律說「已是最新」
     tp.title = window._dataFromCache ? `此結果使用 ${ageTxt}抓取的資料：${hold <= CACHE_TTL ? '盤中 5 分鐘內重查沿用' : hold <= CACHE_RETRY ? '最新一天的資料當時還沒到齊（尚未公布、抓取不完整或休市），30 分鐘內會自動再抓' : '資料已是最新那一天的，在它可能更新之前（開盤、16:00 盤後）沿用'}。要立刻重抓請按旁邊的 ⟳。` : '此結果為剛抓取的即時資料';
     $('refresh-btn').style.display='flex';
