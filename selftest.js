@@ -102,8 +102,15 @@ function logicTests() {
         ok('ADX：標準 Wilder 算法（與測試內的教科書實作一致），回測腳本算出的完全相同', Math.abs(a - ref) < 1e-6 && Math.abs(a - b) < 1e-9, `${a.toFixed(3)}／${ref.toFixed(3)}／${b.toFixed(3)}`); } }
     // v188 重測後的修正：工具要能亮、亮了要有意義
     const mk = fs.readFileSync(path.join(ROOT, 'market.js'), 'utf8');
+    ok('v210 高波動禁空的畫面說明用全市場重驗數字（−1.70%），不再寫舊 24 檔的「放空每筆虧1.42%」（含說明頁與 README 做多列）', ['bingfa.js', 'enhance.js', 'scan.js', 'journal.js', 'help.js', 'README.md'].every(f => !/放空每筆虧1\.42%/.test(fs.readFileSync(path.join(ROOT, f), 'utf8'))) && /此時放空每筆−1\.70%（11\.9萬筆/.test(bf)
+      && /高波動危險態放空每筆−1\.70%（全市場2,103檔/.test(fs.readFileSync(path.join(ROOT, 'help.js'), 'utf8')) && /同上：做多 −0\.11%，比平常 −0\.89% 不差/.test(fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8')));
+    { /* v210 審查：盤勢卡的禁空證據只有台股，美股只提醒（與紀律門、掃描相同） */
+      const en = fs.readFileSync(path.join(ROOT, 'enhance.js'), 'utf8'), RG = new Function('calcDMI', grab(en, 'computeRegime') + ';return computeRegime;')(() => ({ adx: 10, pdi: 20, ndi: 20 }));
+      const cl = [], hi = [], lo = []; for (let k = 0; k < 150; k++) { const c = k < 135 ? 100 : 100 - (k - 134) * 2; cl.push(c); hi.push(c * (k < 140 ? 1.005 : 1.08)); lo.push(c * (k < 140 ? 0.995 : 0.92)); }
+      const tw = RG({ closes: cl, highs: hi, lows: lo, currency: 'TWD' }), us = RG({ closes: cl, highs: hi, lows: lo, currency: 'USD' });
+      ok('v210 盤勢卡高波動：台股寫禁止放空與 −1.70%，美股只提醒、不寫禁止', tw.regime === '高波動危險' && /禁止放空/.test(tw.advice) && /−1\.70%/.test(tw.advice) && us.regime === '高波動危險' && !/禁止/.test(us.advice) && /美股未驗證/.test(us.advice), tw.regime + '｜' + us.advice); }
     { const tg = bf.slice(bf.indexOf('function computeTradeGate('), bf.indexOf('function renderTradeGate('));
-      ok('紀律門：唯一的禁止是「高波動時放空」（19年 −1.42%/筆，t−6.6）；高波動做多改提醒（−0.40%，比平常不差）', !/fail\.push\(/.test(tg) && /\(dir === -1 && tw \? fail : warn\)\.push/.test(tg)
+      ok('紀律門：唯一的禁止是「高波動時放空」（全市場19年 −1.70%/筆，月t−12.4）；高波動做多改提醒（−0.11%，比平常不差）', !/fail\.push\(/.test(tg) && /\(dir === -1 && tw \? fail : warn\)\.push/.test(tg)
         && /regime\.regime === '高波動危險' && dir === -1 && D\.currency === 'TWD'\) \{ fail\.push/.test(fs.readFileSync(path.join(ROOT, 'scan.js'), 'utf8')));
       ok('追突破：台股一律用全市場實測（−1.54% vs 隨便進場 −0.87%），不再有未驗證的逐股 38%／48% 綠燈', /全市場2,136檔19年實測，突破20日高進場每筆−1\.54%/.test(tg) && !/優於台股基準38\.4%/.test(tg));
       const GC = new Function(grab(bf, 'gapChase') + ';return gapChase;')();
