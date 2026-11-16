@@ -14,7 +14,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['layout.js'] = 188; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['layout.js'] = 216; } catch (e) {}
 
 // 分頁定義（順序即按鈕順序）。cards 含該頁所有卡片 id
 const TABS = [
@@ -133,10 +133,10 @@ function onAnalysed(D) {
   if (logo) {
     let el = document.getElementById('hdr-sum');
     if (!el) { el = document.createElement('div'); el.id = 'hdr-sum'; logo.appendChild(el); }
-    const chg = D.price - D.prevClose, p = D.prevClose ? chg / D.prevClose * 100 : 0;
+    const chg = D.prevClose > 0 ? D.price - D.prevClose : null;   // v216 缺日時前收是空值：顯示「—」，不當成 0 算出假的 +0.00%
     el.innerHTML = `<span class="hs-code">${esc(D.code)}</span>`
       + `<span class="hs-price">${Number(D.price).toFixed(2)}</span>`
-      + `<span class="hs-chg ${chg >= 0 ? 'up' : 'dn'}">${chg >= 0 ? '+' : ''}${p.toFixed(2)}%</span>`;
+      + (chg == null ? '<span class="hs-chg">—</span>' : `<span class="hs-chg ${chg >= 0 ? 'up' : 'dn'}">${chg >= 0 ? '+' : ''}${(chg / D.prevClose * 100).toFixed(2)}%</span>`);
   }
   // ③ 最近清單
   let a = [];

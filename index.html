@@ -240,7 +240,7 @@ try {
 
   <!-- ADX 市場狀態過濾器 -->
   <div id="regime-card" style="display:none">
-    <div class="layer-title"><span class="layer-num" style="background:#6366F1;color:#fff">◈</span>市場狀態<span class="layer-sub">ADX — 該用趨勢策略還是震盪策略</span><button onclick="showHelp('regime')" class="help-btn" title="說明">ⓘ</button></div>
+    <div class="layer-title"><span class="layer-num" style="background:#6366F1;color:#fff">◈</span>市場狀態<span class="layer-sub">ADX — 盤勢背景；只有高波動危險態有數據支持</span><button onclick="showHelp('regime')" class="help-btn" title="說明">ⓘ</button></div>
     <div class="card">
       <div style="display:flex;align-items:center;gap:14px;margin-bottom:10px">
         <span id="regime-icon" style="font-size:30px">—</span>
@@ -253,7 +253,7 @@ try {
     </div>
   </div>
 
-  <div class="layer-title"><span class="layer-num ln1">1</span>趨勢過濾<span class="layer-sub">200MA / 50MA — 決定能不能進場</span><button onclick="showHelp('trend')" class="help-btn" title="說明">ⓘ</button></div>
+  <div class="layer-title"><span class="layer-num ln1">1</span>趨勢過濾<span class="layer-sub">200MA / 50MA — 長期位置（背景，不作進場依據）</span><button onclick="showHelp('trend')" class="help-btn" title="說明">ⓘ</button></div>
   <div id="trend-banner">
     <div class="tb-top"><span class="tb-icon" id="tb-icon">—</span><span class="tb-verdict" id="tb-verdict">—</span></div>
     <div class="tb-detail" id="tb-detail">—</div>
@@ -280,7 +280,7 @@ try {
   <div class="card" id="psych-card"><div id="psych-list"></div></div>
   <!-- RS Rating 相對強弱 -->
   <div id="rs-card" style="display:none">
-    <div class="layer-title"><span class="layer-num" style="background:#F59E0B;color:#fff">RS</span>相對強弱評級<span class="layer-sub">vs 大盤 — 贏過幾%的股票（O'Neil法）</span><button onclick="showHelp('rs')" class="help-btn" title="說明">ⓘ</button></div>
+    <div class="layer-title"><span class="layer-num" style="background:#F59E0B;color:#fff">RS</span>相對強弱評級<span class="layer-sub">vs 大盤 — 超額報酬強度（非全市場排名）</span><button onclick="showHelp('rs')" class="help-btn" title="說明">ⓘ</button></div>
     <div class="card" style="text-align:center">
       <div id="rs-val" style="font-family:var(--mono);font-size:44px;font-weight:800;line-height:1">—</div>
       <div id="rs-desc" style="font-size:13px;font-weight:600;margin-top:6px"></div>
@@ -317,7 +317,7 @@ try {
 
   <!-- 多時間框架共振 -->
   <div id="mtf-card" style="display:none">
-    <div class="layer-title"><span class="layer-num" style="background:linear-gradient(135deg,#0891B2,#2563EB);color:#fff">週</span>多時間框架 MTF<span class="layer-sub">月30% · 週40% · 日30% — 大週期定方向</span><button onclick="showHelp('mtf')" class="help-btn" title="說明">ⓘ</button></div>
+    <div class="layer-title"><span class="layer-num" style="background:linear-gradient(135deg,#0891B2,#2563EB);color:#fff">週</span>多時間框架 MTF<span class="layer-sub">月30% · 週40% · 日30% — 各週期是否同向（背景）</span><button onclick="showHelp('mtf')" class="help-btn" title="說明">ⓘ</button></div>
     <div class="card"><div id="mtf-content"></div></div>
   </div>
 
@@ -345,13 +345,13 @@ try {
     <div class="card"><div id="deepchip-content"></div></div>
   </div>
 
-  <!-- VWAP + 市場結構 + 過熱反指標 -->
+  <!-- VWAP + 市場結構 -->
   <div id="smc-card" style="display:none">
-    <div class="layer-title"><span class="layer-num" style="background:#0D9488;color:#fff">SM</span>機構足跡<span class="layer-sub">VWAP成本線 · BOS/CHoCH結構 · 過熱反指標</span><button onclick="showHelp('smc')" class="help-btn" title="說明">ⓘ</button></div>
+    <div class="layer-title"><span class="layer-num" style="background:#0D9488;color:#fff">SM</span>機構足跡<span class="layer-sub">VWAP成本線 · BOS/CHoCH結構</span><button onclick="showHelp('smc')" class="help-btn" title="說明">ⓘ</button></div>
     <div class="card"><div id="smc-content"></div></div>
   </div>
 
-  <div class="layer-title"><span class="layer-num ln4">4</span>進場訊號<span class="layer-sub">技術指標群 — 只在趨勢對的時候參考</span><button onclick="showHelp('signals')" class="help-btn" title="說明">ⓘ</button></div>
+  <div class="layer-title"><span class="layer-num ln4">4</span>進場訊號<span class="layer-sub">技術指標群 — 描述現況，不投方向票</span><button onclick="showHelp('signals')" class="help-btn" title="說明">ⓘ</button></div>
   <div id="cat-row" style="display:none"><div class="cat-tabs" id="cat-tabs"></div></div>
   <div id="ind-grid"></div>
   <div class="card" id="ai-card">

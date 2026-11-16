@@ -44,7 +44,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['enhance.js'] = 213; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['enhance.js'] = 216; } catch (e) {}
 
 /* ══ 區塊 H：ADX 市場狀態過濾器 ════════════════════════════════════════
    機構73%使用：ADX 不告訴方向，而是告訴你「該用哪種策略」
@@ -81,10 +81,10 @@ function computeRegime(D) {
     advice = `ADX ${dmi.adx.toFixed(0)} 空方主導 → 趨勢明確，RSI超賣會鈍化（弱勢股一直超賣）。註：19年實測順勢、逆勢的期望值沒有差異，本狀態只作背景，不作方向依據。`;
   } else if (dmi.adx < 20) {
     regime = '盤整'; icon = '🔄'; cls = 'neutral';
-    advice = `ADX ${dmi.adx.toFixed(0)} 無趨勢 → 信「震盪工具」：RSI/KD高賣低買、支撐壓力區間操作。追突破易被巴。搭配下方壓縮指數：極度壓縮時準備迎接變盤。`;
+    advice = `ADX ${dmi.adx.toFixed(0)} 無趨勢。註：19年實測各盤勢的期望值幾乎相同，「盤整用震盪指標」沒有數據支持，本狀態只作背景。下方壓縮指數：帶寬極度壓縮時留意波動放大。`;
   } else {
     regime = '過渡帶'; icon = '⚖️'; cls = 'neutral';
-    advice = `ADX ${dmi.adx.toFixed(0)} 趨勢醞釀中，減少部位等方向確認。`;
+    advice = `ADX ${dmi.adx.toFixed(0)} 介於 20～25，趨勢與盤整之間。註：19年實測各盤勢的期望值幾乎相同，本狀態只作背景。`;
   }
   // 壓縮指數（大變盤前兆）
   let compression = null;

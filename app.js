@@ -1,6 +1,6 @@
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['app.js'] = 214; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['app.js'] = 216; } catch (e) {}
 
 // ══════════════════════════════════════════════════════════════════════
 // 短線雷達 Pro — 風險優先分層決策系統
@@ -431,7 +431,7 @@ function renderRisk(r){
     {cls:'good',label:'🎯 停利二（此股10日中位可達）',value:r.tp10?cur+fmt(r.tp10.medPrice):'—',valCls:'buy',sub:r.tp10?`+${r.tp10.medPct.toFixed(1)}%｜抱得久一點的目標（固定 1:2、1:3 實測 10 日內只摸到 10.5%／3.9%）`:'資料不足 120 日'},
     {cls:'warn',label:'🪜 移動停利 (Chandelier)',value:cur+fmt(r.chandelier),valCls:'warn',sub:`最高價-3×ATR，股價創高就上移，保護獲利`},
     {cls:'',label:'📦 建議部位（固定風險法）',value:`${fmt(r.shares,0)} 股`,valCls:'',sub:`試單：單筆風險 ${cur}${fmtV(Math.round(r.riskAmount))}（資金 ${Math.min(r.riskPct,RISK_RULE.perTrade)}% 的一半，與執行計畫相同），佔總資金 ${r.positionPct.toFixed(1)}%${r.currency==='TWD'?'':'｜美股：帳戶資金視為美元'}`},
-    {cls:'warn',label:'🎲 凱利建議比例',value:r.kellyFull>0?`${(r.kellyHalf*100).toFixed(1)}%`:`不下注｜需勝率≥${(r.breakevenWR*100).toFixed(0)}%`,valCls:r.kellyFull>0?'warn':'sell',sub:`半凱利（保守）。全凱利 ${(r.kellyFull*100).toFixed(1)}%／四分之一凱利 ${(r.kellyQuarter*100).toFixed(1)}%。盈虧比 1:${r.b.toFixed(2)}（${r.bSource}）｜<b>損益兩平勝率 ${(r.breakevenWR*100).toFixed(0)}%</b>——你的勝率需高於此才值得下注，目前填 ${(r.winRate*100).toFixed(0)}%${r.kellyFull<=0?`。<span style="color:var(--sell)">⚠️ 凱利=0：以此盈虧比，${(r.winRate*100).toFixed(0)}%勝率是負期望值，這筆不該做</span>`:''}${r.fixSuggestion?`<br><span style="color:var(--warn)">🔧 <b>出路</b>：${r.fixSuggestion.none?`停損縮到原本三成，此股照同一目標重演仍是負期望——問題不在停損位置，這個目標本身不划算`:`停損從 ${r.fixSuggestion.curStopPct.toFixed(1)}% 縮到 <b>${r.fixSuggestion.stopNeedPct.toFixed(1)}%</b>（縮 ${r.fixSuggestion.shrink.toFixed(0)}%），此股照同一目標重演每筆淨 +${r.fixSuggestion.ev.toFixed(2)}%。做法：等價格回測到關鍵壓力/支撐附近再進場，把停損貼在該結構外緣（歷史重演，非保證）`}</span>`:''}`},
+    {cls:'warn',label:'🎲 凱利建議比例',value:r.kellyFull>0?`${(r.kellyHalf*100).toFixed(1)}%`:`不下注｜需勝率≥${(r.breakevenWR*100).toFixed(0)}%`,valCls:r.kellyFull>0?'warn':'sell',sub:`半凱利（保守）。全凱利 ${(r.kellyFull*100).toFixed(1)}%／四分之一凱利 ${(r.kellyQuarter*100).toFixed(1)}%。盈虧比 1:${r.b.toFixed(2)}（${r.bSource}）｜<b>損益兩平勝率 ${(r.breakevenWR*100).toFixed(0)}%</b>——你的勝率需高於此才值得下注，目前填 ${(r.winRate*100).toFixed(0)}%${r.kellyFull<=0?`。<span style="color:var(--sell)">⚠️ 凱利=0：用你在設定頁填的 ${(r.winRate*100).toFixed(0)}% 勝率（沒填過就是預設 50%，不是此股的重演勝率）配這個盈虧比，算出來是負期望值</span>`:''}${r.fixSuggestion?`<br><span style="color:var(--warn)">🔧 <b>出路</b>：${r.fixSuggestion.none?`停損縮到原本三成，此股照同一目標重演仍是負期望——問題不在停損位置，這個目標本身不划算`:`停損從 ${r.fixSuggestion.curStopPct.toFixed(1)}% 縮到 <b>${r.fixSuggestion.stopNeedPct.toFixed(1)}%</b>（縮 ${r.fixSuggestion.shrink.toFixed(0)}%），此股照同一目標重演每筆淨 +${r.fixSuggestion.ev.toFixed(2)}%。做法：等價格回測到關鍵壓力/支撐附近再進場，把停損貼在該結構外緣（歷史重演，非保證）`}</span>`:''}`},
   ];
   $('risk-grid').innerHTML=boxes.map(x=>`<div class="risk-box ${x.cls}"><div class="rb-label">${x.label}</div><div class="rb-value ${x.valCls}">${x.value}</div><div class="rb-sub">${x.sub}</div></div>`).join('');
 }
@@ -650,14 +650,14 @@ async function go(){
       const gapNote = [['個股', stockGaps], ['大盤基準', benchGaps]]
         .filter(([, dates]) => dates.length)
         .map(([label, dates]) => `${label} K 線缺日 ${dates.map(md).join('、')}`).join('｜');
-      const bench = !gapNote && benchmark ? benchmark.closes : null;
+      const al = !gapNote && benchmark ? alignByDate(D, benchmark) : null, bench = al && al.bench, Dal = al ? { closes: al.closes } : D;
       let rsRating=null;
       try{
-        const rs=computeRSRating(D, bench);
+        const rs=computeRSRating(Dal, bench);
         rsRating=rs.excess!=null?rs.rating:null;   // v187 大盤沒抓到時那是「絕對報酬」，不可當相對強弱餵進勢能（RS 卡自己會標明）
         renderRSRating(rs, gapNote);
       }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('RS評級',err); }
-      try{ renderBetaAlpha(computeBetaAlpha(D, bench)); }
+      try{ renderBetaAlpha(computeBetaAlpha(Dal, bench)); }
       catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('BetaAlpha',err); }
 
       // ── 中國兵法交易系統 ──
