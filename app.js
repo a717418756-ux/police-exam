@@ -650,14 +650,14 @@ async function go(){
       const gapNote = [['個股', stockGaps], ['大盤基準', benchGaps]]
         .filter(([, dates]) => dates.length)
         .map(([label, dates]) => `${label} K 線缺日 ${dates.map(md).join('、')}`).join('｜');
-      const al = !gapNote && benchmark ? alignByDate(D, benchmark) : null, bench = al && al.bench, Dal = al ? { closes: al.closes } : D;
+      const bi = benchInputs(D, benchmark, gapNote);
       let rsRating=null;
       try{
-        const rs=computeRSRating(Dal, bench);
+        const rs=computeRSRating(bi.D, bi.bench);
         rsRating=rs.excess!=null?rs.rating:null;   // v187 大盤沒抓到時那是「絕對報酬」，不可當相對強弱餵進勢能（RS 卡自己會標明）
-        renderRSRating(rs, gapNote);
+        renderRSRating(rs, bi.note);
       }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('RS評級',err); }
-      try{ renderBetaAlpha(computeBetaAlpha(Dal, bench)); }
+      try{ renderBetaAlpha(computeBetaAlpha(bi.D, bi.bench)); }
       catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('BetaAlpha',err); }
 
       // ── 中國兵法交易系統 ──

@@ -55,6 +55,13 @@ function alignByDate(D, b) {
   D.dates.forEach((d, i) => { if (m.has(d)) { closes.push(D.closes[i]); bench.push(m.get(d)); } });
   return { closes, bench };
 }
+/* v216 審查：相對強弱與 Beta 的輸入。共同交易日不到 64 天（computeRSRating 要 >63 根才算相對強弱）就暫停並講原因——
+   原本兩邊日期錯開時交集是空的，卡片會顯示「NaN 分」。缺日（gapNote）照舊暫停；沒抓到大盤時照舊算絕對報酬並標明 */
+function benchInputs(D, b, gapNote) {
+  const al = !gapNote && b ? alignByDate(D, b) : null;
+  const note = gapNote || (al && al.closes.length < 64 ? `個股與大盤共同交易日只有 ${al.closes.length} 天，不足以比較` : '');
+  return note || !al ? { note, D, bench: null } : { note: '', D: { closes: al.closes }, bench: al.bench };
+}
 async function fetchBenchmark(isTW) {
   const key = isTW ? 'tw' : 'us';
   const hit = await pcGet(_benchCache, key, 'bench');

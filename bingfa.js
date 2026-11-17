@@ -859,7 +859,7 @@ function computeTradeGate(ctx) {
     if (dir === -1 && D.currency === 'TWD') { const ce = corpAhead(D, 14); if (ce) warn.push(ce); }
     // v201 計畫重演：與執行計畫同一組停損與目標（含停損先後、跳空、成本）
     try { const pb = planBasis(D, dir === 1 ? 'long' : 'short'), s = pb.sim;
-      if (s && s.ev < 0) warn.push(`照計畫重演為負：此股 ${s.n} 次（停損 ${(pb.dist / pb.entry * 100).toFixed(1)}%、目標 5 日中位 ${pb.pickT.medPct.toFixed(1)}%）每筆淨 ${s.ev.toFixed(2)}%（已扣成本），達標 ${s.hit.toFixed(0)}%、先停損 ${s.stop.toFixed(0)}%`); } catch (e) {}
+      if (s && s.ev < 0) warn.push(`照計畫重演為負：此股 ${s.n} 次（停損 ${(pb.dist / pb.entry * 100).toFixed(1)}%、目標 5 日中位 ${pb.pickT.medPct.toFixed(1)}%）每筆淨 ${s.ev.toFixed(2)}%（${simBand(s).txt}，已扣成本），達標 ${s.hit.toFixed(0)}%、先停損 ${s.stop.toFixed(0)}%`); } catch (e) {}
 
     /* v188 裁決只剩兩級：有回測證據的條件（目前只有高波動）才「禁止」，其餘一律列為提醒。
        原本的「可出手」需要 3 個綠燈：只有股價資料 896 個時點、加真實籌碼 2175 個時點都是 0 次，
@@ -1000,7 +1000,7 @@ function planChart(D, pb, side) {
 /* v216 重演每筆淨＋誤差範圍（2 倍標準誤）；範圍跨過 0 就用灰色並講明分不出來，不讓一個樣本內的正負號被當成結論。
    simBand 給純文字（橫幅說明用 textContent），simEv 給上色的 HTML，兩邊同一個判斷 */
 function simBand(s) {
-  const band = 2 * s.se, in0 = Math.abs(s.ev) < band;
+  const band = 2 * s.se, in0 = Math.abs(s.ev) <= band;   // 端點碰到 0 也算分不出來
   return { in0, txt: `誤差 ±${band.toFixed(2)}%${in0 ? '，與 0 分不出來' : ''}` };
 }
 function simEv(s) {
@@ -1172,8 +1172,8 @@ function renderTradeGate(ctx) {
               const rt = rtT;
               if (!rt) return `📏 <b>資料不足 120 日，算不出此股可達幅度</b>：不給目標價，只用停損＋移動停利<br>`;
               const pick = rt.rows.find(r => r.days === 5) || rt.rows[rt.rows.length - 1];
-              const hit5 = rt.hit2R5, s = pick.sim;
-              const sCol = !s ? 'var(--muted2)' : s.ev >= 0 ? 'var(--buy)' : 'var(--sell)';
+              const hit5 = rt.hit2R5, s = pick.sim, sb = s && simBand(s);
+              const sCol = !s ? 'var(--muted2)' : sb.in0 ? 'var(--muted)' : s.ev >= 0 ? 'var(--buy)' : 'var(--sell)';
               return `${(() => {
                 /* v137 參數掃描＋樣本外複驗（8檔153筆挑選 → 另10檔270筆驗證，含0.287%做空成本）：
                    規律「停損越寬越差」樣本外重現（排名相關0.89）；唯一正值 0.5×/1× 的+0.020% 在樣本外為-0.232%；
@@ -1186,7 +1186,7 @@ function renderTradeGate(ctx) {
               })()}
               📏 <b>此股歷史中位可達</b>（逐日重演${pick.n}個樣本，不管途中停損）：
                 ${rt.rows.map(r => `${r.days}日 ${r.medPct.toFixed(1)}%→${cur}${fmt(r.medPrice)}`).join('｜')}<br>
-                <span style="color:${sCol}">${!s ? '照計畫重演樣本不足' : `${s.ev >= 0 ? '✓' : '⚠️'} <b>照計畫重演：每筆淨 ${s.ev >= 0 ? '+' : ''}${s.ev.toFixed(2)}%</b>（停損${stopPct.toFixed(1)}%、目標${pick.days}日中位${pick.medPct.toFixed(1)}%，${s.n}次：達標${s.hit.toFixed(0)}%、先停損${s.stop.toFixed(0)}%、其餘到期出場；已扣成本）${s.ev < 0 ? '——負期望：方向看對也常先被停損。建議跳過此檔，或等回測關鍵位讓停損變近' : ''}`}</span><br>
+                <span style="color:${sCol}">${!s ? '照計畫重演樣本不足' : `${sb.in0 ? '◦' : s.ev >= 0 ? '✓' : '⚠️'} <b>照計畫重演：每筆淨 ${s.ev >= 0 ? '+' : ''}${s.ev.toFixed(2)}%</b>（${sb.txt}；停損${stopPct.toFixed(1)}%、目標${pick.days}日中位${pick.medPct.toFixed(1)}%，${s.n}次：達標${s.hit.toFixed(0)}%、先停損${s.stop.toFixed(0)}%、其餘到期出場；已扣成本）${s.ev < 0 ? (sb.in0 ? '——樣本平均為負，但誤差範圍含 0，分不出好壞；要做只用試單' : '——負期望：方向看對也常先被停損。建議跳過此檔，或等回測關鍵位讓停損變近') : ''}`}</span><br>
                 ${(() => {
                   /* v137 執行摩擦：升降單位（原始價）＋隔夜跳空越過停損頻率（還原價比率，開收同基準） */
                   if (D.currency !== 'TWD') return '';

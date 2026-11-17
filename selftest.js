@@ -237,6 +237,11 @@ function logicTests() {
       let v = g(0); for (let k = 1; k < H; k++) v += 2 * (1 - k / H) * g(k);
       const flat = SIM({ currency: 'TWD', opens: Array(120).fill(100), closes: Array(120).fill(100), highs: Array(120).fill(101), lows: Array(120).fill(99) }, 1, 5, 5, 3);
       ok('計畫重演：每筆淨的標準誤＝Newey-West（重疊 H−1 天），比不修正的大；每筆都一樣時為 0', s && Math.abs(s.se - Math.sqrt(v) / N) < 1e-9 && s.se > Math.sqrt(g(0)) / N * 1.5 && flat.se < 1e-9, s && `${s.se} ${Math.sqrt(v) / N} ${Math.sqrt(g(0)) / N}`);
+      {   // v216 審查 #2：誤差帶端點碰到 0 也算分不出來（兩側）；#3：紀律門提醒與執行計畫詳情用同一個判斷
+        const SB = new Function(bfs.slice(bfs.indexOf('function simBand('), bfs.indexOf('function simEv(')) + 'return simBand;')();
+        ok('計畫重演：誤差帶端點碰到 0 也算「與 0 分不出來」（負側、正側、全 0），離開 0 才不算', SB({ ev: -0.4, se: 0.2 }).in0 && SB({ ev: 0.4, se: 0.2 }).in0 && SB({ ev: 0, se: 0 }).in0 && !SB({ ev: -0.41, se: 0.2 }).in0 && /與 0 分不出來/.test(SB({ ev: -0.4, se: 0.2 }).txt));
+        ok('計畫重演：紀律門提醒與執行計畫詳情也附誤差範圍，含 0 時不寫「負期望…建議跳過」', bfs.includes('每筆淨 ${s.ev.toFixed(2)}%（${simBand(s).txt}，已扣成本），達標') && bfs.includes("sb.in0 ? 'var(--muted)'") && bfs.includes("sb.in0 ? '——樣本平均為負，但誤差範圍含 0，分不出好壞；要做只用試單' : '——負期望"));
+      }
       ok('計畫重演：畫面的每筆淨附誤差範圍，跨過 0 時講明分不出來', (bfs.match(/每筆淨 \$\{simEv\(/g) || []).length === 2 && /in0 \? '，與 0 分不出來' : ''/.test(bfs));
       {   // v216 個股少幾根（停牌、零成交日）時依日期對齊：個股＝大盤同一條線時 Beta 必須仍是 1
         const adv = fs.readFileSync(path.join(ROOT, 'advanced.js'), 'utf8'), ap = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
@@ -244,7 +249,12 @@ function logicTests() {
         const bd = Array.from({ length: 200 }, (_, i) => String(20260000 + i)), bc = bd.map((_, i) => 100 + 9 * Math.sin(i / 3) + 4 * Math.sin(i * 1.7)), keep = bd.map((_, i) => i !== 150 && i !== 171 && i !== 190);
         const D = { dates: bd.filter((_, i) => keep[i]), closes: bc.filter((_, i) => keep[i]) }, al = F.alignByDate(D, { dates: bd, closes: bc }), old = F.alignByDate({ closes: D.closes }, { closes: bc });
         const b1 = F.computeBetaAlpha({ closes: al.closes }, al.bench).beta, b0 = F.computeBetaAlpha({ closes: old.closes }, old.bench).beta;
-        ok('相對強弱／Beta：個股與大盤依日期對齊（少 3 根時 Beta 仍是 1；沒有日期才退回尾端對齊）', al.closes.length === 197 && al.bench.length === 197 && Math.abs(b1 - 1) < 1e-9 && Math.abs(b0 - 1) > 0.2 && old.bench.length === 200 && /computeRSRating\(Dal, bench\)/.test(ap) && /computeBetaAlpha\(Dal, bench\)/.test(ap), `${b1} ${b0}`);
+        ok('相對強弱／Beta：個股與大盤依日期對齊（少 3 根時 Beta 仍是 1；沒有日期才退回尾端對齊）', al.closes.length === 197 && al.bench.length === 197 && Math.abs(b1 - 1) < 1e-9 && Math.abs(b0 - 1) > 0.2 && old.bench.length === 200 && /computeRSRating\(bi\.D, bi\.bench\)/.test(ap) && /computeBetaAlpha\(bi\.D, bi\.bench\)/.test(ap) && /renderRSRating\(rs, bi\.note\)/.test(ap), `${b1} ${b0}`);
+        // v216 審查 #1：日期錯開（交集空）或共同日不到 64 天 → 暫停並講原因；缺日照舊；沒有大盤照舊算絕對報酬
+        const G = new Function(adv.slice(adv.indexOf('function alignByDate('), adv.indexOf('async function fetchBenchmark(')) + 'return benchInputs;')();
+        const mk = (y, n) => ({ dates: Array.from({ length: n }, (_, i) => String(y * 10000 + 101 + i)), closes: Array.from({ length: n }, (_, i) => 100 + i) });
+        const s0 = mk(2026, 130), off = G(s0, mk(2025, 130), ''), part = G(s0, { dates: s0.dates.slice(0, 63), closes: s0.closes.slice(0, 63) }, ''), full = G(s0, mk(2026, 130), ''), gap = G(s0, mk(2026, 130), '個股 K 線缺日 8/1'), none = G(s0, null, '');
+        ok('相對強弱／Beta：共同交易日不足 64 天時暫停並講明（日期錯開不再算出 NaN 分）', off.bench === null && /共同交易日只有 0 天/.test(off.note) && part.bench === null && /只有 63 天/.test(part.note) && full.bench.length === 130 && full.note === '' && gap.bench === null && gap.note === '個股 K 線缺日 8/1' && none.bench === null && none.note === '' && none.D === s0, JSON.stringify([off.note, part.note]));
       }
       const lay = fs.readFileSync(path.join(ROOT, 'layout.js'), 'utf8');
       ok('標題列摘要：前收是空值（K 線缺日）時顯示「—」，不算出假的 +0.00%', /const chg = D\.prevClose > 0 \? D\.price - D\.prevClose : null;/.test(lay) && /chg == null \? '<span class="hs-chg">—<\/span>'/.test(lay) && !/D\.prevClose \? chg/.test(lay));
