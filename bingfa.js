@@ -293,7 +293,7 @@ function renderVerdictBanner(shi, D, regime, mtf) {
          原本綠色「條件良好」底下緊接著「兩邊皆為負」「照計畫重演為負」，一眼看到的結論與證據相反 */
       let sim = null; try { sim = planBasis(D, 'long').sim; } catch (e) {}
       if (sim && sim.ev < 0) { color = 'var(--warn)'; bg = 'var(--warn-d)'; title = `🟡 ${grade}級多方勢能，但照計畫重演為負`;
-        summary = `勢能 ${shi.shi}分（未經回測）；此股照執行計畫重演 ${sim.n} 次每筆淨 ${sim.ev.toFixed(2)}%（已扣成本）——方向看對也常先被停損。要做只用試單，或等回測關鍵位讓停損變近`; }
+        summary = `勢能 ${shi.shi}分（未經回測）；此股照執行計畫重演 ${sim.n} 次每筆淨 ${sim.ev.toFixed(2)}%（${simBand(sim).txt}，已扣成本）——方向看對也常先被停損。要做只用試單，或等回測關鍵位讓停損變近`; }
     }
   } else if (grade === 'C') {
     color = 'var(--warn)'; bg = 'var(--warn-d)';
@@ -325,7 +325,7 @@ function renderVerdictBanner(shi, D, regime, mtf) {
           summary = `空方勢能 ${shi.shortShi}分（未經回測）與中期因子（全市場回測）相反：中期最強組之後3個月平均超額 +${md.ex}%——以中期為準，不放空；執行計畫依中期方向`; }
         else { let sim = null; try { sim = planBasis(D, 'short').sim; } catch (e) {}   // v208 與多方同一規則：照計畫重演為負時標題改黃
           if (sim && sim.ev < 0) { color = 'var(--warn)'; bg = 'var(--warn-d)'; title = `🟡 空方${shi.shortGrade}級勢能，但照計畫重演為負`;
-            summary = `空方勢能 ${shi.shortShi}分（未經回測）；此股照執行計畫重演 ${sim.n} 次每筆淨 ${sim.ev.toFixed(2)}%（已扣成本）——要做只用試單，或等反彈到壓力區讓停損變近`; } } }
+            summary = `空方勢能 ${shi.shortShi}分（未經回測）；此股照執行計畫重演 ${sim.n} 次每筆淨 ${sim.ev.toFixed(2)}%（${simBand(sim).txt}，已扣成本）——要做只用試單，或等反彈到壓力區讓停損變近`; } } }
     }
   } else {
     color = 'var(--muted)'; bg = 'var(--bg)';
@@ -997,10 +997,15 @@ function planChart(D, pb, side) {
   } catch (e) { return `<div style="font-size:10px;color:var(--sell)">⚠️ 圖形畫不出來：${e.message}</div>`; }
 }
 
-/* v216 重演每筆淨＋誤差範圍（2 倍標準誤）；範圍跨過 0 就用灰色並講明分不出來，不讓一個樣本內的正負號被當成結論 */
-function simEv(s) {
+/* v216 重演每筆淨＋誤差範圍（2 倍標準誤）；範圍跨過 0 就用灰色並講明分不出來，不讓一個樣本內的正負號被當成結論。
+   simBand 給純文字（橫幅說明用 textContent），simEv 給上色的 HTML，兩邊同一個判斷 */
+function simBand(s) {
   const band = 2 * s.se, in0 = Math.abs(s.ev) < band;
-  return `<b style="color:${in0 ? 'var(--muted)' : s.ev < 0 ? 'var(--sell)' : 'var(--buy)'}">${s.ev >= 0 ? '+' : ''}${s.ev.toFixed(2)}%</b>（誤差 ±${band.toFixed(2)}%${in0 ? '，與 0 分不出來' : ''}）`;
+  return { in0, txt: `誤差 ±${band.toFixed(2)}%${in0 ? '，與 0 分不出來' : ''}` };
+}
+function simEv(s) {
+  const { in0, txt } = simBand(s);
+  return `<b style="color:${in0 ? 'var(--muted)' : s.ev < 0 ? 'var(--sell)' : 'var(--buy)'}">${s.ev >= 0 ? '+' : ''}${s.ev.toFixed(2)}%</b>（${txt}）`;
 }
 
 /* v209 一句話結論列（橫幅最上方）：方向、進場／停損／目標、部位、此股照計畫重演每筆淨。

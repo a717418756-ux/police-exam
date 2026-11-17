@@ -992,12 +992,12 @@ async function browserTests() {
       const col = v => { const s = document.createElement('span'); s.style.color = v; document.body.appendChild(s); const c = getComputedStyle(s).color; s.remove(); return c; };
       // 平穩上漲的收盤（RSI 高、無負乖離、無急跌）→ 空方不會進「不宜追空」分支，只看重演正負
       const cl = D0.closes.map((_, i) => 100 + i * 0.05), D = Object.assign({}, D0, { closes: cl, price: cl[cl.length - 1], _intraday: false });
-      const read = () => { const t = document.getElementById('vb-title'); return [t.textContent, getComputedStyle(t).color]; };
+      const read = () => { const t = document.getElementById('vb-title'); return [t.textContent, getComputedStyle(t).color, document.getElementById('vb-summary').textContent]; };
       try {
         midFactors = () => null;   // 沒有中期訊號：只測重演這一條規則
         computeTradeGate = () => ({ long: { fail: [], warn: [], pass: [] }, short: { fail: [], warn: [], pass: [] } });
         for (const ev of [0.42, -0.42]) {
-          planBasis = () => ({ sim: { ev, n: 120 } });
+          planBasis = () => ({ sim: { ev, n: 120, se: 0.3 } });
           renderVerdictBanner({ grade: 'B', shi: 75, shortShi: 25, shortGrade: null }, D, null, null); out['L' + ev] = read();
           renderVerdictBanner({ grade: '空B', shi: 27, shortShi: 73, shortGrade: 'B' }, D, null, null); out['S' + ev] = read();
         }
@@ -1009,6 +1009,7 @@ async function browserTests() {
     ok('v209 多方 B 級＋照計畫重演 <0 → 黃色「…但照計畫重演為負」', /🟡 B級多方勢能，但照計畫重演為負/.test(tt['L-0.42'][0]) && tt['L-0.42'][1] === tt.c.warn, JSON.stringify(tt['L-0.42']));
     ok('v209 空方 B 級＋照計畫重演 >0 → 空方原色（紅）「弱勢明確」，不是黃色', /🔻 空方B級標的，弱勢明確/.test(tt['S0.42'][0]) && tt['S0.42'][1] === tt.c.sell && tt.c.sell !== tt.c.warn, JSON.stringify(tt['S0.42']));
     ok('v209 空方 B 級＋照計畫重演 <0 → 黃色「…但照計畫重演為負」', /🟡 空方B級勢能，但照計畫重演為負/.test(tt['S-0.42'][0]) && tt['S-0.42'][1] === tt.c.warn, JSON.stringify(tt['S-0.42']));
+    ok('v216 黃色「照計畫重演為負」的說明附誤差範圍，跨過 0 時講明分不出來（多空兩邊）', ['L-0.42', 'S-0.42'].every(k => /每筆淨 -0.42%（誤差 ±0.60%，與 0 分不出來，已扣成本）/.test(tt[k][2])), JSON.stringify([tt['L-0.42'][2], tt['S-0.42'][2]]));
     // v209 結論列的其他分支：方向被紀律門禁止、6% 熔斷、沒有重演樣本（該欄不顯示）
     const br = await pg.evaluate(() => {
       const D = window._lastD, el = () => document.getElementById('vb-oneline').innerText, keep = planBasis, out = {};
