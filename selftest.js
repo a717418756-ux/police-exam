@@ -119,18 +119,18 @@ function logicTests() {
       const en = fs.readFileSync(path.join(ROOT, 'enhance.js'), 'utf8'), RG = new Function('calcDMI', grab(en, 'computeRegime') + ';return computeRegime;')(() => ({ adx: 10, pdi: 20, ndi: 20 }));
       const cl = [], hi = [], lo = []; for (let k = 0; k < 150; k++) { const c = k < 135 ? 100 : 100 - (k - 134) * 2; cl.push(c); hi.push(c * (k < 140 ? 1.005 : 1.08)); lo.push(c * (k < 140 ? 0.995 : 0.92)); }
       const tw = RG({ closes: cl, highs: hi, lows: lo, currency: 'TWD' }), us = RG({ closes: cl, highs: hi, lows: lo, currency: 'USD' });
-      ok('v210 盤勢卡高波動：台股寫禁止放空與 −1.70%，美股只提醒、不寫禁止', tw.regime === '高波動危險' && /禁止放空/.test(tw.advice) && /−1\.70%/.test(tw.advice) && us.regime === '高波動危險' && !/禁止/.test(us.advice) && /美股未驗證/.test(us.advice), tw.regime + '｜' + us.advice); }
-    { const tg = bf.slice(bf.indexOf('function computeTradeGate('), bf.indexOf('function renderTradeGate('));
-      ok('紀律門：唯一的禁止是「高波動時放空」（全市場19年 −1.70%/筆，月t−12.4）；高波動做多改提醒（−0.11%，比平常不差）', !/fail\.push\(/.test(tg) && /\(dir === -1 && tw \? fail : warn\)\.push/.test(tg)
-        && /regime\.regime === '高波動危險' && dir === -1 && D\.currency === 'TWD'\) \{ fail\.push/.test(fs.readFileSync(path.join(ROOT, 'scan.js'), 'utf8')));
+      ok('v218 盤勢卡高波動：台股寫 −1.70% 與「大盤時機」、不再寫禁止；美股不外推', tw.regime === '高波動危險' && !/禁止/.test(tw.advice) && /−1\.70%/.test(tw.advice) && /大盤時機/.test(tw.advice) && us.regime === '高波動危險' && !/禁止/.test(us.advice) && /美股未驗證/.test(us.advice), tw.regime + '｜' + tw.advice); }
+    { const tg = bf.slice(bf.indexOf('function computeTradeGate('), bf.indexOf('function renderTradeGate(')), scs = fs.readFileSync(path.join(ROOT, 'scan.js'), 'utf8'), sev = scs.slice(scs.indexOf('function evalScanConditions('), scs.indexOf('/* 掃描主流程'));
+      ok('v218 高波動放空由禁止改提醒（扣同日同中期組只再差 0.14%，小於成本）；掃描列逆風、不再排到最後', !/\bfail\b/.test(tg) && /warn\.push\(!tw \?/.test(tg) && /扣同日同中期組只再差0\.14%，小於成本/.test(tg)
+        && /dir === -1 && D\.currency === 'TWD'\) fail\.push\('高波動危險態（全市場19年實測放空每筆−1\.70%，大部分是大盤時機/.test(sev) && !/hard|-99/.test(sev));
       ok('追突破：台股一律用全市場實測（−1.54% vs 隨便進場 −0.87%），不再有未驗證的逐股 38%／48% 綠燈', /全市場2,136檔19年實測，突破20日高進場每筆−1\.54%/.test(tg) && !/優於台股基準38\.4%/.test(tg));
       const GC = new Function(grab(bf, 'gapChase') + ';return gapChase;')();
       const mkG = (open, vol, o = {}) => ({ _intraday: '20261002', currency: 'TWD', open, volume: vol, closes: Array(60).fill(100), volumes: Array(60).fill(1000), ...o });
       ok('盤中追跳空：只在台股盤中、跳空 7~9.5%、量已達 50 日均量 3 倍才提醒（與回測同條件）',
         Math.abs(GC(mkG(108, 3000)) - 8) < 1e-9 && GC(mkG(108, 2999)) === null && GC(mkG(106.9, 9000)) === null && GC(mkG(109.6, 9000)) === null
         && GC(mkG(108, 9000, { _intraday: undefined })) === null && GC(mkG(108, 9000, { currency: 'USD' })) === null);
-      ok('紀律門：只剩「禁止／未觸禁止＋提醒」兩級（「可出手」兩份資料都是 0 次，已移除）', /const vClass = fail\.length \? 'no' : 'ok'/.test(tg) && !/'go'|'caution'|rrBad/.test(bf)); }
-    ok('執行計畫：方向依勢能等級、該方向被禁止就不給；一律試單（風險減半）', /const planSide = want && g\[want\]\.vClass !== 'no' \? want : null/.test(bf) && /riskAmt2 = riskAmt2 \/ 2;/.test(bf) && !/\bhalf\b/.test(bf));
+      ok('v218 紀律門只列提醒與順風、不擋單（「可出手」兩份資料都是 0 次已移除；「禁止」也拿掉）', /const verdict = warn\.length \? `提醒 \$\{warn\.length\} 項` : '沒有提醒';/.test(tg) && /return \{ verdict, pass, warn \};/.test(tg) && !/'go'|'caution'|rrBad|vClass|\.fail\b/.test(bf)); }
+    ok('執行計畫：方向依中期因子、再看勢能等級，有方向就給（v218 紀律門不擋）；一律試單（風險減半）', /const planSide = md && md\.side \? md\.side : !sh \? null :/.test(bf) && /riskAmt2 = riskAmt2 \/ 2;/.test(bf) && !/\bhalf\b/.test(bf));
     ok('擁擠度：沒有「非擁擠」預設綠燈（沒資料時 95% 都亮）', !/pass\.push\('非擁擠明牌/.test(bf));
     ok('行為鏈：不足 3 票不顯示 ±100 分數', /\$\{syn\.decisive \? `綜合分數/.test(bf));
     ok('線位警示：K 棒真的碰到確認過的線才亮（不是現價接近就亮）', /lo <= p\.level && p\.level <= hi/.test(bf) && !/Math\.abs\(px - p\.level\)/.test(bf));
@@ -171,18 +171,18 @@ function logicTests() {
       ok('量價狀態進橫幅、🧭分析方向與紀律門（偏多：做多順風／放空提醒；負面：只提醒做多）', /const pv = pvSummary\(D\); if \(pv\) addW\(2, '📊'/.test(bf) && /pv \? `量價（約 1~3 個月）/.test(bf)
         && /if \(pv && \(pv\.side === 1 \|\| dir === 1\)\) \(pv\.side === dir \? pass : warn\)/.test(bf)); }
     { const sc = fs.readFileSync(path.join(ROOT, 'scan.js'), 'utf8'), ev = sc.slice(sc.indexOf('function evalScanConditions('), sc.indexOf('/* 掃描主流程'));
-      ok('掃描只用有回測的條件排序（中期因子分組超額；高波動禁空；量價狀態／事件列逆風），未回測的尾端／Amihud／急跌／此股突破率／勢能不進掃描', /midFactors\(D\)/.test(ev) && /score: hard \? -99 : ex == null \? -50 : ex \* dir/.test(ev)
+      ok('掃描只用有回測的條件排序（中期因子分組超額；高波動放空、量價狀態／事件列逆風），未回測的尾端／Amihud／急跌／此股突破率／勢能不進掃描', /midFactors\(D\)/.test(ev) && /score: ex == null \? -50 : ex \* dir/.test(ev)
         && !/computeMoveStage|computeAmihud|computeCrashPhase|computeBreakoutStats|computeShiPower/.test(ev) && !/唯一有實證/.test(sc + fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')));
       ok('橫幅標題：勢能與中期因子相反時以中期為準（與執行計畫一致）；勢能盤中用前一日收盤', /但中期因子最弱 20%/.test(bf) && /但中期因子最強 20%/.test(bf) && /const price = barPx\(D\);/.test(bf));
       ok('急跌末端不再說「有人接貨、追空會被軋」（全市場同類K棒 20 日 −1.29%）；只提醒做多', !/FUSION≤-40/.test(bf + fs.readFileSync(path.join(ROOT, 'help.js'), 'utf8')) && /if \(cp && dir === 1\) warn\.push\(cp\.note\)/.test(bf) && !/紀律門全綠/.test(bf)); }
     { const all = ['bingfa.js', 'app.js', 'mtf.js', 'mainforce.js', 'smc.js', 'enhance.js'].map(f => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n');
       ok('v197 盤中判斷一律用完整K棒：趨勢／心理／MTF／主力意圖／擁擠度／VWAP／目標價不再拿即時價', !/const c=D\.closes, price=D\.price;|const price = D\.price;|D\.price > ma20|const price = D\.price \|\| c\[n - 1\]/.test(all));
-      ok('v197 台股回測不外推美股：期望值表、高波動禁空、急跌數字只限台股', /COND_EV === 'undefined' \|\| D\.currency !== 'TWD'/.test(bf) && /dir === -1 && tw \? fail : warn/.test(bf) && /D\.currency === 'TWD' \? '，但台股19年相近型態/.test(bf));
+      ok('v197 台股回測不外推美股：期望值表、高波動放空數字、急跌數字只限台股', /COND_EV === 'undefined' \|\| D\.currency !== 'TWD'/.test(bf) && /warn\.push\(!tw \? '高波動危險態：台股全市場19年實測此時放空每筆−1\.70%（美股未驗證）/.test(bf) && /D\.currency === 'TWD' \? '，但台股19年相近型態/.test(bf));
       ok('v197 行為鏈：融資象限、大週期不投方向票（回測沒有差異），文字不再說「最可信」', /behaviors\.push\(\{ name: '散戶槓桿行為', actor: '散戶', dir: 0/.test(bf) && /dir: 0, strength: Math\.min\(80, Math\.abs\(mtf\.total/.test(bf) && !/最可信/.test(bf + fs.readFileSync(path.join(ROOT, 'help.js'), 'utf8')));
       ok('v197 籌碼抓不到要明講（後端 chipErr、前端顯示），不再整張卡無聲消失', /kline\.chipErr = /.test(fs.readFileSync(path.join(ROOT, 'worker.js'), 'utf8')) && /ydata\.chipErr = /.test(fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8')) && /D && D\.chipErr/.test(fs.readFileSync(path.join(ROOT, 'enhance.js'), 'utf8'))); }
     ok('量價事件進紀律門（做多提醒）與橫幅', /const ve = volEvent\(D\);\n      if \(ve\) warn\.push\(VOL_EV\[ve\]\);/.test(bf) && /addW\(2, '📊', `最近一根K棒\$\{D\._intraday \? '（昨日）' : ''\}\$\{VOL_EV\[ve\]\}`\)/.test(bf));
     ok('分析方向：中期合成五組→偏空～偏多，只有最強／最弱 20% 才給方向；執行計畫先看中期因子、沒有才用勢能（標明未經回測）', /const MID_DIR = \['偏空', '略偏空', '中性', '略偏多', '偏多'\]/.test(bf) && /side: q === 4 \? 'long' : q === 0 \? 'short' : null/.test(bf)
-      && /const want = md && md\.side \? md\.side :/.test(bf) && /勢能等級（未經回測，僅供參考）/.test(bf) && /🧭 分析方向：中期/.test(bf));
+      && /const planSide = md && md\.side \? md\.side :/.test(bf) && /勢能等級（未經回測，僅供參考）/.test(bf) && /🧭 分析方向：中期/.test(bf));
     ok('中期因子進紀律門（只有最高／最低 20%）與橫幅；情報面到了就重繪', /const mid = midFactors\(D\);   \/\/ v190/.test(bf) && /q === 4 \|\| q === 0/.test(bf) && /📊 中期因子/.test(bf)
       && /refreshAsyncDependents\(D\.code\);[^\n]*\n  try \{ box\.innerHTML = renderIntel/.test(fs.readFileSync(path.join(ROOT, 'intel.js'), 'utf8')));
     ok('VIX 漲跌缺值時不炸、顯示「—」', /us\.vix\.changePct != null \?/.test(mk));
@@ -195,14 +195,14 @@ function logicTests() {
     const ap = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8'), bf = fs.readFileSync(path.join(ROOT, 'bingfa.js'), 'utf8'), mf = fs.readFileSync(path.join(ROOT, 'mainforce.js'), 'utf8'), css = fs.readFileSync(path.join(ROOT, 'styles.css'), 'utf8');
     ok('v208 風險卡停損與執行計畫同一組（planBasis），不再另算 2×ATR 或自行移動', /const pb=planBasis\(D,'long'\)/.test(ap) && !/stopLoss=L\.v\*0\.992/.test(ap) && !/ATR 停損價 \(2×ATR\)/.test(ap));
     ok('v208 趨勢邏輯鏈「結構」用執行計畫重演，不再另用 2×ATR', !/以2×ATR停損、5日中位目標重演/.test(bf) && /照執行計畫（同一組停損、5日中位目標）重演/.test(bf));
-    ok('v208 勢能 A/B 級但照計畫重演為負時，標題不得再說「條件良好」', /級多方勢能，但照計畫重演為負/.test(bf) && /級勢能，但照計畫重演為負/.test(bf));
+    ok('v218 橫幅標題不再看重演正負號（T-019 沒有預測力）；多空說明都附重演描述', !/照計畫重演為負/.test(bf) && (bf.match(/嚴設停損\$\{simNote\(D, 'long'\)\}|做空嚴守停損\$\{simNote\(D, 'short'\)\}/g) || []).length === 2 && /全市場驗證不能預測下一筆/.test(bf));
     ok('v208 主力意圖分數列有關閉（否則歷史驗證被擠進 flex 窄欄）', /\}\);\n    html \+= `<\/div>`;   \/\/ v208 補上分數列/.test(mf));
     ok('v208 桌機劇本單欄（多空兩塊不並排）', /#pb-rows\.risk-grid\{grid-template-columns:1fr\}/.test(css)); }
   { // v209 一句話結論列：只讀執行計畫與 planBasis，不另算
     const bf = fs.readFileSync(path.join(ROOT, 'bingfa.js'), 'utf8'), html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
     const pl = bf.slice(bf.indexOf('function renderPlanLine('), bf.indexOf('function renderTradeGate('));
     ok('v209 結論列在決策橫幅最上方（vb-inner 第一個子元素）', /<div id="vb-inner"[^>]*>\s*<div id="vb-oneline"/.test(html));
-    ok('v209 結論列由紀律門用同一組計畫變數繪製（ol.plan 取自執行計畫、renderPlanLine 在計畫之後呼叫）', /ol = \{ want, planSide, md, sh, g, pbC \};/.test(bf) && /ol\.plan = \{ entry, stop, tp1, days: pickT \? pickT\.days : null, size: sizeShort, blocked: !!\(rb && rb\.blocked\), cur \};/.test(bf) && /\n  renderPlanLine\(ctx\.D, ol\);\n/.test(bf));
+    ok('v209 結論列由紀律門用同一組計畫變數繪製（ol.plan 取自執行計畫、renderPlanLine 在計畫之後呼叫）', /ol = \{ planSide, md, sh, pbC \};/.test(bf) && /ol\.plan = \{ entry, stop, tp1, days: pickT \? pickT\.days : null, size: sizeShort, blocked: !!\(rb && rb\.blocked\), cur \};/.test(bf) && /\n  renderPlanLine\(ctx\.D, ol\);\n/.test(bf));
     ok('v209 結論列不自行計算 ATR／停損／部位（只有 planBasis 一個來源）', pl.length > 0 && !/calcATR|computeSmartStop|Math\.floor|riskAmt|capital/.test(pl) && /planBasis\(D, 'long'\)/.test(pl));
     ok('v209 部位文字由同一個 sizeShort 組成（結論列與執行計畫同一字串）', /const sizeTxt2 = sizeShort \? sizeShort \+/.test(bf)); }
   ok('v209 結論列在紀律門開頭先清空（出錯時不殘留上一檔的價位）', /function renderTradeGate\(ctx\) \{\n  renderPlanLine\(null, null\);/.test(fs.readFileSync(path.join(ROOT, 'bingfa.js'), 'utf8')));
@@ -223,16 +223,24 @@ function logicTests() {
     ok('RSI：平盤 50、單邊漲 100、單邊跌 0', last(Array(40).fill(100)) === 50 && last(up) === 100 && last(up.slice().reverse()) === 0, [last(Array(40).fill(100)), last(up), last(up.slice().reverse())].join(','));
   }
   {   // v201 計畫重演：同K雙觸算停損、跳空以開盤價、到期收盤出場、扣成本
-    const bfs = fs.readFileSync(path.join(ROOT, 'bingfa.js'), 'utf8');
-    const SIM = new Function(bfs.slice(bfs.indexOf('function simPlan('), bfs.indexOf('function computeRealisticTargets(')) + 'return simPlan;')();
+    const bfs = fs.readFileSync(path.join(ROOT, 'bingfa.js'), 'utf8'), cfgs = fs.readFileSync(path.join(ROOT, 'config.js'), 'utf8');
+    const costSrc = cfgs.slice(cfgs.indexOf('const FEE_DISC ='), cfgs.indexOf('const TRADE_COST_PCT ='));
+    const SIM = new Function(costSrc + bfs.slice(bfs.indexOf('function simPlan('), bfs.indexOf('function computeRealisticTargets(')) + 'return simPlan;')();
+    {   // v218 成本單一來源：手續費 2.8 折、股票稅 0.3%、ETF 稅 0.1%、放空加融券手續費 0.08%、美股 0.1%
+      const TC = new Function(costSrc + 'return [tradeCost, FEE_DISC];')(), tc = TC[0];
+      const got = [tc({ currency: 'TWD', code: '2330' }, 1), tc({ currency: 'TWD', code: '2330' }, -1), tc({ currency: 'TWD', code: '0050' }, 1), tc({ currency: 'TWD', code: '00878' }, -1), tc({ currency: 'USD', code: 'AAPL' }, 1)].map(x => +x.toFixed(4));
+      ok('v218 交易成本：手續費 2.8 折（股票做多 0.3798%、放空 0.4598%，ETF 0.1798%／0.2598%，美股 0.1%），重演與交易日誌同一來源', TC[1] === 0.28 && JSON.stringify(got) === JSON.stringify([0.3798, 0.4598, 0.1798, 0.2598, 0.1])
+        && /const cost = tradeCost\(D, dir\);/.test(bfs) && !/0\.471|0\.551/.test(bfs.slice(bfs.indexOf('function simPlan('), bfs.indexOf('function computeRealisticTargets(')))
+        && /const TRADE_COST_PCT = tradeCost\(\{ currency: 'TWD', code: '' \}, 1\);/.test(cfgs) && /const cost = TRADE_COST_PCT;/.test(fs.readFileSync(path.join(ROOT, 'db.js'), 'utf8')), JSON.stringify(got));
+    }
     const bar = (o, h, l) => { const n = 120; return { currency: 'TWD', opens: Array(n).fill(o), closes: Array(n).fill(100), highs: Array(n).fill(h), lows: Array(n).fill(l) }; };
     const t = (D, dir) => { const s = SIM(D, dir, 5, 5, 3); return s && [+s.ev.toFixed(3), Math.round(s.hit), Math.round(s.stop)].join('/'); };
     const got = [t(bar(100, 106, 94), 1), t(bar(90, 100, 90), 1), t(bar(100, 106, 99), 1), t(bar(100, 101, 99), 1), t(bar(100, 101, 94), -1)];
-    ok('計畫重演：同K雙觸算停損、跳空以開盤價、達標、到期、放空（含成本）', JSON.stringify(got) === JSON.stringify(['-5.471/0/100', '-10.471/0/100', '4.529/100/0', '-0.471/0/0', '4.449/100/0']), JSON.stringify(got));
+    ok('計畫重演：同K雙觸算停損、跳空以開盤價、達標、到期、放空（含成本）', JSON.stringify(got) === JSON.stringify(['-5.38/0/100', '-10.38/0/100', '4.62/100/0', '-0.38/0/0', '4.54/100/0']), JSON.stringify(got));
     {   // v216 每筆淨的標準誤：停損目標放到碰不到時，每筆＝H 日報酬−成本，可獨立重算；重疊樣本用 Newey-West（落後 H−1 期）
       const n = 300, H = 5, c = Array.from({ length: n }, (_, i) => 100 + 8 * Math.sin(i / 7) + 3 * Math.sin(i * 1.3) + i * 0.02);
       const s = SIM({ currency: 'TWD', opens: c, closes: c, highs: c, lows: c }, 1, 90, 90, H), r = [];
-      for (let i = 60; i < n - H; i++) r.push((c[i + H] / c[i] - 1) * 100 - 0.471);
+      for (let i = 60; i < n - H; i++) r.push((c[i + H] / c[i] - 1) * 100 - 0.3798);
       const N = r.length, m = r.reduce((x, y) => x + y, 0) / N, g = k => { let t = 0; for (let i = k; i < N; i++) t += (r[i] - m) * (r[i - k] - m); return t; };
       let v = g(0); for (let k = 1; k < H; k++) v += 2 * (1 - k / H) * g(k);
       const flat = SIM({ currency: 'TWD', opens: Array(120).fill(100), closes: Array(120).fill(100), highs: Array(120).fill(101), lows: Array(120).fill(99) }, 1, 5, 5, 3);
@@ -241,7 +249,7 @@ function logicTests() {
         const raw = Array.from({ length: 120 }, (_, i) => i < 90 ? 105 : 100), adjC = Array(120).fill(100);
         const Dx = { currency: 'TWD', closes: adjC, opens: adjC, highs: adjC.map(x => x + 0.5), lows: adjC.map(x => x - 0.5), rawCloses: raw, rawHighs: raw.map(x => x + 0.5), rawLows: raw.map(x => x - 0.5) };
         const xl = SIM(Dx, 1, 90, 90, 3), xs = SIM(Dx, -1, 90, 90, 3);
-        ok('計畫重演：持有期跨除息日用還原比例算報酬（做多、放空每筆都只扣成本）', xl && xs && Math.abs(xl.ev + 0.471) < 1e-9 && Math.abs(xs.ev + 0.551) < 1e-9 && xl.se < 1e-9, xl && `${xl.ev} ${xs.ev}`);
+        ok('計畫重演：持有期跨除息日用還原比例算報酬（做多、放空每筆都只扣成本）', xl && xs && Math.abs(xl.ev + 0.3798) < 1e-9 && Math.abs(xs.ev + 0.4598) < 1e-9 && xl.se < 1e-9, xl && `${xl.ev} ${xs.ev}`);
       }
       {   // v217 月營收過期：每月 10 日前公布上個月；台北 11 日起應有上個月，之前應有上上個月；跨年要對；只提示不改合成
         const cfg = fs.readFileSync(path.join(ROOT, 'config.js'), 'utf8');
@@ -259,12 +267,14 @@ function logicTests() {
         const cv = Array.from({ length: 500 }, (_, i) => i < 248 ? 100 + (i % 2 ? 8 : -8) : 100), rm = RM({ closes: cv });
         ok('風險卡：年化波動率與最大回撤同為近一年（標籤寫明）', rm.annualVol < 1e-9 && rm.maxDD === 0 && /label: '📊 年化波動率（近一年）'/.test(en), String(rm.annualVol));
       }
-      {   // v216 審查 #2：誤差帶端點碰到 0 也算分不出來（兩側）；#3：紀律門提醒與執行計畫詳情用同一個判斷
-        const SB = new Function(bfs.slice(bfs.indexOf('function simBand('), bfs.indexOf('function simEv(')) + 'return simBand;')();
-        ok('計畫重演：誤差帶端點碰到 0 也算「與 0 分不出來」（負側、正側、全 0），離開 0 才不算', SB({ ev: -0.4, se: 0.2 }).in0 && SB({ ev: 0.4, se: 0.2 }).in0 && SB({ ev: 0, se: 0 }).in0 && !SB({ ev: -0.41, se: 0.2 }).in0 && /與 0 分不出來/.test(SB({ ev: -0.4, se: 0.2 }).txt));
-        ok('計畫重演：紀律門提醒與執行計畫詳情也附誤差範圍，含 0 時不寫「負期望…建議跳過」', bfs.includes('每筆淨 ${s.ev.toFixed(2)}%（${simBand(s).txt}，已扣成本），達標') && bfs.includes("sb.in0 ? 'var(--muted)'") && bfs.includes("sb.in0 ? '——樣本平均為負，但誤差範圍含 0，分不出好壞；要做只用試單' : '——負期望"));
+      {   // v216 審查 #2：誤差帶端點碰到 0 也算分不出來（兩側）；v218 只描述，不依正負號上色或給建議（T-019）
+        const SB = new Function(bfs.slice(bfs.indexOf('function simBand('), bfs.indexOf('function simEv(')) + 'return simBand;')(), in0 = s => /與 0 分不出來/.test(SB(s));
+        ok('計畫重演：誤差帶端點碰到 0 也算「與 0 分不出來」（負側、正側、全 0），離開 0 才不算', in0({ ev: -0.4, se: 0.2 }) && in0({ ev: 0.4, se: 0.2 }) && in0({ ev: 0, se: 0 }) && !in0({ ev: -0.41, se: 0.2 }) && SB({ ev: -0.41, se: 0.2 }) === '誤差 ±0.40%');
+        const EV = new Function(bfs.slice(bfs.indexOf('function simBand('), bfs.indexOf('function simNote(')) + 'return simEv;')();
+        ok('v218 計畫重演只描述：每筆淨不依正負號上紅綠色，執行計畫詳情、趨勢邏輯鏈不再寫「負期望／建議跳過／出路」，紀律門不再列「重演為負」', EV({ ev: -1.2, se: 0.1 }) === '<b>-1.20%</b>（誤差 ±0.20%）' && EV({ ev: 1.2, se: 0.1 }) === '<b>+1.20%</b>（誤差 ±0.20%）'
+          && !/負期望：方向看對|建議跳過此檔|見風險卡「出路」|照計畫重演為負|兩邊重演皆負/.test(bfs) && (bfs.match(/全市場驗證這個正負號不能預測下一筆（T-019）|此股過去的描述，全市場驗證不能預測下一筆/g) || []).length === 2);
       }
-      ok('計畫重演：畫面的每筆淨附誤差範圍，跨過 0 時講明分不出來', (bfs.match(/每筆淨 \$\{simEv\(/g) || []).length === 2 && /in0 \? '，與 0 分不出來' : ''/.test(bfs));
+      ok('計畫重演：畫面的每筆淨附誤差範圍，跨過 0 時講明分不出來', (bfs.match(/每筆淨 \$\{simEv\(/g) || []).length === 2 && /（\$\{simBand\(s\)\}；停損/.test(bfs) && /Math\.abs\(s\.ev\) <= band \? '，與 0 分不出來' : ''/.test(bfs));
       {   // v216 個股少幾根（停牌、零成交日）時依日期對齊：個股＝大盤同一條線時 Beta 必須仍是 1
         const adv = fs.readFileSync(path.join(ROOT, 'advanced.js'), 'utf8'), ap = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
         const F = new Function(adv.slice(adv.indexOf('function alignByDate('), adv.indexOf('async function fetchBenchmark(')) + adv.slice(adv.indexOf('function computeBetaAlpha('), adv.indexOf('function renderBetaAlpha(')) + 'return { alignByDate, computeBetaAlpha };')();
@@ -844,9 +854,11 @@ async function scanFlowTests() {
       await dbDeleteTrade('t_skew'); const gone = await applyTombstones([]);
       o.skew = { later: gone.get('t_skew') > ra, revived: await mergeTrades([{ id: 't_skew', date: '2026-09-01', code: '9999', restoredAt: ra }], gone) };
       await dbSetSetting('deletedIds', []); }
-    // v201 紀律門讀計畫重演：與執行計畫同一算法，每筆淨 <0 列提醒
+    // v218 紀律門：重演為負不再列提醒（T-019）；高波動放空只提醒、沒有禁止一級
     { const Dg = mk(300, i => 100 * (1 + 0.01 * Math.sin(i / 2)) + i * 0.02), g = computeTradeGate({ D: Dg }), pb = planBasis(Dg, 'long');
-      o.gateRR = { ev: pb.sim ? pb.sim.ev : null, warn: g.long.warn.some(x => /照計畫重演為負/.test(x)), v: g.long.vClass }; }
+      const h = computeTradeGate({ D: Object.assign({}, Dg, { currency: 'TWD' }), regime: { regime: '高波動危險' } });
+      o.gateRR = { ev: pb.sim ? pb.sim.ev : null, rr: [...g.long.warn, ...g.short.warn].some(x => /重演/.test(x)), keys: Object.keys(g.long).concat(Object.keys(h.short)).join(','),
+        hv: h.short.warn.some(x => /放空每筆−1\.70%/.test(x) && /部位減半/.test(x)), hvV: h.short.verdict }; }
     // v187 美股盤中也去掉未完成的K棒（美東時段、美東日期）
     { const n1 = Date.now; try { Date.now = () => Date.parse('2026-10-01T11:00:00-04:00');
         const mkJ = cur => ({ closes: Array.from({ length: 80 }, (_, i) => i), lastDate: '20261001', currency: cur });
@@ -879,7 +891,8 @@ async function scanFlowTests() {
   ok('RS：大盤較短時兩邊用同一段區間（同一條序列＝50）', v3.rsShort.rating === 50 && Math.abs(v3.rsShort.excess) < 1e-9, JSON.stringify(v3.rsShort));
   ok('分批進場：有批次沒填張數就不填股數；沒填代碼也不填（分不出張或股）', v3.blankQty === '' && v3.noCode === '', JSON.stringify([v3.blankQty, v3.noCode]));
   ok('同步：時鐘較慢的裝置刪除「別台還原的交易」照樣刪得掉，不會在合併時復活', v3.skew.later && v3.skew.revived === 0, JSON.stringify(v3.skew));
-  ok('紀律門：計畫重演每筆淨 <0 列入提醒（與執行計畫同一算法）', v3.gateRR.ev != null && v3.gateRR.warn === (v3.gateRR.ev < 0) && ['ok', 'no'].includes(v3.gateRR.v), JSON.stringify(v3.gateRR));
+  ok('v218 紀律門：重演每筆淨 <0 也不列提醒；高波動放空只提醒（部位減半）、沒有禁止一級', v3.gateRR.ev != null && v3.gateRR.ev < 0 && !v3.gateRR.rr && v3.gateRR.keys === 'verdict,pass,warn,verdict,pass,warn'
+    && v3.gateRR.hv && /^提醒 \d+ 項$/.test(v3.gateRR.hvV), JSON.stringify(v3.gateRR));
   ok('盤中：美股在美東盤中也去掉未完成的K棒；台股照舊（各用自己的時段）', JSON.stringify(v3.usTrim) === '[79,80]' && v3.twTrim === 79, JSON.stringify([v3.usTrim, v3.twTrim]));
   ok('暫存：升版後舊版本存的資料不再使用', v3.oldVer === null, JSON.stringify(v3.oldVer));
   ok('RS：大盤用同樣的加權（自己對自己＝50、超額 0）', v3.rsSelf.rating === 50 && Math.abs(v3.rsSelf.excess) < 1e-9, JSON.stringify(v3.rsSelf));
@@ -899,15 +912,15 @@ async function scanFlowTests() {
     { const bf = fs.readFileSync(path.join(ROOT, 'bingfa.js'), 'utf8'), en = fs.readFileSync(path.join(ROOT, 'enhance.js'), 'utf8'), mf = fs.readFileSync(path.join(ROOT, 'mainforce.js'), 'utf8'),
         jn = fs.readFileSync(path.join(ROOT, 'journal.js'), 'utf8'), mk = fs.readFileSync(path.join(ROOT, 'market.js'), 'utf8'), av = fs.readFileSync(path.join(ROOT, 'advanced.js'), 'utf8');
       ok('行為結構：不足 3 票不當方向證據（橫幅、綜合研判、敘事、翻盤條件都看 decisive）', /decisive: votes\.length >= 3/.test(bf) && /syn\.decisive \? \(syn\.score/.test(bf) && /if \(syn && syn\.decisive\) inval/.test(bf));
-      ok('橫幅：空方也先看紀律門；營收窗口不重複兩條', /gS && gS\.fail\.length/.test(bf) && /if \(!ew\) try \{/.test(bf));
+      ok('橫幅：營收窗口不重複兩條；v218 拿掉「紀律門禁止做空 → 標題改黃」（紀律門已沒有禁止）', !/gS\.fail|但紀律門禁止做空/.test(bf) && /if \(!ew\) try \{/.test(bf));
       ok('主力意圖：回測與即時餵同樣欄位；信心 <50 不投方向票', /opens: D\.opens \? D\.opens\.slice\(0, i \+ 1\) : undefined/.test(mf) && /prevClose: D\.closes\[i - 1\]/.test(mf) && /if \(intent\.confidence < 50\) \{ intentDir = 0/.test(bf));
       ok('盤中量能：不再「推估全日量」（最後一根已是完整K棒）', !/ph\.elapsed/.test(en + mf + bf));
       ok('勢能 5 日趨勢帶前一日收盤；開盤缺口盤中用今天開盤；Amihud 報酬用還原價', /prevClose: D\.closes\[n - 2\]/.test(en) && /live \? \(D\.open - c\[n - 1\]\)/.test(en) && /const dollar = raw\[i\] \* v\[i\]/.test(en));
       ok('融資卡文字與四象限同一段股價；RS 沒有大盤時不當相對強弱', /chg5 = n >= 6 \? \(barPx\(D\) - c\[n-6\]\)/.test(mf) && /rsRating=rs\.excess!=null\?rs\.rating:null/.test(fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8')));
       ok('日誌進場公式只用進場日之前的K線；基本面失敗講原因；盤中不比類股廣度', /until=\$\{dayBefore\(entryDate\)\}/.test(jn) && /基本面取得失敗/.test(av) && /const live = inSession\(Date\.now\(\), \.\.\.SESS\.tw\)/.test(mk)); }
-    ok('凱利 b：風險卡是做多配置，用「上漲」可達幅度與做多重演', (ap.match(/computeRealisticTargets\(D, 1, stopPct\)/g) || []).length === 1 && /simPlan\(D, 1, stopPct \* f/.test(ap) && /b = row5\.sim\.b/.test(ap) && !/computeRealisticTargets\(D, *(dir|sgn|-1)[^)]*stopPct\)/.test(ap));
+    ok('凱利 b：風險卡是做多配置，用「上漲」可達幅度與做多重演；v218 拿掉「出路」（縮停損找重演轉正，T-019 沒有預測力）', (ap.match(/computeRealisticTargets\(D, 1, stopPct\)/g) || []).length === 1 && !/fixSuggestion|<b>出路<\/b>|simPlan\(/.test(ap) && /b = row5\.sim\.b/.test(ap) && !/computeRealisticTargets\(D, *(dir|sgn|-1)[^)]*stopPct\)/.test(ap));
     ok('盤中：量價訊號用同一天（昨天）的K棒', /kC=barPx\(D\), kO=D\._intraday\?\(D\.opens\?D\.opens\[D\.opens\.length-1\]:barPrev\(D\)\):open/.test(ap));
-    ok('橫幅遇紀律門禁止時不叫你進場', /computeTradeGate\(\{ D, regime, mtf, shi \}\)/.test(bf));
+    ok('🧭 分析方向的短線風險讀紀律門（同一組 regime／mtf）', /computeTradeGate\(\{ D, regime, mtf, shi \}\)/.test(bf));
     ok('券資比門檻全站同一條（18%／30%）', /SHORT_RATIO_HOT/.test(fs.readFileSync(path.join(ROOT, 'mainforce.js'), 'utf8')) && !/shortRatio >= (15|20)\b/.test(bf + fs.readFileSync(path.join(ROOT, 'mainforce.js'), 'utf8'))); }
   // 掃描：三顆按鈕同一把鎖
   poolDelay = 800;
@@ -988,8 +1001,8 @@ async function browserTests() {
     ok(`${code} 畫面無 NaN/undefined`, !r.hasNaN);
     ok(`${code} 有輸出綜合研判或期望值`, /期望值|綜合研判/.test(r.judge));
     ok(`${code} 期望值有標示樣本數`, !/期望值/.test(r.judge) || /筆/.test(r.judge));
-    const sideLong = /做多[\s\S]{0,40}?(🟢|🟡|🔴)/.exec(r.gate), sideShort = /做空[\s\S]{0,40}?(🟢|🟡|🔴)/.exec(r.gate);
-    ok(`${code} 多空兩側都有裁決`, !!sideLong && !!sideShort);
+    const sideLong = /📈 做多\s*(🟡 提醒 \d+ 項|⚪ 沒有提醒)/.exec(r.gate), sideShort = /📉 做空\s*(🟡 提醒 \d+ 項|⚪ 沒有提醒)/.exec(r.gate);
+    ok(`${code} 多空兩側都有結論（v218 只有「提醒 N 項／沒有提醒」，沒有禁止）`, !!sideLong && !!sideShort && !/禁止出手|🔴/.test(r.gate), String(r.gate).slice(0, 120));
     if (r.prices.length >= 3) {
       const entry = r.prices[0][1], stop = r.prices[1][1], tgt = r.prices[2][1];
       const isLong = /執行計畫 — 做多/.test(r.gate);
@@ -1027,7 +1040,7 @@ async function browserTests() {
       const read = () => { const t = document.getElementById('vb-title'); return [t.textContent, getComputedStyle(t).color, document.getElementById('vb-summary').textContent]; };
       try {
         midFactors = () => null;   // 沒有中期訊號：只測重演這一條規則
-        computeTradeGate = () => ({ long: { fail: [], warn: [], pass: [] }, short: { fail: [], warn: [], pass: [] } });
+        computeTradeGate = () => ({ long: { verdict: '沒有提醒', warn: [], pass: [] }, short: { verdict: '沒有提醒', warn: [], pass: [] } });
         for (const ev of [0.42, -0.42]) {
           planBasis = () => ({ sim: { ev, n: 120, se: 0.3 } });
           renderVerdictBanner({ grade: 'B', shi: 75, shortShi: 25, shortGrade: null }, D, null, null); out['L' + ev] = read();
@@ -1037,19 +1050,19 @@ async function browserTests() {
       out.c = { green: col('#10B981'), sell: col('var(--sell)'), warn: col('var(--warn)') };
       const ba = window._bannerArgs; if (ba) renderVerdictBanner(ba.shi, ba.D, ba.regime, ba.mtf);
       return out; });
-    ok('v209 多方 B 級＋照計畫重演 >0 → 綠色「多方條件良好」', /🟢 B級標的，多方條件良好/.test(tt['L0.42'][0]) && tt['L0.42'][1] === tt.c.green && tt.c.green !== tt.c.warn, JSON.stringify(tt['L0.42']));
-    ok('v209 多方 B 級＋照計畫重演 <0 → 黃色「…但照計畫重演為負」', /🟡 B級多方勢能，但照計畫重演為負/.test(tt['L-0.42'][0]) && tt['L-0.42'][1] === tt.c.warn, JSON.stringify(tt['L-0.42']));
-    ok('v209 空方 B 級＋照計畫重演 >0 → 空方原色（紅）「弱勢明確」，不是黃色', /🔻 空方B級標的，弱勢明確/.test(tt['S0.42'][0]) && tt['S0.42'][1] === tt.c.sell && tt.c.sell !== tt.c.warn, JSON.stringify(tt['S0.42']));
-    ok('v209 空方 B 級＋照計畫重演 <0 → 黃色「…但照計畫重演為負」', /🟡 空方B級勢能，但照計畫重演為負/.test(tt['S-0.42'][0]) && tt['S-0.42'][1] === tt.c.warn, JSON.stringify(tt['S-0.42']));
-    ok('v216 黃色「照計畫重演為負」的說明附誤差範圍，跨過 0 時講明分不出來（多空兩邊）', ['L-0.42', 'S-0.42'].every(k => /每筆淨 -0.42%（誤差 ±0.60%，與 0 分不出來，已扣成本）/.test(tt[k][2])), JSON.stringify([tt['L-0.42'][2], tt['S-0.42'][2]]));
-    // v209 結論列的其他分支：方向被紀律門禁止、6% 熔斷、沒有重演樣本（該欄不顯示）
+    // v218 標題不再看重演正負號（T-019）：重演 ±0.42 標題與顏色相同，說明附重演描述
+    ok('v218 多方 B 級：重演正、負標題都是綠色「多方條件良好」', ['L0.42', 'L-0.42'].every(k => /🟢 B級標的，多方條件良好/.test(tt[k][0]) && tt[k][1] === tt.c.green) && tt.c.green !== tt.c.warn, JSON.stringify([tt['L0.42'], tt['L-0.42']]));
+    ok('v218 空方 B 級：重演正、負標題都是紅色「弱勢明確」，不是黃色', ['S0.42', 'S-0.42'].every(k => /🔻 空方B級標的，弱勢明確/.test(tt[k][0]) && tt[k][1] === tt.c.sell) && tt.c.sell !== tt.c.warn, JSON.stringify([tt['S0.42'], tt['S-0.42']]));
+    ok('v218 橫幅說明附重演描述與誤差範圍，跨過 0 時講明分不出來，並註明不能預測下一筆（多空兩邊）', ['L-0.42', 'S-0.42'].every(k => /照執行計畫重演 120 次每筆淨 -0\.42%（誤差 ±0\.60%，與 0 分不出來，已扣成本；這是過去的描述，全市場驗證不能預測下一筆）/.test(tt[k][2]))
+      && /每筆淨 \+0\.42%（誤差 ±0\.60%，與 0 分不出來/.test(tt['L0.42'][2]), JSON.stringify([tt['L-0.42'][2], tt['S-0.42'][2]]));
+    // v209 結論列的其他分支：兩邊重演皆負時只描述、6% 熔斷、沒有重演樣本（該欄不顯示）
     const br = await pg.evaluate(() => {
       const D = window._lastD, el = () => document.getElementById('vb-oneline').innerText, keep = planBasis, out = {};
-      renderPlanLine(D, { want: 'short', planSide: null, md: { side: 'short', label: '偏空' }, sh: { grade: 'D' }, g: { short: { fail: ['高波動危險態：19年實測此時放空每筆虧1.42%'] } }, pbC: null }); out.ban = el();
-      renderPlanLine(D, { want: 'long', planSide: 'long', md: null, sh: { grade: 'B' }, g: {}, pbC: { sim: null }, plan: { entry: 100, stop: 95, tp1: 103, days: 5, size: '2 張', blocked: true, cur: '' } }); out.blk = el();
-      try { planBasis = () => ({ sim: null }); renderPlanLine(D, { want: null, planSide: null, md: null, sh: { grade: 'D' }, g: {}, pbC: null }); out.nos = el(); } finally { planBasis = keep; }
+      try { planBasis = () => ({ sim: { ev: -0.5, n: 100, se: 0.1 } }); renderPlanLine(D, { planSide: null, md: null, sh: { grade: 'D' }, pbC: null }); out.neg = el(); out.negH = document.getElementById('vb-oneline').innerHTML; } finally { planBasis = keep; }
+      renderPlanLine(D, { planSide: 'long', md: null, sh: { grade: 'B' }, pbC: { sim: null }, plan: { entry: 100, stop: 95, tp1: 103, days: 5, size: '2 張', blocked: true, cur: '' } }); out.blk = el();
+      try { planBasis = () => ({ sim: null }); renderPlanLine(D, { planSide: null, md: null, sh: { grade: 'D' }, pbC: null }); out.nos = el(); } finally { planBasis = keep; }
       renderTradeGate(window._gateCtx); return out; });
-    ok('v209 結論列：方向被紀律門禁止時講出是哪一條並觀望', /今日無計畫：做空方向（依中期因子最弱 20%）被紀律門禁止：高波動危險態/.test(br.ban) && /→ 觀望/.test(br.ban), br.ban);
+    ok('v218 結論列：兩邊重演皆負只列數字，不寫「皆負」、不上紅色', /今日無計畫：勢能 D、中期待定、照計畫重演（多 -0\.50%／空 -0\.50%） → 觀望/.test(br.neg) && !/皆負|var\(--sell\)/.test(br.negH), br.neg);
     ok('v209 結論列：6% 熔斷時部位改寫「不開新倉」、沒有重演樣本就不顯示重演欄', /本月 6% 熔斷，不開新倉/.test(br.blk) && !/重演/.test(br.blk) && /進場 100\.00 → 停損 95\.00 → 目標（5日中位） 103\.00/.test(br.blk), br.blk);
     ok('v209 結論列：兩邊都沒有重演樣本時不寫數字（不猜），仍有結論', /今日無計畫：勢能 D、中期待定 → 觀望/.test(br.nos) && !/重演|%/.test(br.nos), br.nos);
   }
@@ -1062,7 +1075,7 @@ async function browserTests() {
     const got = await pg.waitForFunction(() => /營收驚奇 \+19\.6/.test((document.getElementById('vb-judgement') || {}).innerText || ''), null, { timeout: 15000 }).then(() => true, () => false);
     const e2e = await pg.evaluate(() => (document.getElementById('vb-judgement') || {}).innerText || '');
     ok('中期因子端到端：情報面到了→橫幅顯示52週高點、營收驚奇（最高組）與三者合成', got && /距52週高點 [-+]\d/.test(e2e) && /8月營收驚奇 \+19\.6｜約全市場第 100 百分位（第 5／5 組）→ 該組之後3個月平均超額 \+1\.93%/.test(e2e)
-      && /四者等權合成：第 \d／5 組/.test(e2e) && /🧭 分析方向：中期(偏空|略偏空|中性|略偏多|偏多)/.test(e2e) && /短線風險：做多 🟡未禁止/.test(e2e), e2e.slice(e2e.indexOf('📊'), e2e.indexOf('📊') + 200)); }
+      && /四者等權合成：第 \d／5 組/.test(e2e) && /🧭 分析方向：中期(偏空|略偏空|中性|略偏多|偏多)/.test(e2e) && /短線風險：做多 (🟡提醒 \d+ 項|⚪沒有提醒)/.test(e2e) && !/禁止/.test(e2e), e2e.slice(e2e.indexOf('📊'), e2e.indexOf('📊') + 200)); }
   missingDay = true;
   const gapResult = await query(codes[0]);
   const noChange = await pg.evaluate(() => ['sb-chg', 'm-prev'].map(id => document.getElementById(id).textContent));

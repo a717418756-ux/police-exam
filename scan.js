@@ -11,7 +11,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['scan.js'] = 213; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['scan.js'] = 218; } catch (e) {}
 
 /* v115修：前端原送15檔/批，但 Code.gs（GAS後端）上限只取前10檔——
    使用GAS的人每批會默默遺失5檔（不成功也不算失敗，直接消失，總數對不上）。
@@ -85,12 +85,12 @@ function prefilterStock(D) {
 }
 
 /* v195 只用有回測的條件：中期因子（查過情報面的股票用四因子合成，否則只用52週高點）該組之後3個月的歷史超額排序；
-   高波動禁止放空；量價狀態、量價事件列為逆風。原本的尾端、Amihud、急跌階段、此股突破率、勢能都沒有回測，移出掃描（個股頁卡片仍在） */
+   量價狀態、量價事件、高波動放空列為逆風（v218 高波動放空由禁止改提醒，不再排到最後）。原本的尾端、Amihud、急跌階段、此股突破率、勢能都沒有回測，移出掃描（個股頁卡片仍在） */
 function evalScanConditions(D, dir) {
   const pass = [], fail = [], info = [];
-  let regime = null, ex = null, hard = false;
+  let regime = null, ex = null;
   try { regime = computeRegime(D); } catch (e) {}
-  if (regime && regime.regime === '高波動危險' && dir === -1 && D.currency === 'TWD') { fail.push('高波動危險態（全市場19年實測放空每筆−1.70%，禁止放空）'); hard = true; }
+  if (regime && regime.regime === '高波動危險' && dir === -1 && D.currency === 'TWD') fail.push('高波動危險態（全市場19年實測放空每筆−1.70%，大部分是大盤時機；要放空部位減半）');
   const mid = midFactors(D);
   if (mid && !mid.why) {
     const k = mid.comp != null ? 'comp' : 'hi52', q = midQ(mid[k], MID_EV[k].cut); ex = MID_EV[k].ex[q];
@@ -99,7 +99,7 @@ function evalScanConditions(D, dir) {
   } else info.push(mid ? `中期因子不計算：${mid.why}` : '美股沒有中期因子回測');
   try { const pv = pvSummary(D); if (pv && (pv.side === 1 || dir === 1)) (pv.side === dir ? pass : fail).push(`量價狀態${pv.txt}`); } catch (e) {}
   try { const ve = volEvent(D); if (ve && dir === 1) fail.push(VOL_EV[ve]); } catch (e) {}
-  return { pass, fail, info, ex, score: hard ? -99 : ex == null ? -50 : ex * dir };
+  return { pass, fail, info, ex, score: ex == null ? -50 : ex * dir };
 }
 
 /* 掃描主流程：分批取K線 → 逐檔評估 → 排序顯示 */

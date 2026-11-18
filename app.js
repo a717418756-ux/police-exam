@@ -1,6 +1,6 @@
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['app.js'] = 217; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['app.js'] = 218; } catch (e) {}
 
 // ══════════════════════════════════════════════════════════════════════
 // 短線雷達 Pro — 風險優先分層決策系統
@@ -300,19 +300,10 @@ function analyzeRisk(D,atr){
   /* v129：只顯示「凱利=0」使用者會困惑，補上可行動的資訊——
      損益兩平勝率 = 1/(1+b)：以此股盈虧比，勝率要超過這個值才值得下注；盈虧比越差，需要的勝率越高。 */
   const breakevenWR = 1 / (1 + b);
-  /* v129 給出路；v201 改用計畫重演找：停損縮到多少，此股照同一目標重演會轉正（縮到原本三成仍負＝問題不在停損） */
-  let fixSuggestion = null;
-  try {
-    if (tp5 && tp5.sim && tp5.sim.ev <= 0) {
-      fixSuggestion = { curStopPct: stopPct, none: true };
-      for (const f of [0.8, 0.6, 0.5, 0.4, 0.3]) {
-        const s = simPlan(D, 1, stopPct * f, tp5.medPct, 5);
-        if (s && s.ev > 0) { fixSuggestion = { curStopPct: stopPct, stopNeedPct: stopPct * f, shrink: (1 - f) * 100, ev: s.ev }; break; }
-      }
-    }
-  } catch (e) {}
+  /* v218 拿掉 v129／v201 的「出路」（停損縮到多少，此股照同一目標重演會轉正）：T-019 全市場驗證，重演轉正對下一筆沒有預測力，
+     縮停損去找一個重演為正的組合，只是在同一段歷史裡挑參數 */
 
-  return{capital,riskPct,winRate,atr,stopLoss,stopMethod,stopPct,stopDist,chandelier,tp5,tp10,stopNote,b,bSource,breakevenWR,fixSuggestion,
+  return{capital,riskPct,winRate,atr,stopLoss,stopMethod,stopPct,stopDist,chandelier,tp5,tp10,stopNote,b,bSource,breakevenWR,
     riskAmount,shares,positionValue,positionPct,
     kellyFull,kellyHalf,kellyQuarter,
     currency:D.currency};
@@ -431,7 +422,7 @@ function renderRisk(r){
     {cls:'good',label:'🎯 停利二（此股10日中位可達）',value:r.tp10?cur+fmt(r.tp10.medPrice):'—',valCls:'buy',sub:r.tp10?`+${r.tp10.medPct.toFixed(1)}%｜抱得久一點的目標（固定 1:2、1:3 實測 10 日內只摸到 10.5%／3.9%）`:'資料不足 120 日'},
     {cls:'warn',label:'🪜 移動停利 (Chandelier)',value:cur+fmt(r.chandelier),valCls:'warn',sub:`最高價-3×ATR，股價創高就上移，保護獲利`},
     {cls:'',label:'📦 建議部位（固定風險法）',value:`${fmt(r.shares,0)} 股`,valCls:'',sub:`試單：單筆風險 ${cur}${fmtV(Math.round(r.riskAmount))}（資金 ${Math.min(r.riskPct,RISK_RULE.perTrade)}% 的一半，與執行計畫相同），佔總資金 ${r.positionPct.toFixed(1)}%${r.currency==='TWD'?'':'｜美股：帳戶資金視為美元'}`},
-    {cls:'warn',label:'🎲 凱利建議比例',value:r.kellyFull>0?`${(r.kellyHalf*100).toFixed(1)}%`:`不下注｜需勝率≥${(r.breakevenWR*100).toFixed(0)}%`,valCls:r.kellyFull>0?'warn':'sell',sub:`半凱利（保守）。全凱利 ${(r.kellyFull*100).toFixed(1)}%／四分之一凱利 ${(r.kellyQuarter*100).toFixed(1)}%。盈虧比 1:${r.b.toFixed(2)}（${r.bSource}）｜<b>損益兩平勝率 ${(r.breakevenWR*100).toFixed(0)}%</b>——你的勝率需高於此才值得下注，目前填 ${(r.winRate*100).toFixed(0)}%${r.kellyFull<=0?`。<span style="color:var(--sell)">⚠️ 凱利=0：用你在設定頁填的 ${(r.winRate*100).toFixed(0)}% 勝率（沒填過就是預設 50%，不是此股的重演勝率）配這個盈虧比，算出來是負期望值</span>`:''}${r.fixSuggestion?`<br><span style="color:var(--warn)">🔧 <b>出路</b>：${r.fixSuggestion.none?`停損縮到原本三成，此股照同一目標重演仍是負期望——問題不在停損位置，這個目標本身不划算`:`停損從 ${r.fixSuggestion.curStopPct.toFixed(1)}% 縮到 <b>${r.fixSuggestion.stopNeedPct.toFixed(1)}%</b>（縮 ${r.fixSuggestion.shrink.toFixed(0)}%），此股照同一目標重演每筆淨 +${r.fixSuggestion.ev.toFixed(2)}%。做法：等價格回測到關鍵壓力/支撐附近再進場，把停損貼在該結構外緣（歷史重演，非保證）`}</span>`:''}`},
+    {cls:'warn',label:'🎲 凱利建議比例',value:r.kellyFull>0?`${(r.kellyHalf*100).toFixed(1)}%`:`不下注｜需勝率≥${(r.breakevenWR*100).toFixed(0)}%`,valCls:r.kellyFull>0?'warn':'sell',sub:`半凱利（保守）。全凱利 ${(r.kellyFull*100).toFixed(1)}%／四分之一凱利 ${(r.kellyQuarter*100).toFixed(1)}%。盈虧比 1:${r.b.toFixed(2)}（${r.bSource}）｜<b>損益兩平勝率 ${(r.breakevenWR*100).toFixed(0)}%</b>——你的勝率需高於此才值得下注，目前填 ${(r.winRate*100).toFixed(0)}%${r.kellyFull<=0?`。<span style="color:var(--sell)">⚠️ 凱利=0：用你在設定頁填的 ${(r.winRate*100).toFixed(0)}% 勝率（沒填過就是預設 50%，不是此股的重演勝率）配這個盈虧比，算出來是負期望值</span>`:''}`},
   ];
   $('risk-grid').innerHTML=boxes.map(x=>`<div class="risk-box ${x.cls}"><div class="rb-label">${x.label}</div><div class="rb-value ${x.valCls}">${x.value}</div><div class="rb-sub">${x.sub}</div></div>`).join('');
 }
@@ -668,7 +659,7 @@ async function go(){
         renderVerdictBanner(shi, D, regimeResult, mtfResult);
         window._bannerArgs = { shi, D, regime: regimeResult, mtf: mtfResult };   // 供margin/deep非同步到達後補繪橫幅警示
 
-        // 出手紀律門（濃縮全站分析為出手/禁止裁決）
+        // 出手紀律門（濃縮全站分析為多空兩張提醒清單）
         try{
           const gateCtx={D, regime:regimeResult, mtf:mtfResult, shi};
           window._gateCtx=gateCtx;  // 供融資載入後補繪
