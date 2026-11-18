@@ -237,6 +237,28 @@ function logicTests() {
       let v = g(0); for (let k = 1; k < H; k++) v += 2 * (1 - k / H) * g(k);
       const flat = SIM({ currency: 'TWD', opens: Array(120).fill(100), closes: Array(120).fill(100), highs: Array(120).fill(101), lows: Array(120).fill(99) }, 1, 5, 5, 3);
       ok('計畫重演：每筆淨的標準誤＝Newey-West（重疊 H−1 天），比不修正的大；每筆都一樣時為 0', s && Math.abs(s.se - Math.sqrt(v) / N) < 1e-9 && s.se > Math.sqrt(g(0)) / N * 1.5 && flat.se < 1e-9, s && `${s.se} ${Math.sqrt(v) / N} ${Math.sqrt(g(0)) / N}`);
+      {   // v217 持有期跨除息日：還原價持平、原始價在第 90 根除息 5 元 → 每筆都只扣成本；原始價的除息缺口不能算成做多虧損、放空獲利
+        const raw = Array.from({ length: 120 }, (_, i) => i < 90 ? 105 : 100), adjC = Array(120).fill(100);
+        const Dx = { currency: 'TWD', closes: adjC, opens: adjC, highs: adjC.map(x => x + 0.5), lows: adjC.map(x => x - 0.5), rawCloses: raw, rawHighs: raw.map(x => x + 0.5), rawLows: raw.map(x => x - 0.5) };
+        const xl = SIM(Dx, 1, 90, 90, 3), xs = SIM(Dx, -1, 90, 90, 3);
+        ok('計畫重演：持有期跨除息日用還原比例算報酬（做多、放空每筆都只扣成本）', xl && xs && Math.abs(xl.ev + 0.471) < 1e-9 && Math.abs(xs.ev + 0.551) < 1e-9 && xl.se < 1e-9, xl && `${xl.ev} ${xs.ev}`);
+      }
+      {   // v217 月營收過期：每月 10 日前公布上個月；台北 11 日起應有上個月，之前應有上上個月；跨年要對；只提示不改合成
+        const cfg = fs.readFileSync(path.join(ROOT, 'config.js'), 'utf8');
+        const RS = new Function(cfg.slice(cfg.indexOf('const TZ_TW ='), cfg.indexOf('function zoneWallToUtc(')) + bfs.slice(bfs.indexOf('function revStale('), bfs.indexOf('/* v192 把中期因子合成')) + 'return revStale;')();
+        const at = s => Date.parse(s + 'T12:00:00+08:00');
+        const got = [RS(202610, at('2026-11-18')), RS(202609, at('2026-11-18')), RS(202609, at('2026-11-10')), RS(202608, at('2026-11-10')), RS(202611, at('2027-01-11')), RS(202610, at('2027-01-05')), RS(202611, at('2027-01-05')), RS(null, at('2026-11-18'))];
+        ok('中期因子：月營收比應已公布的月份舊時提示（11 日為界、跨年），只提示不改合成', JSON.stringify(got) === JSON.stringify([null, 202610, null, 202609, 202612, 202611, null, null]) && /const stale = mid\.sur != null && revStale\(mid\.ym\);/.test(bfs) && !/revStale/.test(bfs.slice(bfs.indexOf('function midFactors('), bfs.indexOf('function revStale('))), JSON.stringify(got));
+      }
+      {   // v217 文字與實際行為一致：高波動時期望值表講明以全市場為準；說明頁不再說「低於基準者紀律門會勸阻」（台股一律用全市場數字）
+        const hp = fs.readFileSync(path.join(ROOT, 'help.js'), 'utf8');
+        ok('文字：高波動時期望值表註明 24 檔 vs 全市場；說明頁的追突破說法與紀律門一致', /cev\.rg === '高波動' && D\.currency === 'TWD' \? '<br><span style="color:var\(--warn\)">此表是原 24 檔回測/.test(bfs) && !/低於基準者紀律門會主動勸阻追價/.test(hp) && /紀律門對台股一律用全市場數字提醒追突破/.test(hp));
+      }
+      {   // v217 年化波動率和最大回撤同樣用近一年：前面一年大幅震盪、近一年完全持平 → 波動率是 0
+        const en = fs.readFileSync(path.join(ROOT, 'enhance.js'), 'utf8'), RM = new Function(en.slice(en.indexOf('function computeRiskMetrics('), en.indexOf('function renderRiskMetrics(')) + 'return computeRiskMetrics;')();
+        const cv = Array.from({ length: 500 }, (_, i) => i < 248 ? 100 + (i % 2 ? 8 : -8) : 100), rm = RM({ closes: cv });
+        ok('風險卡：年化波動率與最大回撤同為近一年（標籤寫明）', rm.annualVol < 1e-9 && rm.maxDD === 0 && /label: '📊 年化波動率（近一年）'/.test(en), String(rm.annualVol));
+      }
       {   // v216 審查 #2：誤差帶端點碰到 0 也算分不出來（兩側）；#3：紀律門提醒與執行計畫詳情用同一個判斷
         const SB = new Function(bfs.slice(bfs.indexOf('function simBand('), bfs.indexOf('function simEv(')) + 'return simBand;')();
         ok('計畫重演：誤差帶端點碰到 0 也算「與 0 分不出來」（負側、正側、全 0），離開 0 才不算', SB({ ev: -0.4, se: 0.2 }).in0 && SB({ ev: 0.4, se: 0.2 }).in0 && SB({ ev: 0, se: 0 }).in0 && !SB({ ev: -0.41, se: 0.2 }).in0 && /與 0 分不出來/.test(SB({ ev: -0.4, se: 0.2 }).txt));
@@ -1295,6 +1317,12 @@ async function backendTests() {
   gsFetch = () => gsOf(chart(80, { trailingNull: 1 }));
   ok('GAS lastDate 對齊最後一根有效K棒', G.fetchYahoo('AAPL').lastDate === want);
   ok('GAS 台股有回傳 lastDate（新鮮度檢查才有效）', G.fetchYahooTW('2330').lastDate === want);
+  {   // v217 美股／基準的現價與昨收兩後端相同：都取最後兩根 K 棒，不用 meta（meta 和 K 棒不同時原本兩端漲跌幅不一樣）
+    const cm = () => { const c = chart(80); Object.assign(c.chart.result[0].meta, { regularMarketPrice: 999, previousClose: 888 }); return c; };
+    fetchImpl = async () => ({ ok: true, json: async () => cm() }); const wu = await W.yahooChart('AAPL', '2y', '1d');
+    gsFetch = () => gsOf(cm()); const gu = G.fetchYahoo('AAPL');
+    ok('美股現價／昨收：GAS 與 Worker 都取最後兩根 K 棒（不用 meta）', gu.price === wu.price && gu.prevClose === wu.prevClose && gu.price === wu.closes[wu.closes.length - 1] && gu.price !== 999 && gu.prevClose !== 888, JSON.stringify([gu.price, wu.price, gu.prevClose, wu.prevClose]));
+  }
 
   // v207 端點對等：掃描「不足60日」兩端同一句、不重試，且不含「查無K線」（scan.js 據此累計死代碼，新上市股不可被除名）
   { let wn = 0, gn = 0;

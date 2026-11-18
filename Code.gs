@@ -560,8 +560,9 @@ function fetchYahoo(symbol, gapMonthLimit) {
     zLast = zi;
   }
 
-  var price = meta.regularMarketPrice != null ? meta.regularMarketPrice : closes[closes.length - 1];
-  var prev  = meta.previousClose != null ? meta.previousClose : closes[closes.length - 2];
+  /* v217 現價、昨收和 worker.js 相同，取最後兩根採用的 K 棒。原本先用 meta.regularMarketPrice／previousClose：
+     最後一根被跳過（量 0）或還原價與原始價不同時，兩個後端的漲跌幅會不一樣 */
+  var price = closes[closes.length - 1];
 
   return {
     name: meta.longName || meta.shortName || symbol,
@@ -571,7 +572,7 @@ function fetchYahoo(symbol, gapMonthLimit) {
     open: opens[opens.length - 1],
     high: highs[highs.length - 1],
     low: lows[lows.length - 1],
-    prevClose: isTwStockSym(symbol) ? (missingPreviousClose(gaps, dates) ? null : closes[closes.length - 2] || closes[0]) : prev,
+    prevClose: missingPreviousClose(gaps, dates) ? null : closes[closes.length - 2] || closes[closes.length - 1],
     dates: dates, gaps: gaps,
     volume: vols[vols.length - 1],
     avgVol5: avgN(vols, 5),
