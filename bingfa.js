@@ -809,7 +809,7 @@ function computeTradeGate(ctx) {
       if (marginFresh(margin) && margin.shortRatio >= SHORT_RATIO_SQUEEZE) warn.push(`券資比 ${margin.shortRatio.toFixed(0)}%：空單擁擠，軋空風險高（未經驗證，僅提醒）`);
       else if (marginFresh(margin) && margin.shortRatio >= SHORT_RATIO_HOT) warn.push(`券資比 ${margin.shortRatio.toFixed(0)}% 偏高，空單控制部位（未經驗證，僅提醒）`);
       if (rsi <= 30) warn.push(`RSI ${rsi.toFixed(0)} 超賣區：空單防技術性反彈（未經回測，僅提醒）`);
-      // 意圖研判：洗盤≠出貨。若研判為洗盤（洗散戶將漲），做空是站到主力對面，禁止
+      // 意圖研判：洗盤≠出貨。研判為洗盤時做空要防被掃後軋（19年驗證無方向預測力，只提醒）
       if (typeof computeIntentAnalysis === 'function') {
         try {
           const it = computeIntentAnalysis(D, mf);

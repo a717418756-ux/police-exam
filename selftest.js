@@ -129,6 +129,8 @@ function logicTests() {
       ok('盤中追跳空：只在台股盤中、跳空 7~9.5%、量已達 50 日均量 3 倍才提醒（與回測同條件）',
         Math.abs(GC(mkG(108, 3000)) - 8) < 1e-9 && GC(mkG(108, 2999)) === null && GC(mkG(106.9, 9000)) === null && GC(mkG(109.6, 9000)) === null
         && GC(mkG(108, 9000, { _intraday: undefined })) === null && GC(mkG(108, 9000, { currency: 'USD' })) === null);
+      { const idx = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8'), hp = fs.readFileSync(path.join(ROOT, 'help.js'), 'utf8');
+        ok('v218 紀律門卡副標與說明不再寫禁止一級（實機畫面發現的殘留）', idx.includes('<span class="layer-sub">多空提醒清單，不擋單</span>') && !/有回測的才禁止|未觸禁止|🔴禁止/.test(idx + hp)); }
       ok('v218 紀律門只列提醒與順風、不擋單（「可出手」兩份資料都是 0 次已移除；「禁止」也拿掉）', /const verdict = warn\.length \? `提醒 \$\{warn\.length\} 項` : '沒有提醒';/.test(tg) && /return \{ verdict, pass, warn \};/.test(tg) && !/'go'|'caution'|rrBad|vClass|\.fail\b/.test(bf)); }
     ok('執行計畫：方向依中期因子、再看勢能等級，有方向就給（v218 紀律門不擋）；一律試單（風險減半）', /const planSide = md && md\.side \? md\.side : !sh \? null :/.test(bf) && /riskAmt2 = riskAmt2 \/ 2;/.test(bf) && !/\bhalf\b/.test(bf));
     ok('擁擠度：沒有「非擁擠」預設綠燈（沒資料時 95% 都亮）', !/pass\.push\('非擁擠明牌/.test(bf));
