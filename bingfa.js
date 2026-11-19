@@ -54,7 +54,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 213; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 216; } catch (e) {}
 
 /* v159：marginChg5 名為「5日變化」，但後端資料不足 6 筆時是拿現有最舊那筆當基準，
    實際可能只跨 2~3 天。2 天漲 4% 與 5 天漲 4% 意義完全不同，直接套同一個門檻
@@ -229,7 +229,7 @@ function renderVerdictBanner(shi, D, regime, mtf) {
   try { const ve = volEvent(D); if (ve) addW(2, '📊', `最近一根K棒${D._intraday ? '（昨日）' : ''}${VOL_EV[ve]}`); } catch (e) {}
   try { const pv = pvSummary(D); if (pv) addW(2, '📊', `最近一根K棒${D._intraday ? '（昨日）' : ''}量價狀態${pv.txt}`); } catch (e) {}
   try { const gc = gapChase(D); if (gc != null) addW(2, '🚀', `開盤跳空 +${gc.toFixed(1)}% 且已爆量：全市場19年實測，這種時候開盤追進每筆−1.79%、勝率19%——不追`); } catch (e) {}
-  try { if (ms && ms.stage === '尾端') addW(2, '🌡', `行情「${ms.dirTxt}·尾端」（成熟度${ms.maturity}）：本段已走完此股歷史${ms.magPctl}%波段——順向追單風報比差，等回檔/反彈找位`); } catch (e) {}
+  try { if (ms && ms.stage === '尾端') addW(2, '🌡', `行情「${ms.dirTxt}·尾端」（成熟度${ms.maturity}）：本段已走完此股歷史${ms.magPctl}%波段——順向追單的空間統計上較小（溫度計未經報酬回測），等回檔/反彈找位`); } catch (e) {}
   try { if (syn && syn.conflict && syn.conflict.length) addW(3, '⚡', `行為衝突：${syn.conflict[0]}`); } catch (e) {}
   try { if (crowd && crowd.crowding >= 70) addW(4, '👥', `散戶擁擠度 ${crowd.crowding}/100：教科書訊號人人可見，停損密集區易被掃——與主力反向時是陷阱`); } catch (e) {}
   try {
@@ -293,7 +293,7 @@ function renderVerdictBanner(shi, D, regime, mtf) {
          原本綠色「條件良好」底下緊接著「兩邊皆為負」「照計畫重演為負」，一眼看到的結論與證據相反 */
       let sim = null; try { sim = planBasis(D, 'long').sim; } catch (e) {}
       if (sim && sim.ev < 0) { color = 'var(--warn)'; bg = 'var(--warn-d)'; title = `🟡 ${grade}級多方勢能，但照計畫重演為負`;
-        summary = `勢能 ${shi.shi}分（未經回測）；此股照執行計畫重演 ${sim.n} 次每筆淨 ${sim.ev.toFixed(2)}%（已扣成本）——方向看對也常先被停損。要做只用試單，或等回測關鍵位讓停損變近`; }
+        summary = `勢能 ${shi.shi}分（未經回測）；此股照執行計畫重演 ${sim.n} 次每筆淨 ${sim.ev.toFixed(2)}%（${simBand(sim).txt}，已扣成本）——方向看對也常先被停損。要做只用試單，或等回測關鍵位讓停損變近`; }
     }
   } else if (grade === 'C') {
     color = 'var(--warn)'; bg = 'var(--warn-d)';
@@ -325,7 +325,7 @@ function renderVerdictBanner(shi, D, regime, mtf) {
           summary = `空方勢能 ${shi.shortShi}分（未經回測）與中期因子（全市場回測）相反：中期最強組之後3個月平均超額 +${md.ex}%——以中期為準，不放空；執行計畫依中期方向`; }
         else { let sim = null; try { sim = planBasis(D, 'short').sim; } catch (e) {}   // v208 與多方同一規則：照計畫重演為負時標題改黃
           if (sim && sim.ev < 0) { color = 'var(--warn)'; bg = 'var(--warn-d)'; title = `🟡 空方${shi.shortGrade}級勢能，但照計畫重演為負`;
-            summary = `空方勢能 ${shi.shortShi}分（未經回測）；此股照執行計畫重演 ${sim.n} 次每筆淨 ${sim.ev.toFixed(2)}%（已扣成本）——要做只用試單，或等反彈到壓力區讓停損變近`; } } }
+            summary = `空方勢能 ${shi.shortShi}分（未經回測）；此股照執行計畫重演 ${sim.n} 次每筆淨 ${sim.ev.toFixed(2)}%（${simBand(sim).txt}，已扣成本）——要做只用試單，或等反彈到壓力區讓停損變近`; } } }
     }
   } else {
     color = 'var(--muted)'; bg = 'var(--bg)';
@@ -754,7 +754,7 @@ function computeTradeGate(ctx) {
        說明頁也寫「紀律門不再因逆勢亮紅燈」，原本這條卻擋掉 43% 的空單。
        v188 拿掉 R3 多維共振（各維度是 MTF／勢能／FUSION 的複本，又用 X 級環境加權）與 R4 FUSION（已刪除） */
     if (mtf) {
-      if (mtf.dir === dir) pass.push('週期MTF同向（大週期順風；順勢／逆勢19年實測期望值無差異，未經回測）');
+      if (mtf.dir === dir) pass.push('週期MTF同向（順勢／逆勢 19 年實測期望值無差異，只作背景）');
       else if (mtf.dir === -dir) warn.push('週期MTF反向（順勢／逆勢19年實測期望值無差異，僅提醒）');
       else warn.push('MTF框架衝突：大小週期不一致（未經回測，僅提醒）');
     }
@@ -770,7 +770,7 @@ function computeTradeGate(ctx) {
     // Amihud流動性聯動（v105）：稀薄=急跌/跳空放大器（風險車道，不分方向）
     try {
       const am = (typeof computeAmihud === 'function') ? computeAmihud(D) : null;
-      if (am && am.level === '稀薄') warn.push(`Amihud非流動性第${Math.round(am.pct)}百分位（自身120日）——${am.note}`);
+      if (am && am.level === '稀薄') warn.push(`Amihud 非流動性：${am.note}`);
     } catch (e) {}
     // 急跌階段聯動（v103）：空方專屬風控
     try {
@@ -800,7 +800,7 @@ function computeTradeGate(ctx) {
       if (typeof computeMoveStage === 'function') {
         const ms = computeMoveStage(D);
         if (ms && ms.dir === dir) {
-          if (ms.stage === '尾端') warn.push(`行情溫度計「${ms.dirTxt}·尾端」(成熟度${ms.maturity})：本段已走完此股歷史${ms.magPctl}%波段，順向追單風報比差——等回檔/反彈再進`);
+          if (ms.stage === '尾端') warn.push(`行情溫度計「${ms.dirTxt}·尾端」(成熟度${ms.maturity})：本段已走完此股歷史${ms.magPctl}%波段，順向追單的空間統計上較小（未經報酬回測）——等回檔/反彈再進`);
           else if (ms.stage === '初期') pass.push(`行情溫度計「${ms.dirTxt}·初期」：波段尚新（溫度計未經報酬回測，僅參考）`);
         }
       }
@@ -859,7 +859,7 @@ function computeTradeGate(ctx) {
     if (dir === -1 && D.currency === 'TWD') { const ce = corpAhead(D, 14); if (ce) warn.push(ce); }
     // v201 計畫重演：與執行計畫同一組停損與目標（含停損先後、跳空、成本）
     try { const pb = planBasis(D, dir === 1 ? 'long' : 'short'), s = pb.sim;
-      if (s && s.ev < 0) warn.push(`照計畫重演為負：此股 ${s.n} 次（停損 ${(pb.dist / pb.entry * 100).toFixed(1)}%、目標 5 日中位 ${pb.pickT.medPct.toFixed(1)}%）每筆淨 ${s.ev.toFixed(2)}%（已扣成本），達標 ${s.hit.toFixed(0)}%、先停損 ${s.stop.toFixed(0)}%`); } catch (e) {}
+      if (s && s.ev < 0) warn.push(`照計畫重演為負：此股 ${s.n} 次（停損 ${(pb.dist / pb.entry * 100).toFixed(1)}%、目標 5 日中位 ${pb.pickT.medPct.toFixed(1)}%）每筆淨 ${s.ev.toFixed(2)}%（${simBand(s).txt}，已扣成本），達標 ${s.hit.toFixed(0)}%、先停損 ${s.stop.toFixed(0)}%`); } catch (e) {}
 
     /* v188 裁決只剩兩級：有回測證據的條件（目前只有高波動）才「禁止」，其餘一律列為提醒。
        原本的「可出手」需要 3 個綠燈：只有股價資料 896 個時點、加真實籌碼 2175 個時點都是 0 次，
@@ -920,7 +920,10 @@ function simPlan(D, dir, stopPct, tgtPct, H) {
   const N = r.length; if (N < 50) return null;
   const w = r.filter(v => v > 0), ls = r.filter(v => v <= 0), sum = a => a.reduce((s, v) => s + v, 0);
   const aw = w.length ? sum(w) / w.length : 0, al = ls.length ? -sum(ls) / ls.length : 0;
-  return { n: N, ev: sum(r) / N, win: w.length / N, hit: hit / N * 100, stop: stp / N * 100, b: al > 0 ? aw / al : null };
+  /* v216 每筆淨的標準誤：相鄰進場日的持有期重疊 H−1 天，樣本不獨立，用 Newey-West（落後 H−1 期）修正；不修正會把誤差低估約一半 */
+  const m = sum(r) / N; let v = 0;
+  for (let k = 0; k < H; k++) { let g = 0; for (let i = k; i < N; i++) g += (r[i] - m) * (r[i - k] - m); v += (k ? 2 * (1 - k / H) : 1) * g; }
+  return { n: N, ev: m, se: Math.sqrt(Math.max(v, 0)) / N, win: w.length / N, hit: hit / N * 100, stop: stp / N * 100, b: al > 0 ? aw / al : null };
 }
 
 function computeRealisticTargets(D, dir, stopDistPct) {
@@ -987,11 +990,22 @@ function planChart(D, pb, side) {
     const sm = pb && pb.sim;
     if (sm) { const ex = Math.max(0, 100 - sm.hit - sm.stop);
       bar = `<div style="display:flex;height:8px;border-radius:4px;overflow:hidden;margin-top:6px"><div style="width:${sm.hit}%;background:var(--buy)"></div><div style="width:${sm.stop}%;background:var(--sell)"></div><div style="width:${ex}%;background:var(--muted2)"></div></div>
-        <div style="font-size:10px;color:var(--muted);margin-top:3px">照計畫重演 ${sm.n} 次：<span style="color:var(--buy)">達標 ${sm.hit.toFixed(0)}%</span>｜<span style="color:var(--sell)">先停損 ${sm.stop.toFixed(0)}%</span>｜到期出場 ${ex.toFixed(0)}%｜每筆淨 <b style="color:${sm.ev >= 0 ? 'var(--buy)' : 'var(--sell)'}">${sm.ev >= 0 ? '+' : ''}${sm.ev.toFixed(2)}%</b>（已扣成本）</div>`; }
+        <div style="font-size:10px;color:var(--muted);margin-top:3px">照計畫重演 ${sm.n} 次：<span style="color:var(--buy)">達標 ${sm.hit.toFixed(0)}%</span>｜<span style="color:var(--sell)">先停損 ${sm.stop.toFixed(0)}%</span>｜到期出場 ${ex.toFixed(0)}%｜每筆淨 ${simEv(sm)}（已扣成本）</div>`; }
     const title = pb ? `${side === 'long' ? '做多' : '放空'}計畫價位（與下方計畫同一組）` : '近 60 日（今天沒有可執行的計畫，不畫價位）';
     return `<div style="margin-bottom:10px"><div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px">📈 ${title}</div>
       <svg viewBox="0 0 ${W} ${PH + VH + 6}" width="100%" role="img" aria-label="近60日K線與計畫價位" style="display:block">${g}</svg>${bar}</div>`;
   } catch (e) { return `<div style="font-size:10px;color:var(--sell)">⚠️ 圖形畫不出來：${e.message}</div>`; }
+}
+
+/* v216 重演每筆淨＋誤差範圍（2 倍標準誤）；範圍跨過 0 就用灰色並講明分不出來，不讓一個樣本內的正負號被當成結論。
+   simBand 給純文字（橫幅說明用 textContent），simEv 給上色的 HTML，兩邊同一個判斷 */
+function simBand(s) {
+  const band = 2 * s.se, in0 = Math.abs(s.ev) <= band;   // 端點碰到 0 也算分不出來
+  return { in0, txt: `誤差 ±${band.toFixed(2)}%${in0 ? '，與 0 分不出來' : ''}` };
+}
+function simEv(s) {
+  const { in0, txt } = simBand(s);
+  return `<b style="color:${in0 ? 'var(--muted)' : s.ev < 0 ? 'var(--sell)' : 'var(--buy)'}">${s.ev >= 0 ? '+' : ''}${s.ev.toFixed(2)}%</b>（${txt}）`;
 }
 
 /* v209 一句話結論列（橫幅最上方）：方向、進場／停損／目標、部位、此股照計畫重演每筆淨。
@@ -1013,7 +1027,7 @@ function renderPlanLine(D, ol) {
     h = item('方向', `<b style="color:${pc}">${sideTxt(planSide)}</b>（${why}）`)
       + item('價位', `進場 <b>${f(plan.entry)}</b> → 停損 <b style="color:var(--sell)">${f(plan.stop)}</b> → 目標${plan.days ? `（${plan.days}日中位）` : '（2R）'} <b style="color:var(--buy)">${f(plan.tp1)}</b>`)
       + (plan.blocked ? item('部位', '<b style="color:var(--sell)">本月 6% 熔斷，不開新倉</b>') : plan.size ? item('部位（試單）', `<b>${plan.size}</b>`) : item('部位', '不足最小單位，跳過'))
-      + (sim ? item('此股照計畫重演', `每筆淨 ${pct(sim.ev)}（${sim.n} 次，已扣成本）`) : '');
+      + (sim ? item('此股照計畫重演', `每筆淨 ${simEv(sim)}（${sim.n} 次，已扣成本）`) : '');
   } else {
     let eL = null, eS = null;
     try { const a = planBasis(D, 'long').sim; if (a) eL = a.ev; } catch (e) {}
@@ -1158,8 +1172,8 @@ function renderTradeGate(ctx) {
               const rt = rtT;
               if (!rt) return `📏 <b>資料不足 120 日，算不出此股可達幅度</b>：不給目標價，只用停損＋移動停利<br>`;
               const pick = rt.rows.find(r => r.days === 5) || rt.rows[rt.rows.length - 1];
-              const hit5 = rt.hit2R5, s = pick.sim;
-              const sCol = !s ? 'var(--muted2)' : s.ev >= 0 ? 'var(--buy)' : 'var(--sell)';
+              const hit5 = rt.hit2R5, s = pick.sim, sb = s && simBand(s);
+              const sCol = !s ? 'var(--muted2)' : sb.in0 ? 'var(--muted)' : s.ev >= 0 ? 'var(--buy)' : 'var(--sell)';
               return `${(() => {
                 /* v137 參數掃描＋樣本外複驗（8檔153筆挑選 → 另10檔270筆驗證，含0.287%做空成本）：
                    規律「停損越寬越差」樣本外重現（排名相關0.89）；唯一正值 0.5×/1× 的+0.020% 在樣本外為-0.232%；
@@ -1172,7 +1186,7 @@ function renderTradeGate(ctx) {
               })()}
               📏 <b>此股歷史中位可達</b>（逐日重演${pick.n}個樣本，不管途中停損）：
                 ${rt.rows.map(r => `${r.days}日 ${r.medPct.toFixed(1)}%→${cur}${fmt(r.medPrice)}`).join('｜')}<br>
-                <span style="color:${sCol}">${!s ? '照計畫重演樣本不足' : `${s.ev >= 0 ? '✓' : '⚠️'} <b>照計畫重演：每筆淨 ${s.ev >= 0 ? '+' : ''}${s.ev.toFixed(2)}%</b>（停損${stopPct.toFixed(1)}%、目標${pick.days}日中位${pick.medPct.toFixed(1)}%，${s.n}次：達標${s.hit.toFixed(0)}%、先停損${s.stop.toFixed(0)}%、其餘到期出場；已扣成本）${s.ev < 0 ? '——負期望：方向看對也常先被停損。建議跳過此檔，或等回測關鍵位讓停損變近' : ''}`}</span><br>
+                <span style="color:${sCol}">${!s ? '照計畫重演樣本不足' : `${sb.in0 ? '◦' : s.ev >= 0 ? '✓' : '⚠️'} <b>照計畫重演：每筆淨 ${s.ev >= 0 ? '+' : ''}${s.ev.toFixed(2)}%</b>（${sb.txt}；停損${stopPct.toFixed(1)}%、目標${pick.days}日中位${pick.medPct.toFixed(1)}%，${s.n}次：達標${s.hit.toFixed(0)}%、先停損${s.stop.toFixed(0)}%、其餘到期出場；已扣成本）${s.ev < 0 ? (sb.in0 ? '——樣本平均為負，但誤差範圍含 0，分不出好壞；要做只用試單' : '——負期望：方向看對也常先被停損。建議跳過此檔，或等回測關鍵位讓停損變近') : ''}`}</span><br>
                 ${(() => {
                   /* v137 執行摩擦：升降單位（原始價）＋隔夜跳空越過停損頻率（還原價比率，開收同基準） */
                   if (D.currency !== 'TWD') return '';
@@ -1385,8 +1399,8 @@ function computeBehaviorSynthesis(ctx) {
           name: `行情階段：${ms.dirTxt}·${ms.stage}`, actor: '時機',
           dir: 0, strength: ms.maturity,
           basis: ['ZigZag歷史波段分布', '幅度/天數百分位', '量能衰竭'],
-          read: ms.stage === '尾端' ? '本段行情已屬尾端——即使走向明確，順向追單風報比差，等回檔/反彈找位' :
-                ms.stage === '初期' ? '波段初期——若走向與行為共振一致，這是風報比最好的進場窗口' :
+          read: ms.stage === '尾端' ? '本段行情已屬尾端——即使走向明確，順向追單的空間統計上較小（未經報酬回測），等回檔/反彈找位' :
+                ms.stage === '初期' ? '波段初期——本段幅度與天數都還在此股歷史分布的前段（未經報酬回測，不代表比較會賺）' :
                 '波段中期——持有續抱，新單需拉回找位',
         });
       }

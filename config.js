@@ -11,7 +11,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 
 // ▼▼▼ 每次改版把這個數字 +1（例如 6 → 7），就會自動清除舊快取 ▼▼▼
-const APP_VERSION = 215;
+const APP_VERSION = 216;
 
 /* ── 快取存活時間（統一常數，v95）─────────────────────────────────────
    v95修：原本四個快取各自寫死不同TTL（股價5分/融資5分/大盤10分/縱深10分），
@@ -43,7 +43,7 @@ const RISK_RULE = { perTrade: 2, monthly: 6 };
    app.js 啟動時比對，不符就直接點名是哪個檔沒更新——
    以前只能靠「畫面文字怎麼還是舊的」去猜，這種事發生過不只一次。 */
 const FILE_VERS = {
-  'help.js': 210, 'db.js': 198, 'market.js': 188, 'enhance.js': 213, 'advanced.js': 214, 'smc.js': 198, 'mainforce.js': 213, 'mtf.js': 197, 'bingfa.js': 213, 'layout.js': 188, 'journal.js': 210, 'scan.js': 213, 'intel.js': 199, 'app.js': 214
+  'help.js': 216, 'db.js': 198, 'market.js': 188, 'enhance.js': 216, 'advanced.js': 216, 'smc.js': 198, 'mainforce.js': 213, 'mtf.js': 197, 'bingfa.js': 216, 'layout.js': 216, 'journal.js': 210, 'scan.js': 213, 'intel.js': 199, 'app.js': 216
 };
 
 /* 證據等級登記（文件；各規則直接寫在使用它的地方）
@@ -256,7 +256,7 @@ let SYNC_URL = '';
 let FINMIND_TOKEN = '';
 /* v137 台股升降單位（原始市價）：短線近停損時，1檔常占停損距離的一成以上，必須計入 */
 const twTick = p => p < 10 ? 0.01 : p < 50 ? 0.05 : p < 100 ? 0.1 : p < 500 ? 0.5 : p < 1000 ? 1 : 5;
-const TRADE_COST_PCT = 0.585;  // 台股波段來回成本%：證交稅0.3 + 手續費0.1425×2（當沖稅減半約0.44；美股另計）  // FinMind API token（選填，啟用主力縱深：千張/借券/分點）  // 雲端備份專用網址（選填，留空則用 GAS_URL）
+const TRADE_COST_PCT = 0.585;  // 台股波段來回成本%：證交稅0.3 + 手續費0.1425×2（當沖稅減半約0.44；美股另計）
 
 /* ── 錯誤記錄（手機看不到 F12 時，於設定頁查看）────────────────────── */
 const ErrorLog = {

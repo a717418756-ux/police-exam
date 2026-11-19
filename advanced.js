@@ -32,7 +32,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['advanced.js'] = 214; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['advanced.js'] = 216; } catch (e) {}
 
 /* ── 大盤基準快取（避免每檔都重抓）─────────────────────────────────── */
 let _benchCache = {};   // key → { d: { closes, lastDate }, t, until }（v177：台美各自計時；v186 有效期看資料日期，見 cacheUntil）
@@ -45,8 +45,23 @@ function comparisonGaps(d) {
 }
 const benchTrim = (j, us) => {
   const d = trimIntradayBar({ closes: j.closes.slice(), dates: j.dates, gaps: j.gaps, lastDate: j.lastDate, currency: us ? 'USD' : 'TWD' });
-  return { closes: d.closes, gaps: comparisonGaps(d) };
+  return { closes: d.closes, dates: d.dates, gaps: comparisonGaps(d) };
 };
+/* v216 個股與大盤依日期對齊（只留兩邊都有交易的日子）。原本從尾端數根數對齊：個股只要少幾根（v211 跳過的零成交日、停牌），
+   之前每一天的報酬都錯開一天——實測近 120 日少 3 根，Beta 平均偏 0.46。沒有日期（舊暫存）時維持尾端對齊 */
+function alignByDate(D, b) {
+  if (!D.dates || !b.dates || D.dates.length !== D.closes.length || b.dates.length !== b.closes.length) return { closes: D.closes, bench: b.closes };
+  const m = new Map(b.dates.map((d, i) => [d, b.closes[i]])), closes = [], bench = [];
+  D.dates.forEach((d, i) => { if (m.has(d)) { closes.push(D.closes[i]); bench.push(m.get(d)); } });
+  return { closes, bench };
+}
+/* v216 審查：相對強弱與 Beta 的輸入。共同交易日不到 64 天（computeRSRating 要 >63 根才算相對強弱）就暫停並講原因——
+   原本兩邊日期錯開時交集是空的，卡片會顯示「NaN 分」。缺日（gapNote）照舊暫停；沒抓到大盤時照舊算絕對報酬並標明 */
+function benchInputs(D, b, gapNote) {
+  const al = !gapNote && b ? alignByDate(D, b) : null;
+  const note = gapNote || (al && al.closes.length < 64 ? `個股與大盤共同交易日只有 ${al.closes.length} 天，不足以比較` : '');
+  return note || !al ? { note, D, bench: null } : { note: '', D: { closes: al.closes }, bench: al.bench };
+}
 async function fetchBenchmark(isTW) {
   const key = isTW ? 'tw' : 'us';
   const hit = await pcGet(_benchCache, key, 'bench');
