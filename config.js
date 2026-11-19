@@ -11,7 +11,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 
 // ▼▼▼ 每次改版把這個數字 +1（例如 6 → 7），就會自動清除舊快取 ▼▼▼
-const APP_VERSION = 216;
+const APP_VERSION = 217;
 
 /* ── 快取存活時間（統一常數，v95）─────────────────────────────────────
    v95修：原本四個快取各自寫死不同TTL（股價5分/融資5分/大盤10分/縱深10分），
@@ -43,7 +43,7 @@ const RISK_RULE = { perTrade: 2, monthly: 6 };
    app.js 啟動時比對，不符就直接點名是哪個檔沒更新——
    以前只能靠「畫面文字怎麼還是舊的」去猜，這種事發生過不只一次。 */
 const FILE_VERS = {
-  'help.js': 216, 'db.js': 198, 'market.js': 188, 'enhance.js': 216, 'advanced.js': 216, 'smc.js': 198, 'mainforce.js': 213, 'mtf.js': 197, 'bingfa.js': 216, 'layout.js': 216, 'journal.js': 210, 'scan.js': 213, 'intel.js': 199, 'app.js': 216
+  'help.js': 217, 'db.js': 198, 'market.js': 188, 'enhance.js': 217, 'advanced.js': 216, 'smc.js': 198, 'mainforce.js': 213, 'mtf.js': 197, 'bingfa.js': 217, 'layout.js': 216, 'journal.js': 210, 'scan.js': 213, 'intel.js': 199, 'app.js': 217
 };
 
 /* 證據等級登記（文件；各規則直接寫在使用它的地方）

@@ -54,7 +54,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 216; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 217; } catch (e) {}
 
 /* v159：marginChg5 名為「5日變化」，但後端資料不足 6 筆時是拿現有最舊那筆當基準，
    實際可能只跨 2~3 天。2 天漲 4% 與 5 天漲 4% 意義完全不同，直接套同一個門檻
@@ -387,7 +387,7 @@ function renderVerdictBanner(shi, D, regime, mtf) {
           <div style="font-size:12px;font-weight:700;color:${best < 0 ? 'var(--warn)' : 'var(--buy)'};margin-bottom:4px">💰 期望值（19年24檔，盤勢：${cev.rg}，已含成本與滑價）</div>
           ${line('做多', cev.long)}<br>${line('做空', cev.short)}<br>
           ${best < 0 ? '<b>兩邊皆為負：不交易（期望值 0）是數學上最好的選擇。</b>若仍要做，視為付費換經驗——最小部位、當沖稅率或議價手續費，並嚴守紀律門與停損。' : '有非負格子，但仍須通過紀律門與停損檢查。'}
-          <br><span style="color:var(--muted2)">出場固定為 1×ATR 停損／1.5×ATR 目標／最多10日。</span></div>`;
+          <br><span style="color:var(--muted2)">出場固定為 1×ATR 停損／1.5×ATR 目標／最多10日。</span>${cev.rg === '高波動' && D.currency === 'TWD' ? '<br><span style="color:var(--warn)">此表是原 24 檔回測；上方橫幅與紀律門的高波動數字是全市場 2,103 檔（放空每筆 −1.70%、做多 −0.11%），兩者樣本不同，以全市場為準</span>' : ''}</div>`;
       }
       const mid = midFactors(D);
       if (mid) {
@@ -399,6 +399,8 @@ function renderVerdictBanner(shi, D, regime, mtf) {
         else {
           const lines = [row('距52週高點', [mid.hi52, pctS(mid.hi52 - 1)], 'hi52')];
           if (mid.sur != null) lines.push(row(`${mid.ym % 100}月營收驚奇`, [mid.sur, `${mid.sur >= 0 ? '+' : ''}${mid.sur.toFixed(1)}`], 'sur'));
+          const stale = mid.sur != null && revStale(mid.ym);
+          if (stale) lines.push(`<span style="color:var(--warn)">⚠️ 最新月營收只到 ${Math.floor(mid.ym / 100)}/${mid.ym % 100}，照每月 10 日前公布應已有 ${Math.floor(stale / 100)}/${stale % 100}——可能尚未公布或資料缺漏。回測同樣沿用最近一筆，合成照算，但這兩項是舊資料</span>`);
           if (mid.rev3 != null) lines.push(row('近3月營收年增', [mid.rev3, pctS(mid.rev3)], 'rev3'));
           if (mid.qual != null) lines.push(row(`盈餘品質（近四季現金流−淨利，至${mid.qq}）`, [mid.qual, `${pctS(mid.qual)}／總資產`], 'qual'));
           if (mid.sur == null) lines.push('月營收、財報：等情報面載入（或此股沒有可比的資料）——合成分數要有營收驚奇才算');
@@ -548,6 +550,14 @@ function midFactors(D) {
   const r = (x, k) => x == null ? 0 : midPct(x, MID_EV[k].cut) - 0.5;   // 回測：缺值＝中間
   return { hi52, sur, rev3, qual, qq: ql ? ql.q : null, ym: rv ? rv.ym : null,
     comp: sur == null ? null : (r(hi52, 'hi52') + r(sur, 'sur') + r(rev3, 'rev3') + r(qual, 'qual')) / 4 };   // 回測：合成需要 52週高點與營收驚奇
+}
+/* v217 月營收是否過期：每月 10 日前公布上個月（回測假設 11 日可用）。最新一筆比「應已公布的月份」舊就回傳應有的月份（YYYYMM），否則 null。
+   只提示、不當缺值：回測（core.js）同樣沿用最近一筆，改成缺值會和回測的規則不同 */
+function revStale(ym, now) {
+  if (!ym) return null;
+  const p = zoneParts(now || Date.now(), TZ_TW), back = p.d >= 11 ? 1 : 2;
+  const t = p.y * 12 + p.mo - 1 - back, exp = Math.floor(t / 12) * 100 + t % 12 + 1;
+  return ym < exp ? exp : null;
 }
 /* v192 把中期因子合成翻成一句方向（五組的歷史 3 個月超額見 MID_EV.comp.ex）；沒有營收驚奇就沒有合成，回 null */
 const MID_DIR = ['偏空', '略偏空', '中性', '略偏多', '偏多'];
@@ -897,25 +907,29 @@ function computeTradeGate(ctx) {
    每個歷史日照「同一停損、同一目標、持有 N 日」走一遍——當日收盤進場；之後開盤跳空越過停損／目標以開盤價成交；
    同一根 K 同時碰到兩者算停損；到期以收盤出場；扣來回成本（台股與回測腳本相同：做多 0.471%、做空 0.551%；美股估 0.1%）。
    ⚠️ 目標與重演用同一段歷史（樣本內），是此股的歷史描述，不是保證。
+   v217 停損／目標是否觸發看原始價（掛單看的是市價），報酬再乘「出場日÷進場日」的還原比例：持有期跨過除息日時，
+   原本做多把除息缺口算成虧損、放空算成獲利（借券放空實際要補償股利）。沒有原始價時兩者相同，結果不變。
    ════════════════════════════════════════════════════════════════════ */
 function simPlan(D, dir, stopPct, tgtPct, H) {
   const c = D.rawCloses || D.closes, h = D.rawHighs || D.highs, l = D.rawLows || D.lows, n = c.length;
   const oA = D.opens, cA = D.closes, hasO = !!oA && oA.length === n;
+  const adj = k => cA[k] && c[k] ? cA[k] / c[k] : 1;   // 該日還原價÷原始價
   const cost = D.currency === 'TWD' ? (dir === 1 ? 0.471 : 0.551) : 0.1;
   const r = []; let hit = 0, stp = 0;
   for (let i = 60; i < n - H; i++) {
     const e = c[i]; if (!e) continue;
     const S = e * (1 - dir * stopPct / 100), T = e * (1 + dir * tgtPct / 100);
-    let x = null;
+    let x = null, kx = i + H;
     for (let k = i + 1; k <= i + H && x === null; k++) {
       const o = hasO && oA[k] && cA[k] ? oA[k] * c[k] / cA[k] : null;   // 開盤換成原始價（同一天還原比例相同）
       if (o != null && dir * (o - S) <= 0) { x = o; stp++; }
       else if (o != null && dir * (o - T) >= 0) { x = o; hit++; }
       else if (dir === 1 ? l[k] <= S : h[k] >= S) { x = S; stp++; }
       else if (dir === 1 ? h[k] >= T : l[k] <= T) { x = T; hit++; }
+      if (x !== null) kx = k;
     }
     if (x === null) x = c[i + H];
-    r.push(dir * (x - e) / e * 100 - cost);
+    r.push(dir * (x * adj(kx) / (e * adj(i)) - 1) * 100 - cost);
   }
   const N = r.length; if (N < 50) return null;
   const w = r.filter(v => v > 0), ls = r.filter(v => v <= 0), sum = a => a.reduce((s, v) => s + v, 0);

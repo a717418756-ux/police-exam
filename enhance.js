@@ -44,7 +44,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['enhance.js'] = 216; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['enhance.js'] = 217; } catch (e) {}
 
 /* ══ 區塊 H：ADX 市場狀態過濾器 ════════════════════════════════════════
    機構73%使用：ADX 不告訴方向，而是告訴你「該用哪種策略」
@@ -347,9 +347,9 @@ function computeRiskMetrics(D) {
   const c1 = c.slice(-252);
   let peak = c1[0], maxDD = 0;
   for (const p of c1) { peak = Math.max(peak, p); maxDD = Math.min(maxDD, (p - peak) / peak); }
-  // 年化波動率（日報酬標準差 × √252）
+  // 年化波動率（日報酬標準差 × √252）。v217 和最大回撤同樣用近一年：原本用全部約兩年，卡片同一列兩個數字的期間不同
   const rets = [];
-  for (let i = 1; i < c.length; i++) rets.push((c[i] - c[i - 1]) / c[i - 1]);
+  for (let i = 1; i < c1.length; i++) rets.push((c1[i] - c1[i - 1]) / c1[i - 1]);
   const mean = rets.reduce((a, b) => a + b, 0) / rets.length;
   const sd = Math.sqrt(rets.reduce((a, r) => a + (r - mean) ** 2, 0) / rets.length);
   const annualVol = sd * Math.sqrt(252) * 100;
@@ -366,7 +366,7 @@ function renderRiskMetrics(rm) {
   card.style.display = 'block';
   const boxes = [
     { cls: rm.maxDD < -30 ? '' : 'warn', label: '📉 最大回撤（近一年）', value: rm.maxDD.toFixed(1) + '%', valCls: rm.maxDD < -30 ? 'sell' : 'warn', sub: rm.maxDD < -30 ? '回撤大，風險高，留意資金控管' : '回撤可控' },
-    { cls: rm.volRank === '高' ? '' : 'good', label: '📊 年化波動率', value: rm.annualVol.toFixed(0) + '%', valCls: rm.volRank === '高' ? 'sell' : 'buy', sub: `波動${rm.volRank}｜${rm.volNote}` }
+    { cls: rm.volRank === '高' ? '' : 'good', label: '📊 年化波動率（近一年）', value: rm.annualVol.toFixed(0) + '%', valCls: rm.volRank === '高' ? 'sell' : 'buy', sub: `波動${rm.volRank}｜${rm.volNote}` }
   ];
   document.getElementById('rm-grid').innerHTML = boxes.map(x =>
     `<div class="risk-box ${x.cls}"><div class="rb-label">${x.label}</div><div class="rb-value ${x.valCls}">${x.value}</div><div class="rb-sub">${x.sub}</div></div>`
