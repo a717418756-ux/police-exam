@@ -21,7 +21,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['journal.js'] = 220; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['journal.js'] = 224; } catch (e) {}
 
 /* ── 開啟 / 關閉面板 ─────────────────────────────────────────────────── */
 /* ── 分批進場 / 加碼工具 ──────────────────────────────────────────────
@@ -499,7 +499,7 @@ async function exportMarkdown() {
     md += `| 盈虧比（平均賺/平均賠） | ${s.payoff.toFixed(2)} |\n`;
     md += `| 期望值/筆 | ${curA(s, s.expectancy)} |\n`;
     md += `| 平均報酬/筆（毛） | ${s.avgPnlPct>=0?'+':''}${s.avgPnlPct.toFixed(2)}% |\n`;
-    md += `| **成本後報酬/筆** | **${s.netAvgPnlPct>=0?'+':''}${s.netAvgPnlPct.toFixed(2)}%**（逐筆依股票／ETF、多空與手續費最低 20 元扣來回成本，平均 ${s.costPct.toFixed(3)}%） |\n`;
+    md += `| **成本後報酬/筆** | **${s.netAvgPnlPct>=0?'+':''}${s.netAvgPnlPct.toFixed(2)}%**（逐筆依股票／ETF／債券 ETF、多空、當沖與手續費最低 20 元扣來回成本，平均 ${s.costPct.toFixed(3)}%） |\n`;
     md += `| 成本後勝率 | ${(s.netWinRate*100).toFixed(1)}%（賺贏成本才算贏） |\n`;
     md += `| 總盈虧 | ${curA(s, s.totalPnl)}${s.noAmt ? `（另有 ${s.noAmt} 筆沒填股數、金額未計）` : ''} |\n`;
     md += `| 平均獲利 | ${curA(s, s.avgWin)} |\n`;

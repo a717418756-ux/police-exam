@@ -11,7 +11,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 
 // ▼▼▼ 每次改版把這個數字 +1（例如 6 → 7），就會自動清除舊快取 ▼▼▼
-const APP_VERSION = 223;
+const APP_VERSION = 224;
 
 /* ── 快取存活時間（統一常數，v95）─────────────────────────────────────
    v95修：原本四個快取各自寫死不同TTL（股價5分/融資5分/大盤10分/縱深10分），
@@ -43,7 +43,7 @@ const RISK_RULE = { perTrade: 2, monthly: 6 };
    app.js 啟動時比對，不符就直接點名是哪個檔沒更新——
    以前只能靠「畫面文字怎麼還是舊的」去猜，這種事發生過不只一次。 */
 const FILE_VERS = {
-  'help.js': 218, 'db.js': 219, 'market.js': 188, 'enhance.js': 218, 'advanced.js': 216, 'smc.js': 198, 'mainforce.js': 213, 'mtf.js': 197, 'bingfa.js': 223, 'layout.js': 223, 'journal.js': 220, 'scan.js': 223, 'intel.js': 199, 'app.js': 221, 'names.js': 221
+  'help.js': 224, 'db.js': 219, 'market.js': 188, 'enhance.js': 218, 'advanced.js': 224, 'smc.js': 198, 'mainforce.js': 213, 'mtf.js': 197, 'bingfa.js': 223, 'layout.js': 223, 'journal.js': 224, 'scan.js': 224, 'intel.js': 199, 'app.js': 221, 'names.js': 221
 };
 
 /* 證據等級登記（文件；各規則直接寫在使用它的地方）
@@ -257,21 +257,33 @@ let FINMIND_TOKEN = '';
 /* v137 台股升降單位（原始市價）：短線近停損時，1檔常占停損距離的一成以上，必須計入 */
 const twTick = p => p < 10 ? 0.01 : p < 50 ? 0.05 : p < 100 ? 0.1 : p < 500 ? 0.5 : p < 1000 ? 1 : 5;
 /* v218 台股交易成本單一來源（使用者 11/18 決定）：手續費 0.1425% × 折數，進出各一次；預設 2.8 折＝使用者對帳單的實際折數。
-   證交稅：股票 0.3%、ETF（代號 00 開頭）0.1%；放空另加融券手續費 0.08%（借券費未計）；美股估 0.1%。
+   證交稅：股票 0.3%、ETF（代號 00 開頭）0.1%（當沖與債券 ETF 見 twTax）；放空另加融券手續費 0.08%（借券費未計）；美股估 0.1%。
    研究報告與 COND_EV 等回測表的數字是用 6 折算的（較保守），沒有跟著改。 */
 const FEE_DISC = 0.28;
-function tradeCost(D, dir) {
+/* v224 證交稅細項（T-028，11/22 查證）：
+   - 現股當沖（同一天買賣）股票 0.15%，證券交易稅條例第 2 條之 2，施行到 2027-12-31；當沖不經融券，沒有融券手續費
+   - 債券 ETF（代號 00 開頭、B 結尾，例如 00679B）停徵到 2026-12-31；延長 10 年的修正案 11 月還在立法院，之後先照 0.1% 算（保守）
+   sellYmd 是賣出那天（證交稅在賣出時課），沒給就用今天（台北） */
+function twTax(code, sellYmd, dayTrade) {
+  const ymd = sellYmd || new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10).replace(/-/g, '');   // 台北 UTC+8，沒有日光節約
+  if (/^00\w*B$/.test(code)) return ymd <= '20261231' ? 0 : 0.1;
+  if (/^00/.test(code)) return 0.1;
+  return dayTrade && ymd <= '20271231' ? 0.15 : 0.3;
+}
+function tradeCost(D, dir, sellYmd, dayTrade) {
   if (!D || D.currency !== 'TWD') return 0.1;
-  const tax = /^00/.test(D.code || '') ? 0.1 : 0.3;
-  return 0.1425 * FEE_DISC * 2 + tax + (dir === -1 ? 0.08 : 0);
+  return 0.1425 * FEE_DISC * 2 + twTax(String(D.code || '').toUpperCase(), sellYmd, dayTrade) + (dir === -1 && !dayTrade ? 0.08 : 0);
 }
 /* v219 交易日誌「成本後」逐筆算：代號英文開頭當美股，其餘（含沒填代號的舊單）當台股；00 開頭是 ETF；方向看 direction
    v220 台股單有填股數與進出價時，再算手續費最低收費：進、出各一次，折後手續費不到 FEE_MIN 元就補到 FEE_MIN，
    補的差額換算成「占進場金額 %」加進成本。FEE_MIN 用多數券商的 20 元，使用者券商的實際規定沒有查證；手續費取整數元不計。 */
 const FEE_MIN = 20;
 const journalCost = t => {
-  const code = (t && t.code) || '', tw = !/^[A-Z]/i.test(code);
-  const base = tradeCost({ currency: tw ? 'TWD' : 'USD', code }, t && t.direction === 'short' ? -1 : 1);
+  const code = (t && t.code) || '', tw = !/^[A-Z]/i.test(code), short = !!(t && t.direction === 'short');
+  // v224 證交稅看賣出日（做多＝出場日、放空＝進場日）；進出同一天＝現股當沖。舊單沒有日期時照原本的稅率
+  const ymd = d => String(d || '').replace(/-/g, ''), sell = ymd(t && (short ? t.entryDate : t.exitDate));
+  const day = !!(t && t.entryDate && t.entryDate === t.exitDate);
+  const base = tradeCost({ currency: tw ? 'TWD' : 'USD', code }, short ? -1 : 1, sell || '00000000', day);
   if (!tw || !(t && t.shares > 0 && t.entryPrice > 0 && t.exitPrice > 0)) return base;
   const rate = 0.001425 * FEE_DISC, a1 = t.entryPrice * t.shares, a2 = t.exitPrice * t.shares;
   return base + (Math.max(0, FEE_MIN - a1 * rate) + Math.max(0, FEE_MIN - a2 * rate)) / a1 * 100;

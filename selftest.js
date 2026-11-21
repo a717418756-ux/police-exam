@@ -235,6 +235,32 @@ function logicTests() {
         && /const cost = tradeCost\(D, dir\);/.test(bfs) && !/0\.471|0\.551/.test(bfs.slice(bfs.indexOf('function simPlan('), bfs.indexOf('function computeRealisticTargets(')))
         && /const costs = pcts\.map\(journalCost\);/.test(fs.readFileSync(path.join(ROOT, 'db.js'), 'utf8')) && !/TRADE_COST_PCT/.test(cfgs + fs.readFileSync(path.join(ROOT, 'db.js'), 'utf8')), JSON.stringify(got));
     }
+    {   // v224（T-028）查大盤基準本身（0050、SPY）：相對強弱與 Beta／Alpha 暫停，不再顯示「Alpha +0.0% 真有實力」
+      const adv = fs.readFileSync(path.join(ROOT, 'advanced.js'), 'utf8');
+      const BI = new Function(adv.slice(adv.indexOf('function alignByDate('), adv.indexOf('async function fetchBenchmark(')) + 'return benchInputs;')();
+      const dates = Array.from({ length: 80 }, (_, i) => String(20260101 + i)), cl = dates.map((_, i) => 100 + i), b = { closes: cl, dates };
+      const r = [BI({ code: '0050', currency: 'TWD', closes: cl, dates }, b, ''), BI({ code: 'SPY', currency: 'USD', closes: cl, dates }, b, ''), BI({ code: '2330', currency: 'TWD', closes: cl, dates }, b, ''), BI({ code: '0050', currency: 'TWD', closes: cl, dates }, null, '')];
+      ok('v224 大盤基準本身（0050、SPY）：相對強弱與 Beta／Alpha 暫停並講原因；一般個股照算；沒抓到大盤時照舊算絕對報酬',
+        /就是大盤基準/.test(r[0].note) && !r[0].bench && /就是大盤基準/.test(r[1].note) && !r[1].bench && r[2].note === '' && r[2].bench && r[2].bench.length === 80 && r[3].note === '' && !r[3].bench
+        && !/真有實力/.test(adv.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')), JSON.stringify(r.map(x => [x.note, x.bench && x.bench.length])));
+    }
+    {   // v224（T-028）證交稅細項：現股當沖 0.15%（到 2027-12-31，不收融券手續費）、債券 ETF 停徵（到 2026-12-31，之後先算 0.1%）、稅看賣出日
+      const JC = new Function(costSrc + 'return journalCost;')(), r4 = x => +x.toFixed(4);
+      const T = (code, direction, entryDate, exitDate) => ({ code, direction, entryDate, exitDate });
+      const got = [
+        T('2330', 'long', '2026-11-20', '2026-11-20'),    // 當沖做多：0.0798＋0.15
+        T('2330', 'short', '2026-11-20', '2026-11-20'),   // 當沖先賣後買：一樣 0.15，沒有融券手續費
+        T('2330', 'long', '2027-12-31', '2027-12-31'),    // 減半最後一天
+        T('2330', 'long', '2028-01-03', '2028-01-03'),    // 到期後回到 0.3
+        T('2330', 'long', '2026-11-19', '2026-11-20'),    // 隔日沖不是當沖
+        T('00679B', 'long', '2026-11-02', '2026-12-31'),  // 債券 ETF 停徵期間賣出：0
+        T('00679B', 'long', '2026-12-30', '2027-01-04'),  // 停徵到期後賣出：先算 0.1
+        T('00679B', 'short', '2026-12-31', '2027-01-04'), // 放空在停徵期間賣出：稅 0＋融券 0.08
+        T('0050', 'long', '2026-11-20', '2026-11-20'),    // 一般 ETF 當沖仍是 0.1
+        { code: '2330', direction: 'long' }].map(t => r4(JC(t)));   // 舊單沒有日期：照原本 0.3798
+      ok('v224 交易日誌證交稅：當沖 0.15%（到 2027 年底、無融券費）、債券 ETF 停徵到 2026 年底、看賣出日、舊單不變',
+        JSON.stringify(got) === JSON.stringify([0.2298, 0.2298, 0.2298, 0.3798, 0.3798, 0.0798, 0.1798, 0.1598, 0.1798, 0.3798]), JSON.stringify(got));
+    }
     {   // v221 台股中文股名表：上市、上櫃、ETF 都查得到；美股與表外代號用後端名稱；fetchStock 兩個出口都套用
       const ns = fs.readFileSync(path.join(ROOT, 'names.js'), 'utf8'), aps = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
       const NM = new Function('window', ns + 'return [twName, Object.keys(TW_NAMES).length];')({}), tn = NM[0];
@@ -1289,7 +1315,7 @@ async function backendTests() {
   let fetchImpl = async () => { throw new Error('未設定'); };
   global.fetch = (...a) => fetchImpl(...a);
   const W = {};
-  new Function('module', src + '\nmodule.yahooChart=yahooChart;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTaifexFutures=fetchTaifexFutures;module.fetchTaifexPCR=fetchTaifexPCR;module.fetchMargin=fetchMargin;module.fetchTopPool=fetchTopPool;module.rocToYmd=rocToYmd;module.eventStudy=eventStudy;module.infoTilt=infoTilt;module.validateAI=validateAI;module.parseRSS=parseRSS;module.parsePTT=parsePTT;module.parseAnnounce=parseAnnounce;module.fetchIntel=fetchIntel;module.dropIntraday=dropIntraday;module.fetchNews=fetchNews;module.fetchIntelRouted=fetchIntelRouted;module.dedupKey=dedupKey;module.heat=heat;module.parseFinMindNews=parseFinMindNews;module.dayMoves=dayMoves;module.mergeDays=mergeDays;module.intelPrompt=intelPrompt;module.revSurprise=revSurprise;module.fetchNewsEn=fetchNewsEn;module.normCite=normCite;module.yahooQuote=yahooQuote;module.numN=numN;module.peN=peN;module.fetchDeepChip=fetchDeepChip;module.fetchMarket=fetchMarket;module.fetchFundamental=fetchFundamental;module.saveIntelSnap=saveIntelSnap;module.listIntelSnaps=listIntelSnaps;module.snapFwd=snapFwd;module.fetchTaiwan=fetchTaiwan;module.dailySeries=dailySeries;module.fetchYahooTW=fetchYahooTW;')(W);
+  new Function('module', src + '\nmodule.yahooChart=yahooChart;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTaifexFutures=fetchTaifexFutures;module.fetchTaifexPCR=fetchTaifexPCR;module.fetchMargin=fetchMargin;module.fetchTopPool=fetchTopPool;module.fetchPoolRouted=fetchPoolRouted;module.rocToYmd=rocToYmd;module.eventStudy=eventStudy;module.infoTilt=infoTilt;module.validateAI=validateAI;module.parseRSS=parseRSS;module.parsePTT=parsePTT;module.parseAnnounce=parseAnnounce;module.fetchIntel=fetchIntel;module.dropIntraday=dropIntraday;module.fetchNews=fetchNews;module.fetchIntelRouted=fetchIntelRouted;module.dedupKey=dedupKey;module.heat=heat;module.parseFinMindNews=parseFinMindNews;module.dayMoves=dayMoves;module.mergeDays=mergeDays;module.intelPrompt=intelPrompt;module.revSurprise=revSurprise;module.fetchNewsEn=fetchNewsEn;module.normCite=normCite;module.yahooQuote=yahooQuote;module.numN=numN;module.peN=peN;module.fetchDeepChip=fetchDeepChip;module.fetchMarket=fetchMarket;module.fetchFundamental=fetchFundamental;module.saveIntelSnap=saveIntelSnap;module.listIntelSnaps=listIntelSnaps;module.snapFwd=snapFwd;module.fetchTaiwan=fetchTaiwan;module.dailySeries=dailySeries;module.fetchYahooTW=fetchYahooTW;')(W);
   const W2 = W;
 
   // Code.gs：補上 GAS 全域物件
@@ -1862,6 +1888,17 @@ async function backendTests() {
     fetchImpl = async u => jt(pr3(u)); gsFetch = u => gsOf(pr3(u));
     let wp3 = null, gp3 = null; try { wp3 = await W.fetchTopPool(10); } catch (e) { wp3 = { err: e.message }; } try { gp3 = G.fetchTopPool(10); } catch (e) { gp3 = { err: e.message }; }
     ok('v223 掃描池：四碼 00 開頭的 ETF（0050、0056）Worker 與 GAS 都排除', [wp3, gp3].every(p => (p.codes || []).join(',') === '2330,8069' && p.universe === 2), JSON.stringify([wp3, gp3]).slice(0, 220));
+    // v224（T-028）：Worker 抓不到上櫃（櫃買中心擋雲端主機）時，有 GAS_RELAY 就改用 GAS 的完整池子；GAS 也有錯或檔數沒有比較多就照舊
+    const RL = 'https://relay.example/exec', gasFull = { ok: true, codes: ['2330', '8069'], dataDate: '20261120', universe: 2, cutoff: 8 };
+    const relayImpl = gasAns => async u => /relay\.example/.test(u) ? jt(gasAns) : /tpex/.test(u) ? ({ ok: false, status: 500, text: async () => 'err' }) : jt(L3);
+    fetchImpl = relayImpl(gasFull);
+    const rv1 = await W.fetchPoolRouted(10, { GAS_RELAY: RL }), rv2 = await W.fetchPoolRouted(10, {});
+    fetchImpl = relayImpl({ ...gasFull, srcErrors: ['上櫃：x'] });
+    const rv3 = await W.fetchPoolRouted(10, { GAS_RELAY: RL });
+    ok('v224 Worker 掃描池：上櫃抓不到時改用 GAS 的完整池子並標明；沒設 GAS_RELAY 或 GAS 也不完整時照舊回自己的（含錯誤說明）',
+      rv1.via === 'GAS' && rv1.codes.join(',') === '2330,8069' && !rv1.srcErrors && rv1.ok === undefined
+      && !rv2.via && rv2.codes.join(',') === '2330' && (rv2.srcErrors || []).some(x => /上櫃/.test(x))
+      && !rv3.via && rv3.codes.join(',') === '2330', JSON.stringify([rv1, rv2, rv3]).slice(0, 260));
     fetchImpl = async u => jt(T86); gsFetch = u => gsOf(T86); }
 
   // v182 審查：GAS 借券註解說有依日期排序但沒排；基期為 0 時不可寫成 0%
