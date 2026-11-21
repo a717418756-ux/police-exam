@@ -20,7 +20,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['db.js'] = 218; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['db.js'] = 219; } catch (e) {}
 
 const DB_NAME = 'stockRadarDB';
 // DB schema 版本獨立管理（schema 沒變就不用動；這裡固定 1）
@@ -210,11 +210,13 @@ function computeStats(trades) {
   const misjudged = trades.filter(t => t.judgment === 'wrong').length; // 判斷錯誤總數（含假贏單）
 
   // ── 成本後真相（散戶「回測賺實單賠」第一死因：忘了成本）──
-  const cost = TRADE_COST_PCT;
+  // v219 逐筆成本（journalCost：股票／ETF、做多／放空、台股／美股）；cost 是這些單的平均，給匯出顯示
   const pcts = trades.filter(t => t.pnlPct != null);
+  const costs = pcts.map(journalCost);
+  const cost = costs.length ? costs.reduce((a, c) => a + c, 0) / costs.length : journalCost(null);
   const avgPnlPct = pcts.length ? pcts.reduce((a, t) => a + t.pnlPct, 0) / pcts.length : 0;
   const netAvgPnlPct = avgPnlPct - cost;
-  const netWins = pcts.filter(t => t.pnlPct > cost).length;
+  const netWins = pcts.filter((t, i) => t.pnlPct > costs[i]).length;
   const netWinRate = pcts.length ? netWins / pcts.length : 0;
 
   const ci95 = wilsonCI(wins.length, trades.length);
