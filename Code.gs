@@ -601,15 +601,18 @@ function adjFactors(res, q) {
 
 /* ── v166 動態掃描池（與 worker.js fetchTopPool 對等）──
    兩個交易所的當日全市場行情，依成交金額排序取前N名。
-   ⚠️ 兩邊欄名不同（上市 SecuritiesCompanyCode/TransactionAmount、
-      上櫃 Code/TradeValue），已用實際回應確認，不可互抄也不可用位置索引。
+   ⚠️ 兩邊欄名不同，而且會互換（2026-09-22：上市 SecuritiesCompanyCode/TransactionAmount、上櫃 Code/TradeValue；
+      v222 2026-11-21 已對調成上市 Code/TradeValue、上櫃 SecuritiesCompanyCode/TransactionAmount）。
+      兩組欄名都接受，以第一筆實際有的欄名為準；不可用位置索引。
    ⚠️ 只留四位數字代碼：ETF(0050/00878/00411A)、特別股(2887E)、DR(912000) 全排除。
    ⚠️ Date 是民國年（1150921），換算成西元才能判斷新鮮度。
    ⚠️ 單日成交金額只是「候選產生器」，真正的流動性門檻仍是前端的20日均額。 */
 var POOL_SRCS = [
-  { name: '上市', url: 'https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL', code: 'SecuritiesCompanyCode', val: 'TransactionAmount' },
-  { name: '上櫃', url: 'https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes', code: 'Code', val: 'TradeValue' }
+  { name: '上市', url: 'https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL' },
+  { name: '上櫃', url: 'https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes' }
 ];
+var POOL_KEYS = { code: ['Code', 'SecuritiesCompanyCode'], val: ['TradeValue', 'TransactionAmount'] };
+function poolKey(row, list) { for (var i = 0; i < list.length; i++) if (row && Object.prototype.hasOwnProperty.call(row, list[i])) return list[i]; return ''; }
 function rocToYmd(d) {   // 1150921 → 20260921
   var t = String(d == null ? '' : d).replace(/\D/g, '');
   if (t.length !== 7) return '';
@@ -626,12 +629,12 @@ function fetchTopPool(n) {
       if (/^\s*</.test(txt)) throw new Error('回傳網頁而非JSON——端點可能已變更');
       var arr = JSON.parse(txt);
       if (!arr || !arr.length) throw new Error('回傳空陣列');
-      var got = 0;
-      for (var j = 0; j < arr.length; j++) {
+      var got = 0, kc = poolKey(arr[0], POOL_KEYS.code), kv = poolKey(arr[0], POOL_KEYS.val);
+      for (var j = 0; kc && kv && j < arr.length; j++) {
         var row = arr[j];
-        var code = String(row[src.code] == null ? '' : row[src.code]).replace(/^\s+|\s+$/g, '');
+        var code = String(row[kc] == null ? '' : row[kc]).replace(/^\s+|\s+$/g, '');
         if (!/^\d{4}$/.test(code)) continue;
-        var v = num(row[src.val]);
+        var v = num(row[kv]);
         if (!(v > 0)) continue;
         rows.push({ code: code, val: v });
         got++;

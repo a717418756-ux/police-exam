@@ -724,17 +724,19 @@ async function fetchTaiwanChip(stockNo) {
    借券借得到、滑價吃不掉利潤」——成交金額就是這件事的直接量測，指數成分
    只是代理。改成每次掃描即時取全市場成交行情、依成交金額排序取前N名：
    下市的自然消失、當下有量的題材股自動納入，清單永遠不會過時。
-   ⚠️ 兩個交易所的欄名完全不同（已用實際回傳核對 2026-09-22）：
-      上市 SecuritiesCompanyCode / TransactionAmount，上櫃 Code / TradeValue
+   ⚠️ 兩個交易所的欄名不同，而且會互換（2026-09-22 核對：上市 SecuritiesCompanyCode / TransactionAmount、上櫃 Code / TradeValue；
+      v222 2026-11-21 核對已對調成：上市 Code / TradeValue、上櫃 SecuritiesCompanyCode / TransactionAmount，線上池因此整個抓不到）。
+      所以兩組欄名都接受，以第一筆實際有的欄名為準。
    ⚠️ 兩邊都混有大量 ETF（00411A、006201…），只取四位數字代碼＝一般個股，
       同時排除特別股(2887E)與DR(912000)
    ⚠️ 日期是民國年（1150921），要換算才能判斷新鮮度
    ⚠️ 單日成交金額只當「候選產生器」，真正的流動性門檻仍是前端的20日均額，
       所以某天爆量的冷門股進得了候選、過不了門檻 */
 const POOL_SRCS = [
-  { name: '上市', url: 'https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL', code: 'SecuritiesCompanyCode', val: 'TransactionAmount' },
-  { name: '上櫃', url: 'https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes', code: 'Code', val: 'TradeValue' },
+  { name: '上市', url: 'https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL' },
+  { name: '上櫃', url: 'https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes' },
 ];
+const POOL_KEYS = { code: ['Code', 'SecuritiesCompanyCode'], val: ['TradeValue', 'TransactionAmount'] };
 function rocToYmd(d) {   // 1150921 → 20260921
   const t = String(d || '').replace(/\D/g, '');
   if (t.length !== 7) return '';
@@ -751,11 +753,13 @@ async function fetchTopPool(n) {
       if (/^\s*</.test(txt)) throw new Error('回傳網頁而非JSON——端點可能已變更');
       const arr = JSON.parse(txt);
       if (!Array.isArray(arr) || !arr.length) throw new Error('回傳空陣列');
+      const kc = POOL_KEYS.code.find(k => k in arr[0]), kv = POOL_KEYS.val.find(k => k in arr[0]);
       let got = 0;
       for (const r of arr) {
-        const code = String(r[src.code] || '').trim();
+        if (!kc || !kv) break;
+        const code = String(r[kc] || '').trim();
         if (!/^\d{4}$/.test(code)) continue;      // 只留一般個股（濾掉ETF/特別股/DR）
-        const v = num(r[src.val]);
+        const v = num(r[kv]);
         if (!(v > 0)) continue;
         rows.push({ code, val: v });
         got++;

@@ -1848,6 +1848,13 @@ async function backendTests() {
     fetchImpl = async u => jt(pr(u)); gsFetch = u => gsOf(pr(u));
     let wp = null, gp = null; try { wp = await W.fetchTopPool(10); } catch (e) { wp = { err: e.message }; } try { gp = G.fetchTopPool(10); } catch (e) { gp = { err: e.message }; }
     ok('掃描池：上市與上櫃資料日期不同時明講（排行混了兩天）', [wp, gp].every(p => (p.srcErrors || []).some(x => /日期不一致/.test(x))), JSON.stringify([wp, gp]).slice(0, 220));
+    // v222：2026-11-21 兩個交易所的欄名已對調（上市 Code/TradeValue、上櫃 SecuritiesCompanyCode/TransactionAmount），線上池整個抓不到；兩組都要接受
+    const L2 = [{ Date: '1151120', Code: '00400A', Name: 'ETF', TradeValue: '99' }, { Date: '1151120', Code: '2330', Name: '台積電', TradeValue: '9' }],
+      O2 = [{ Date: '1151120', SecuritiesCompanyCode: '8069', CompanyName: '元太', TransactionAmount: '8' }, { Date: '1151120', SecuritiesCompanyCode: '00679B', CompanyName: 'ETF', TransactionAmount: '99' }];
+    const pr2 = u => /tpex/.test(u) ? O2 : L2;
+    fetchImpl = async u => jt(pr2(u)); gsFetch = u => gsOf(pr2(u));
+    let wp2 = null, gp2 = null; try { wp2 = await W.fetchTopPool(10); } catch (e) { wp2 = { err: e.message }; } try { gp2 = G.fetchTopPool(10); } catch (e) { gp2 = { err: e.message }; }
+    ok('v222 掃描池：兩個交易所欄名對調後（11/21 實際格式）Worker 與 GAS 都抓得到上市與上櫃', [wp2, gp2].every(p => (p.codes || []).join(',') === '2330,8069' && !(p.srcErrors || []).length), JSON.stringify([wp2, gp2]).slice(0, 220));
     fetchImpl = async u => jt(T86); gsFetch = u => gsOf(T86); }
 
   // v182 審查：GAS 借券註解說有依日期排序但沒排；基期為 0 時不可寫成 0%
