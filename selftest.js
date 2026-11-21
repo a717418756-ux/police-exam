@@ -235,6 +235,12 @@ function logicTests() {
         && /const cost = tradeCost\(D, dir\);/.test(bfs) && !/0\.471|0\.551/.test(bfs.slice(bfs.indexOf('function simPlan('), bfs.indexOf('function computeRealisticTargets(')))
         && /const costs = pcts\.map\(journalCost\);/.test(fs.readFileSync(path.join(ROOT, 'db.js'), 'utf8')) && !/TRADE_COST_PCT/.test(cfgs + fs.readFileSync(path.join(ROOT, 'db.js'), 'utf8')), JSON.stringify(got));
     }
+    {   // v220 日誌手續費最低 20 元：1 萬元的單進出各補約 16 元；10 萬元的單不補；美股、沒填股數不補
+      const JC = new Function(costSrc + 'return journalCost;')();
+      const got = [JC({ code: '2330', direction: 'long', shares: 10, entryPrice: 1000, exitPrice: 1004 }), JC({ code: '2330', direction: 'long', shares: 1000, entryPrice: 100, exitPrice: 104 }),
+        JC({ code: '0050', direction: 'short', shares: 100, entryPrice: 50, exitPrice: 49 }), JC({ code: 'AAPL', direction: 'long', shares: 1, entryPrice: 200, exitPrice: 210 }), JC({ code: '2330', direction: 'long', shares: null, entryPrice: 1000, exitPrice: 1004 }), JC(null)].map(x => +x.toFixed(5));
+      ok('v220 日誌手續費最低 20 元：小額台股單補足差額（1 萬元做多 0.380% → 0.700%），大額、美股、沒填股數不變', JSON.stringify(got) === JSON.stringify([0.69984, 0.3798, 0.9808, 0.1, 0.3798, 0.3798]), JSON.stringify(got));
+    }
     const bar = (o, h, l) => { const n = 120; return { currency: 'TWD', opens: Array(n).fill(o), closes: Array(n).fill(100), highs: Array(n).fill(h), lows: Array(n).fill(l) }; };
     const t = (D, dir) => { const s = SIM(D, dir, 5, 5, 3); return s && [+s.ev.toFixed(3), Math.round(s.hit), Math.round(s.stop)].join('/'); };
     const got = [t(bar(100, 106, 94), 1), t(bar(90, 100, 90), 1), t(bar(100, 106, 99), 1), t(bar(100, 101, 99), 1), t(bar(100, 101, 94), -1)];

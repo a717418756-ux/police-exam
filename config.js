@@ -11,7 +11,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 
 // ▼▼▼ 每次改版把這個數字 +1（例如 6 → 7），就會自動清除舊快取 ▼▼▼
-const APP_VERSION = 219;
+const APP_VERSION = 220;
 
 /* ── 快取存活時間（統一常數，v95）─────────────────────────────────────
    v95修：原本四個快取各自寫死不同TTL（股價5分/融資5分/大盤10分/縱深10分），
@@ -43,7 +43,7 @@ const RISK_RULE = { perTrade: 2, monthly: 6 };
    app.js 啟動時比對，不符就直接點名是哪個檔沒更新——
    以前只能靠「畫面文字怎麼還是舊的」去猜，這種事發生過不只一次。 */
 const FILE_VERS = {
-  'help.js': 218, 'db.js': 219, 'market.js': 188, 'enhance.js': 218, 'advanced.js': 216, 'smc.js': 198, 'mainforce.js': 213, 'mtf.js': 197, 'bingfa.js': 218, 'layout.js': 216, 'journal.js': 219, 'scan.js': 218, 'intel.js': 199, 'app.js': 218
+  'help.js': 218, 'db.js': 219, 'market.js': 188, 'enhance.js': 218, 'advanced.js': 216, 'smc.js': 198, 'mainforce.js': 213, 'mtf.js': 197, 'bingfa.js': 218, 'layout.js': 216, 'journal.js': 220, 'scan.js': 218, 'intel.js': 199, 'app.js': 218
 };
 
 /* 證據等級登記（文件；各規則直接寫在使用它的地方）
@@ -265,8 +265,17 @@ function tradeCost(D, dir) {
   const tax = /^00/.test(D.code || '') ? 0.1 : 0.3;
   return 0.1425 * FEE_DISC * 2 + tax + (dir === -1 ? 0.08 : 0);
 }
-/* v219 交易日誌「成本後」逐筆算：代號英文開頭當美股，其餘（含沒填代號的舊單）當台股；00 開頭是 ETF；方向看 direction */
-const journalCost = t => { const code = (t && t.code) || ''; return tradeCost({ currency: /^[A-Z]/i.test(code) ? 'USD' : 'TWD', code }, t && t.direction === 'short' ? -1 : 1); };
+/* v219 交易日誌「成本後」逐筆算：代號英文開頭當美股，其餘（含沒填代號的舊單）當台股；00 開頭是 ETF；方向看 direction
+   v220 台股單有填股數與進出價時，再算手續費最低收費：進、出各一次，折後手續費不到 FEE_MIN 元就補到 FEE_MIN，
+   補的差額換算成「占進場金額 %」加進成本。FEE_MIN 用多數券商的 20 元，使用者券商的實際規定沒有查證；手續費取整數元不計。 */
+const FEE_MIN = 20;
+const journalCost = t => {
+  const code = (t && t.code) || '', tw = !/^[A-Z]/i.test(code);
+  const base = tradeCost({ currency: tw ? 'TWD' : 'USD', code }, t && t.direction === 'short' ? -1 : 1);
+  if (!tw || !(t && t.shares > 0 && t.entryPrice > 0 && t.exitPrice > 0)) return base;
+  const rate = 0.001425 * FEE_DISC, a1 = t.entryPrice * t.shares, a2 = t.exitPrice * t.shares;
+  return base + (Math.max(0, FEE_MIN - a1 * rate) + Math.max(0, FEE_MIN - a2 * rate)) / a1 * 100;
+};
 
 /* ── 錯誤記錄（手機看不到 F12 時，於設定頁查看）────────────────────── */
 const ErrorLog = {
