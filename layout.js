@@ -14,7 +14,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['layout.js'] = 216; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['layout.js'] = 221; } catch (e) {}
 
 // 分頁定義（順序即按鈕順序）。cards 含該頁所有卡片 id
 const TABS = [
@@ -157,7 +157,8 @@ function renderRecent(a) {
   let box = document.getElementById('recent-chips');
   if (!box) { box = document.createElement('div'); box.id = 'recent-chips'; box.className = 'chips'; chips.parentElement.insertBefore(box, chips); }
   box.innerHTML = '<span class="chips-lbl">最近</span>'
-    + a.map(x => `<span class="chip chip-recent" onclick="qs('${esc(x.c)}')">${x.n ? esc(x.n) + ' ' : ''}${esc(x.c)}</span>`).join('');
+    + a.map(x => { const n = /^\d/.test(x.c) ? String(twName(x.c, x.n) || '').slice(0, 6) : x.n;   // v221 舊存的英文名（YUANTA、TAIWAN）顯示時也換成中文
+        return `<span class="chip chip-recent" onclick="qs('${esc(x.c)}')">${n ? esc(n) + ' ' : ''}${esc(x.c)}</span>`; }).join('');
 }
 
 function initSwipe() {

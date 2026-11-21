@@ -75,7 +75,7 @@ function logicTests() {
       && iso(C.cacheUntil('intel', {}, at('2026-10-01T10:00:00+08:00'))) === iso(at('2026-10-01T11:00:00+08:00')));
   }
   { // v188 工具盤點後的整併：每個工具都要有用處——永遠不會亮、跟別張卡重複、或已證實無效的都已刪除
-    const FRONT = ['config.js', 'help.js', 'db.js', 'market.js', 'enhance.js', 'advanced.js', 'smc.js', 'mainforce.js', 'mtf.js', 'bingfa.js', 'layout.js', 'journal.js', 'scan.js', 'intel.js', 'app.js'];
+    const FRONT = ['config.js', 'names.js', 'help.js', 'db.js', 'market.js', 'enhance.js', 'advanced.js', 'smc.js', 'mainforce.js', 'mtf.js', 'bingfa.js', 'layout.js', 'journal.js', 'scan.js', 'intel.js', 'app.js'];
     const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8'), sw = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8');
     const all = FRONT.map(f => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n') + html;
     const code = all.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
@@ -234,6 +234,16 @@ function logicTests() {
       ok('v218 交易成本：手續費 2.8 折（股票做多 0.3798%、放空 0.4598%，ETF 0.1798%／0.2598%，美股 0.1%），重演與交易日誌同一來源', TC[1] === 0.28 && JSON.stringify(got) === JSON.stringify([0.3798, 0.4598, 0.1798, 0.2598, 0.1])
         && /const cost = tradeCost\(D, dir\);/.test(bfs) && !/0\.471|0\.551/.test(bfs.slice(bfs.indexOf('function simPlan('), bfs.indexOf('function computeRealisticTargets(')))
         && /const costs = pcts\.map\(journalCost\);/.test(fs.readFileSync(path.join(ROOT, 'db.js'), 'utf8')) && !/TRADE_COST_PCT/.test(cfgs + fs.readFileSync(path.join(ROOT, 'db.js'), 'utf8')), JSON.stringify(got));
+    }
+    {   // v221 台股中文股名表：上市、上櫃、ETF 都查得到；美股與表外代號用後端名稱；fetchStock 兩個出口都套用
+      const ns = fs.readFileSync(path.join(ROOT, 'names.js'), 'utf8'), aps = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
+      const NM = new Function('window', ns + 'return [twName, Object.keys(TW_NAMES).length];')({}), tn = NM[0];
+      const got = ['2330', '6488', '0050', '00878', '00679B', ' 2330 ', '9999X'].map(c => tn(c, '後端名'));
+      ok('v221 台股中文股名：上市 2330、上櫃 6488、ETF 0050／00878／00679B 都是中文，表外代號用後端名稱，fetchStock 快取與新抓都套用、只套台股', NM[1] > 2000
+        && JSON.stringify(got) === JSON.stringify(['台積電', '環球晶', '元大台灣50', '國泰永續高股息', '元大美債20年', '台積電', '後端名'])
+        && /const n = \/\^\\d\/\.test\(x\.c\) \? String\(twName\(x\.c, x\.n\) \|\| ''\)\.slice\(0, 6\) : x\.n;/.test(fs.readFileSync(path.join(ROOT, 'layout.js'), 'utf8'))
+        && (aps.match(/return zhNamed\(code, JSON\.parse\(JSON\.stringify\((cached\.d|j)\)\)\);/g) || []).length === 2 && /if \(j && j\.currency === 'TWD'\) j\.name = twName\(code, j\.name\);/.test(aps)
+        && /<script src="\.\/config\.js"><\/script>\n<script src="\.\/names\.js"><\/script>/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')) && /'\.\/names\.js'/.test(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8')), JSON.stringify([NM[1], got]));
     }
     {   // v220 日誌手續費最低 20 元：1 萬元的單進出各補約 16 元；10 萬元的單不補；美股、沒填股數不補
       const JC = new Function(costSrc + 'return journalCost;')();
