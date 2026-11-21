@@ -241,7 +241,7 @@ function logicTests() {
       const got = ['2330', '6488', '0050', '00878', '00679B', ' 2330 ', '9999X'].map(c => tn(c, '後端名'));
       ok('v221 台股中文股名：上市 2330、上櫃 6488、ETF 0050／00878／00679B 都是中文，表外代號用後端名稱，fetchStock 快取與新抓都套用、只套台股', NM[1] > 2000
         && JSON.stringify(got) === JSON.stringify(['台積電', '環球晶', '元大台灣50', '國泰永續高股息', '元大美債20年', '台積電', '後端名'])
-        && /const n = \/\^\\d\/\.test\(x\.c\) \? String\(twName\(x\.c, x\.n\) \|\| ''\)\.slice\(0, 6\) : x\.n;/.test(fs.readFileSync(path.join(ROOT, 'layout.js'), 'utf8'))
+        && /const n = \/\^\\d\/\.test\(x\.c\) \? twName\(x\.c, x\.n\) : x\.n;/.test(fs.readFileSync(path.join(ROOT, 'layout.js'), 'utf8'))   // v223 最近清單不再截 6 字（T-026 問題 2）
         && (aps.match(/return zhNamed\(code, JSON\.parse\(JSON\.stringify\((cached\.d|j)\)\)\);/g) || []).length === 2 && /if \(j && j\.currency === 'TWD'\) j\.name = twName\(code, j\.name\);/.test(aps)
         && /<script src="\.\/config\.js"><\/script>\n<script src="\.\/names\.js"><\/script>/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')) && /'\.\/names\.js'/.test(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8')), JSON.stringify([NM[1], got]));
     }
@@ -1855,6 +1855,13 @@ async function backendTests() {
     fetchImpl = async u => jt(pr2(u)); gsFetch = u => gsOf(pr2(u));
     let wp2 = null, gp2 = null; try { wp2 = await W.fetchTopPool(10); } catch (e) { wp2 = { err: e.message }; } try { gp2 = G.fetchTopPool(10); } catch (e) { gp2 = { err: e.message }; }
     ok('v222 掃描池：兩個交易所欄名對調後（11/21 實際格式）Worker 與 GAS 都抓得到上市與上櫃', [wp2, gp2].every(p => (p.codes || []).join(',') === '2330,8069' && !(p.srcErrors || []).length), JSON.stringify([wp2, gp2]).slice(0, 220));
+    // v223（T-026 問題 1）：四碼的 00 開頭也是 ETF（0050、0056），原本只看四碼會混進池子，說明卻寫已排除
+    const L3 = [{ Date: '1151120', Code: '0050', TradeValue: '99' }, { Date: '1151120', Code: '0056', TradeValue: '98' }, { Date: '1151120', Code: '2330', TradeValue: '9' }],
+      O3 = [{ Date: '1151120', SecuritiesCompanyCode: '8069', TransactionAmount: '8' }];
+    const pr3 = u => /tpex/.test(u) ? O3 : L3;
+    fetchImpl = async u => jt(pr3(u)); gsFetch = u => gsOf(pr3(u));
+    let wp3 = null, gp3 = null; try { wp3 = await W.fetchTopPool(10); } catch (e) { wp3 = { err: e.message }; } try { gp3 = G.fetchTopPool(10); } catch (e) { gp3 = { err: e.message }; }
+    ok('v223 掃描池：四碼 00 開頭的 ETF（0050、0056）Worker 與 GAS 都排除', [wp3, gp3].every(p => (p.codes || []).join(',') === '2330,8069' && p.universe === 2), JSON.stringify([wp3, gp3]).slice(0, 220));
     fetchImpl = async u => jt(T86); gsFetch = u => gsOf(T86); }
 
   // v182 審查：GAS 借券註解說有依日期排序但沒排；基期為 0 時不可寫成 0%

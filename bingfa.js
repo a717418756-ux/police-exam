@@ -54,7 +54,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 218; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 223; } catch (e) {}
 
 /* v159：marginChg5 名為「5日變化」，但後端資料不足 6 筆時是拿現有最舊那筆當基準，
    實際可能只跨 2~3 天。2 天漲 4% 與 5 天漲 4% 意義完全不同，直接套同一個門檻
@@ -1161,7 +1161,7 @@ function renderTradeGate(ctx) {
         ${(() => {
           const ce = computeCondEV(D); if (!ce) return '';
           const s = planSide === 'long' ? ce.long : ce.short, v = s.setups.length ? s.setups[0].v : s.base;
-          return `<div style="font-size:10px;margin-bottom:6px;color:${v[0] < 0 ? 'var(--warn)' : 'var(--buy)'}">💰 此情境19年24檔實測期望值 <b>${v[0] >= 0 ? '+' : ''}${v[0].toFixed(2)}%/筆</b>（${s.setups.length ? '型態「' + s.setups[0].name + '」' : '無已回測型態，用同盤勢任意日'}，${v[1].toLocaleString()}筆，已含成本滑價）${v[0] < 0 ? '——紀律門放行只代表沒有明顯禁忌，不代表期望值為正' : ''}</div>`;
+          return `<div style="font-size:10px;margin-bottom:6px;color:${v[0] < 0 ? 'var(--warn)' : 'var(--buy)'}">💰 此情境19年24檔實測期望值 <b>${v[0] >= 0 ? '+' : ''}${v[0].toFixed(2)}%/筆</b>（${s.setups.length ? '型態「' + s.setups[0].name + '」' : '無已回測型態，用同盤勢任意日'}，${v[1].toLocaleString()}筆，已含成本滑價）${v[0] < 0 ? '——紀律門只列提醒、不擋單，給出計畫不代表期望值為正' : ''}</div>`;
         })()}
         <div style="font-size:10px;color:var(--muted);line-height:1.7">
           ${(() => {

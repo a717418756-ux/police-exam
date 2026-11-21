@@ -758,7 +758,8 @@ async function fetchTopPool(n) {
       for (const r of arr) {
         if (!kc || !kv) break;
         const code = String(r[kc] || '').trim();
-        if (!/^\d{4}$/.test(code)) continue;      // 只留一般個股（濾掉ETF/特別股/DR）
+        /* 只留一般個股（濾掉ETF/特別股/DR）。v223 四碼的 00 開頭也是 ETF（0050、0056、0052…），原本只看四碼會混進來（T-026 實測前 150 名有 3 檔） */
+        if (!/^\d{4}$/.test(code) || /^00/.test(code)) continue;
         const v = num(r[kv]);
         if (!(v > 0)) continue;
         rows.push({ code, val: v });
