@@ -89,8 +89,8 @@ ECO、MFD、STI、FUSION、PSY（併入 RSI）、崩跌預警、專屬量化分�
 | intel.js | 情報面＋快照校準 | GitHub Pages |
 | journal.js／db.js | 交易日誌、IndexedDB、雲端同步 | GitHub Pages |
 | scan.js／layout.js／help.js | 掃描、分頁、說明 | GitHub Pages |
-| worker.js | 後端（Cloudflare） | Worker 編輯器 |
-| Code.gs | 後端（GAS，ES5） | GAS 編輯器 |
+| worker.js | 後端（Cloudflare） | main 合併後自動部署（`wrangler.toml`） |
+| Code.gs | 後端（GAS，ES5） | clasp（`.clasp.json`、`.claspignore`、`appsscript.json`） |
 | selftest.js | 自我檢查（約 800 項，項數隨日K資料檔數變動；需 playwright；工作區根目錄沒有 backtest_conditional.js 時略過 ADX 一致性檢查） | 不部署 |
 
 回測與研究腳本不在這個 repo：`backtest_conditional.js`／`backtest_standalone.js` 在電腦版 StockRadar 資料夾的 `researchlegacyscripts`（跑 selftest 時把 `backtest_conditional.js` 複製到工作區根目錄，已列入 `.git/info/exclude`）；研究腳本與報告（如 `a5_clean.js`、`h_clean.js`）在 `research`，位置與跑法見 `協作資料與腳本位置.md`。
@@ -101,11 +101,11 @@ ECO、MFD、STI、FUSION、PSY（併入 RSI）、崩跌預警、專屬量化分�
 
 **前端**：上表標「GitHub Pages」的檔案全部放 repo 根目錄 → Settings → Pages → main 分支根目錄。
 
-**Cloudflare Worker**：Create Worker → 貼上 worker.js → Deploy。
+**Cloudflare Worker**：已連 GitHub（Settings → Builds），main 每次合併就跑 `npx wrangler deploy`，設定在 `wrangler.toml`。要改綁定先改 `wrangler.toml`，否則下次部署會被清掉。
 - KV namespace 綁定名稱 `SYNC`（雲端同步、情報面快照）
 - Secrets／變數：`GEMINI_KEY`（情報面 AI）、`GEMINI_MODEL`（選用）、`GAS_RELAY`（選用）
 
-**GAS**：script.google.com → 貼上 Code.gs → 部署為網頁應用程式（執行身分＝我、存取＝所有人）→ 每次改完要「新增版本」重新部署。Gemini 金鑰放 Script Properties 的 `GEMINI_KEY`。
+**GAS**：在本機用 clasp（`npx @google/clasp@3`，先 `clasp login`）：`clasp push -f` 上傳 `Code.gs` 與 `appsscript.json`（`.claspignore` 擋掉其他檔），再 `clasp deploy -i <現有部署 ID>` 更新現有部署，網址不變。不要用 `clasp deploy` 不帶 `-i`，會產生新網址。手動方式：script.google.com → 貼上 Code.gs → 管理部署作業 → 編輯 → 新版本。Gemini 金鑰放 Script Properties 的 `GEMINI_KEY`。
 
 > 金鑰只放 Cloudflare Secrets／GAS Script Properties，**絕不寫進程式碼或貼到對話**；外洩就到 AI Studio 刪除重建。
 
