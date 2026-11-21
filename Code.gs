@@ -633,7 +633,8 @@ function fetchTopPool(n) {
       for (var j = 0; kc && kv && j < arr.length; j++) {
         var row = arr[j];
         var code = String(row[kc] == null ? '' : row[kc]).replace(/^\s+|\s+$/g, '');
-        if (!/^\d{4}$/.test(code)) continue;
+        /* v223 四碼的 00 開頭也是 ETF（0050、0056、0052…），和 worker.js 相同一併濾掉 */
+        if (!/^\d{4}$/.test(code) || /^00/.test(code)) continue;
         var v = num(row[kv]);
         if (!(v > 0)) continue;
         rows.push({ code: code, val: v });
