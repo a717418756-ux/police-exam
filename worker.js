@@ -190,7 +190,7 @@ export default {
       /* v166 動態掃描池：全市場當日成交行情 → 依成交金額取前N名 */
       if (action === 'pool') {
         const n = Math.min(300, Math.max(20, parseInt(p.get('n') || '150', 10) || 150));
-        return json({ ok: true, ...(await fetchTopPool(n)) });
+        return json({ ok: true, ...(await fetchPoolRouted(n, env)) });
       }
       /* v168 情報面：新聞／PTT／重大訊息 → AI 事件抽取 → 事件研究（是否已反映） */
       if (action === 'intel') {
@@ -741,6 +741,25 @@ function rocToYmd(d) {   // 1150921 → 20260921
   const t = String(d || '').replace(/\D/g, '');
   if (t.length !== 7) return '';
   return String(+t.slice(0, 3) + 1911) + t.slice(3);
+}
+/* v224 櫃買中心擋雲端主機：Worker 抓上櫃常回 Too many redirects（T-026 實測同一天 6 次只有上市 1,098 檔，偶爾才拿到 1,987 檔），
+   掃描池的組成會隨連出節點變動。有設 GAS_RELAY 時，自己這份有來源錯誤就改用 GAS 的池子（GAS 抓得到上櫃）；
+   GAS 那份要沒有錯誤、而且檔數比較多才採用，否則照舊回自己的結果。GAS 沒有對應修改：它就是被轉送的那一端（同 fetchIntelRouted） */
+async function fetchPoolRouted(n, env) {
+  const own = await fetchTopPool(n).catch(e => ({ err: e }));
+  if (!own.err && !own.srcErrors) return own;
+  if (env && env.GAS_RELAY) {
+    try {
+      const r = await fetchT(`${env.GAS_RELAY}?action=pool&n=${n}`, {}, 30000);
+      const g = JSON.parse(await r.text());
+      if (g && g.ok && Array.isArray(g.codes) && g.codes.length && !g.srcErrors && (own.err || g.universe > own.universe)) {
+        const { ok, ...rest } = g;
+        return { ...rest, via: 'GAS' };
+      }
+    } catch (e) {}
+  }
+  if (own.err) throw own.err;
+  return own;
 }
 async function fetchTopPool(n) {
   const rows = [], errs = [], srcDate = [];

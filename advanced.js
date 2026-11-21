@@ -32,7 +32,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['advanced.js'] = 216; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['advanced.js'] = 224; } catch (e) {}
 
 /* ── 大盤基準快取（避免每檔都重抓）─────────────────────────────────── */
 let _benchCache = {};   // key → { d: { closes, lastDate }, t, until }（v177：台美各自計時；v186 有效期看資料日期，見 cacheUntil）
@@ -57,9 +57,13 @@ function alignByDate(D, b) {
 }
 /* v216 審查：相對強弱與 Beta 的輸入。共同交易日不到 64 天（computeRSRating 要 >63 根才算相對強弱）就暫停並講原因——
    原本兩邊日期錯開時交集是空的，卡片會顯示「NaN 分」。缺日（gapNote）照舊暫停；沒抓到大盤時照舊算絕對報酬並標明 */
+/* v224 大盤基準本身（台股 0050、美股 SPY，見 worker.js／Code.gs 的 benchmark）：跟自己比，Beta＝1、Alpha＝0、超額＝0 是定義上的結果，
+   原本照樣顯示「Alpha +0.0%，扣除大盤影響後仍正報酬，真有實力」（T-026 實測 0050） */
+const benchSelf = D => String(D.code || '').toUpperCase() === (D.currency === 'TWD' ? '0050' : 'SPY');
 function benchInputs(D, b, gapNote) {
-  const al = !gapNote && b ? alignByDate(D, b) : null;
-  const note = gapNote || (al && al.closes.length < 64 ? `個股與大盤共同交易日只有 ${al.closes.length} 天，不足以比較` : '');
+  const al = !gapNote && b && !benchSelf(D) ? alignByDate(D, b) : null;
+  const note = gapNote || (b && benchSelf(D) ? `${D.code} 就是大盤基準，跟自己比沒有相對強弱與 Beta／Alpha` : '')
+    || (al && al.closes.length < 64 ? `個股與大盤共同交易日只有 ${al.closes.length} 天，不足以比較` : '');
   return note || !al ? { note, D, bench: null } : { note: '', D: { closes: al.closes }, bench: al.bench };
 }
 async function fetchBenchmark(isTW) {
@@ -133,7 +137,7 @@ function renderRSRating(rs, gapNote) {
   // 不是 IBD 官方那種跨全市場所有股票做百分位排名的 RS Rating，避免「RS=90」被誤解成「贏過90%股票」
   if (rs.rating >= 90) desc = `超額報酬強度 ${rs.rating} 分，超強勢，法人選股常要求 RS>80`;
   else if (rs.rating >= 70) desc = `超額報酬強度 ${rs.rating} 分，相對強勢`;
-  else if (rs.rating >= 50) desc = `超額報酬強度 ${rs.rating} 分，略強於大盤`;
+  else if (rs.rating >= 50) desc = `超額報酬強度 ${rs.rating} 分，與大盤相當或略強`;   // v224 50 分是超額約 −0.3%～+0.3%，原本一律寫「略強於大盤」
   else desc = `超額報酬強度 ${rs.rating} 分，相對弱勢，留意`;
   document.getElementById('rs-desc').textContent = desc;
   document.getElementById('rs-detail').textContent =
@@ -181,7 +185,7 @@ function renderBetaAlpha(ba) {
     { label: '💎 Alpha 超額報酬(年化)', value: (ba.alpha>=0?'+':'')+ba.alpha.toFixed(1)+'%',
       valCls: ba.alpha >= 0 ? 'buy' : 'sell',
       cls: ba.alpha >= 0 ? 'good' : '',
-      sub: ba.alpha >= 0 ? `扣除大盤影響後仍正報酬，真有實力` : `跑輸大盤，超額報酬為負` }
+      sub: ba.alpha >= 0 ? `近 120 日扣除大盤波動後為正（短期估計，未檢定是否顯著）` : `近 120 日扣除大盤波動後為負，跑輸大盤` }   // v224 原本寫「真有實力」，120 日的 Alpha 沒有檢定，不能這樣下結論
   ];
   document.getElementById('beta-grid').innerHTML = boxes.map(x =>
     `<div class="risk-box ${x.cls}"><div class="rb-label">${x.label}</div><div class="rb-value ${x.valCls}">${x.value}</div><div class="rb-sub">${x.sub}</div></div>`
