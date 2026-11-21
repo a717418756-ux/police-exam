@@ -1,6 +1,6 @@
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['app.js'] = 218; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['app.js'] = 221; } catch (e) {}
 
 // ══════════════════════════════════════════════════════════════════════
 // 短線雷達 Pro — 風險優先分層決策系統
@@ -50,7 +50,7 @@ async function fetchStock(code){
     window._dataFetchedAt = cached.t;   // v95：記錄資料實際抓取時刻（非查詢時刻），供UI透明顯示
     window._dataUntil = cached.until;   // v186：沿用的理由（見時間標籤說明）
     window._dataFromCache = true;
-    return JSON.parse(JSON.stringify(cached.d));   // 副本：trimIntradayBar 會改動陣列，暫存要保留原樣（盤中/收盤後依「當下」重新判斷）
+    return zhNamed(code, JSON.parse(JSON.stringify(cached.d)));   // 副本：trimIntradayBar 會改動陣列，暫存要保留原樣（盤中/收盤後依「當下」重新判斷）
   }
   let r;
   try{ r=await fetchT(`${GAS_URL}?code=${encodeURIComponent(code)}`); }
@@ -62,8 +62,10 @@ async function fetchStock(code){
   pcSet(_stockCache, code, 'px', j, cacheUntil('px', j, Date.now(), !/^\d/.test(code)));
   window._dataFetchedAt = Date.now();
   window._dataFromCache = false;
-  return JSON.parse(JSON.stringify(j));
+  return zhNamed(code, JSON.parse(JSON.stringify(j)));
 }
+/* v221 台股名稱改用 names.js 的官方中文簡稱（後端從 Yahoo 拿到的是英文，2330 回「TAIWAN」）；表裡沒有的照舊用後端名稱 */
+function zhNamed(code, j) { if (j && j.currency === 'TWD') j.name = twName(code, j.name); return j; }
 
 /* v141 盤中資料未定案處理 ─────────────────────────────────────────────
    使用者回報：同一檔早上查是「多、C級」，半小時後變「空、D級」。
