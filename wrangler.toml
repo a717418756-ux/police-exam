@@ -1,0 +1,18 @@
+# Cloudflare Worker 部署設定（T-025）
+# 用途：Cloudflare 連到這個 GitHub repo 後，main 每次合併就自動部署 worker.js。
+# 以 2026-11-21 網頁上的現有設定為準，不可漏，否則部署時會被清掉：
+# - KV 綁定 SYNC（stockradar-sync）：雲端備份與資訊面快照
+# - 變數 GAS_RELAY：留在 Cloudflare 網頁上設定，不寫進 repo（keep_vars 讓部署不清掉它）
+# - 密鑰 GEMINI_KEY：只存在 Cloudflare，部署不會動到，也不准寫進 repo
+name = "yustock"
+main = "worker.js"
+compatibility_date = "2026-06-28"
+workers_dev = true
+keep_vars = true
+
+[[kv_namespaces]]
+binding = "SYNC"
+id = "c0ec04588ae24cd18b8a8119fc692ccb"
+
+[observability]
+enabled = true
