@@ -226,14 +226,14 @@ function logicTests() {
   }
   {   // v201 計畫重演：同K雙觸算停損、跳空以開盤價、到期收盤出場、扣成本
     const bfs = fs.readFileSync(path.join(ROOT, 'bingfa.js'), 'utf8'), cfgs = fs.readFileSync(path.join(ROOT, 'config.js'), 'utf8');
-    const costSrc = cfgs.slice(cfgs.indexOf('const FEE_DISC ='), cfgs.indexOf('const TRADE_COST_PCT ='));
+    const costSrc = cfgs.slice(cfgs.indexOf('const FEE_DISC ='), cfgs.indexOf('/* ── 錯誤記錄'));
     const SIM = new Function(costSrc + bfs.slice(bfs.indexOf('function simPlan('), bfs.indexOf('function computeRealisticTargets(')) + 'return simPlan;')();
     {   // v218 成本單一來源：手續費 2.8 折、股票稅 0.3%、ETF 稅 0.1%、放空加融券手續費 0.08%、美股 0.1%
       const TC = new Function(costSrc + 'return [tradeCost, FEE_DISC];')(), tc = TC[0];
       const got = [tc({ currency: 'TWD', code: '2330' }, 1), tc({ currency: 'TWD', code: '2330' }, -1), tc({ currency: 'TWD', code: '0050' }, 1), tc({ currency: 'TWD', code: '00878' }, -1), tc({ currency: 'USD', code: 'AAPL' }, 1)].map(x => +x.toFixed(4));
       ok('v218 交易成本：手續費 2.8 折（股票做多 0.3798%、放空 0.4598%，ETF 0.1798%／0.2598%，美股 0.1%），重演與交易日誌同一來源', TC[1] === 0.28 && JSON.stringify(got) === JSON.stringify([0.3798, 0.4598, 0.1798, 0.2598, 0.1])
         && /const cost = tradeCost\(D, dir\);/.test(bfs) && !/0\.471|0\.551/.test(bfs.slice(bfs.indexOf('function simPlan('), bfs.indexOf('function computeRealisticTargets(')))
-        && /const TRADE_COST_PCT = tradeCost\(\{ currency: 'TWD', code: '' \}, 1\);/.test(cfgs) && /const cost = TRADE_COST_PCT;/.test(fs.readFileSync(path.join(ROOT, 'db.js'), 'utf8')), JSON.stringify(got));
+        && /const costs = pcts\.map\(journalCost\);/.test(fs.readFileSync(path.join(ROOT, 'db.js'), 'utf8')) && !/TRADE_COST_PCT/.test(cfgs + fs.readFileSync(path.join(ROOT, 'db.js'), 'utf8')), JSON.stringify(got));
     }
     const bar = (o, h, l) => { const n = 120; return { currency: 'TWD', opens: Array(n).fill(o), closes: Array(n).fill(100), highs: Array(n).fill(h), lows: Array(n).fill(l) }; };
     const t = (D, dir) => { const s = SIM(D, dir, 5, 5, 3); return s && [+s.ev.toFixed(3), Math.round(s.hit), Math.round(s.stop)].join('/'); };
@@ -876,6 +876,9 @@ async function scanFlowTests() {
                { result: 'win', pnlPct: 10, pnl: null, shares: null, date: ym + '-01' }];
     const st = computeStats(T), rb = computeRiskBudget(T, 1000000);
     o.stats = { total: st.totalPnl, noAmt: st.noAmt, payoff: +st.payoff.toFixed(2) };
+    // v219 日誌成本後逐筆算：股票做多 0.3798、ETF 0.1798、放空 0.4598、美股 0.1、沒填代號當台股股票做多
+    { const J = [['2330', 'long', 0.4], ['0050', 'long', 0.2], ['2330', 'short', 0.42], ['AAPL', 'long', 0.15], ['', 'long', 0.38]].map(([code, direction, pnlPct]) => ({ code, direction, pnlPct, result: 'win', date: ym + '-01' }));
+      const sj = computeStats(J); o.jcost = { netWR: sj.netWinRate, cost: +sj.costPct.toFixed(5), net: +sj.netAvgPnlPct.toFixed(5), noPct: +computeStats([{ code: '0050', direction: 'short', result: 'win', date: ym + '-01' }]).costPct.toFixed(4) }; }
     o.rb = { used: rb.usedPct, noAmt: rb.noAmt };
     // 分批進場填的是「張」，股數欄要 ×1000
     document.getElementById('tr-code').value = '2330'; document.getElementById('batch-rows').innerHTML = ''; addBatchRow();
@@ -901,6 +904,7 @@ async function scanFlowTests() {
   ok('大盤基準：盤中去掉今天未完成的K棒（與個股對齊，Beta 不錯位）', v3.benchLen === 299, String(v3.benchLen));
   ok('最大回撤：只看近一年（兩年前的腰斬不算）', v3.maxDD > -0.05, String(v3.maxDD));
   ok('融資四象限：股價只跌 0.5% 不算「散戶接刀」（與融資卡一致）；落後或基期 0 不判讀', JSON.stringify(v3.q) === '["flat","knife",null,null]', JSON.stringify(v3.q));
+  ok('v219 日誌成本後逐筆扣（ETF、放空、美股各自的成本）：5 筆裡 4 筆贏過成本（固定 0.380% 時只算 3 筆）', v3.jcost.netWR === 0.8 && v3.jcost.cost === 0.29984 && v3.jcost.net === 0.01016 && v3.jcost.noPct === 0.3798, JSON.stringify(v3.jcost));
   ok('日誌：金額只算有填股數的單、盈虧比用%；6%預算明講有幾筆沒算', v3.stats.total === -50000 && v3.stats.noAmt === 2 && v3.stats.payoff === 2 && v3.rb.used === 5 && v3.rb.noAmt === 2, JSON.stringify([v3.stats, v3.rb]));
   ok('日誌：分批進場 3 張＝3000 股（原本填成 3 股，金額小 1000 倍）', v3.shares === '3000', v3.shares);
   ok('日誌：代碼與判斷理由裡的 HTML 不會被執行', v3.xss === 0, String(v3.xss));
