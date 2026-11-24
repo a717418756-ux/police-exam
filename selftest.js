@@ -233,6 +233,7 @@ function logicTests() {
     ok('互動K線：均線用原始收盤', sma.length === 2 && sma[0].value === 105 && sma[1].value === 121, JSON.stringify(sma));
     ok('互動K線：函式庫非同步載入、鎖版本，載到後補畫；載不到時整張圖不顯示', /<script async src="https:\/\/cdn\.jsdelivr\.net\/npm\/lightweight-charts@4\.2\.3\/dist\/lightweight-charts\.standalone\.production\.js" onload="try\{if\(window\._lastD\)kchartRender\(window\._lastD\)\}catch\(e\)\{\}"><\/script>/.test(html) && /typeof LightweightCharts === 'undefined'\) \{ wrap\.style\.display = 'none'; return; \}/.test(ks));
     ok('互動K線：保留 TradingView 署名（Apache 2.0 授權要求）；計畫價位用執行計畫同一組 pbC，晚到也補畫', /attributionLogo: true/.test(ks) && /kchartPlan\(D, pbC, planSide\)/.test(bf) && /if \(KC\.plan && KC\.plan\.code === D\.code\) kchartPlan/.test(ks)); }
+  ok('v228 完整理由（期望值、中期因子、邏輯鏈）收進預設收起的展開區，提醒仍在外面', (h => /<details id="vb-more" class="vb-more"[^>]*><summary>[^<]+<\/summary>\s*<div id="vb-judgement"><\/div>\s*<div id="vb-narrative"><\/div>\s*<\/details>\s*<div id="vb-warns"/.test(h) && !/<details id="vb-more"[^>]* open/.test(h))(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')));
   ok('v209 結論列在紀律門開頭先清空（出錯時不殘留上一檔的價位）', /function renderTradeGate\(ctx\) \{\n  renderPlanLine\(null, null\);/.test(fs.readFileSync(path.join(ROOT, 'bingfa.js'), 'utf8')));
   ok('盤中時鐘 twMarketPhase 已移除（推估全日量的依據已不存在），沒有殘留呼叫', !/twMarketPhase/.test(['config.js', 'bingfa.js', 'enhance.js', 'mainforce.js', 'app.js'].map(f => fs.readFileSync(path.join(ROOT, f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')).join('')));
   // 台北時間一律「+8h 時間戳搭配 getUTC*」：混用 getHours 會整個時區錯位
@@ -1065,6 +1066,7 @@ async function browserTests() {
       document.getElementById('ticker-input').value = c; return go(); }, code);
     await pg.waitForTimeout(1800);
     return pg.evaluate(() => {
+      const more = document.getElementById('vb-more'); if (more) more.open = true;   // v228 完整理由預設收起，收起時 innerText 讀不到
       const D = window._lastD, txt = id => (document.getElementById(id) || {}).innerText || '';
       const num = s => { const m = String(s).match(/-?\d+(\.\d+)?/); return m ? parseFloat(m[0]) : null; };
       const gate = txt('gate-content');
