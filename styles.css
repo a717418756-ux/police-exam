@@ -464,3 +464,12 @@ header.compact #hdr-sum{display:flex}
 .dir-tier{font-size:10px;color:var(--muted);border:1px solid var(--bd2);border-radius:5px;padding:1px 5px;flex-shrink:0}
 .dir-tier.dir-a{color:var(--buy);border-color:var(--buy-b)}
 .dir-foot{font-size:10px;color:var(--muted);margin-top:8px;line-height:1.5}
+/* v227 互動 K 線（kchart.js，TradingView Lightweight Charts） */
+#kc-wrap{margin-top:12px}
+#kc-tools{display:flex;gap:6px;margin-bottom:6px}
+.kc-btn{min-height:32px;padding:4px 12px;border-radius:8px;border:1px solid var(--bd2);background:var(--bg);color:var(--muted);font:inherit;font-size:12px;cursor:pointer}
+.kc-btn.on{border-color:var(--acc);color:var(--txt);background:var(--acc-d)}
+#kc-legend{font-family:var(--mono);font-size:10.5px;color:var(--muted);line-height:1.5;min-height:32px;overflow-wrap:anywhere}
+#kc-legend b{color:var(--txt);font-weight:600;margin-right:4px}
+#kc-box{height:320px;width:100%;border-radius:10px;overflow:hidden}
+@media (min-width:760px){#kc-box{height:420px}}

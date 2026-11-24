@@ -1,6 +1,6 @@
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['app.js'] = 226; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['app.js'] = 227; } catch (e) {}
 
 // ══════════════════════════════════════════════════════════════════════
 // 短線雷達 Pro — 風險優先分層決策系統
@@ -509,6 +509,7 @@ async function go(){
     $('m-atr').textContent=fmt(atr);
     $('m-vol').textContent=(D.currency==='TWD'?fmtV(Math.round(D.volume/1000))+' 張':fmtV(D.volume)+' 股');
     $('stock-bar').style.display='block';
+    try{ if(typeof kchartRender==='function') kchartRender(D); }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('互動K線',err); }   // v227
     // v95：顯示「資料實際抓取時刻」而非查詢時刻，並標示是否來自快取——
     // 使用者反映「同時段查同一檔結果不同」，根因是各層快取TTL不一（已統一），
     // 此處讓資料新鮮度透明可見，若看到「快取」字樣即知數字未變是正常的

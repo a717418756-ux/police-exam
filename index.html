@@ -201,6 +201,7 @@ try {
       <div class="mi"><span class="mi-l">ATR(14)</span><span class="mi-v" id="m-atr">—</span></div>
       <div class="mi"><span class="mi-l">成交量</span><span class="mi-v" id="m-vol">—</span></div>
     </div>
+    <div id="kc-wrap" style="display:none"><div id="kc-tools"></div><div id="kc-legend"></div><div id="kc-box"></div></div>
   </div>
 
   <!-- 綜合決策橫幅（一眼看結論）-->
@@ -572,6 +573,9 @@ try {
 <script src="./scan.js"></script>
 <script src="./intel.js"></script>
 <script src="./direction.js"></script>
+<script src="./kchart.js"></script>
+<!-- v227 TradingView Lightweight Charts（Apache 2.0）：非同步載入，載到後補畫目前這檔；載不到就不顯示互動圖 -->
+<script async src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js" onload="try{if(window._lastD)kchartRender(window._lastD)}catch(e){}"></script>
 <script src="./app.js"></script>
 <script>document.getElementById('ver-tag').textContent='v'+APP_VERSION;</script>
 </body>

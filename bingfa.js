@@ -54,7 +54,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 226; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 227; } catch (e) {}
 
 /* v159：marginChg5 名為「5日變化」，但後端資料不足 6 筆時是拿現有最舊那筆當基準，
    實際可能只跨 2~3 天。2 天漲 4% 與 5 天漲 4% 意義完全不同，直接套同一個門檻
@@ -1082,6 +1082,7 @@ function renderTradeGate(ctx) {
 
     const pbC = planSide ? planBasis(D, planSide) : null;
     ol = { planSide, md, sh, pbC };
+    try { if (typeof kchartPlan === 'function') kchartPlan(D, pbC, planSide); } catch (e) {}   // v227 互動 K 線畫同一組計畫價位
     html += planChart(D, pbC, planSide);   // v202 近 60 日 K 線＋計畫價位＋重演結果
     if (!planSide) {
       html += `<div style="padding:12px;text-align:center;background:var(--bg);border:1px dashed var(--bd);border-radius:10px;margin-bottom:10px;font-size:13px;font-weight:700;color:var(--muted)">⛔ 今日此標的無戰事<div style="font-size:11px;font-weight:400;color:var(--muted2);margin-top:3px">不出手，就是最精準的打擊</div></div>`;

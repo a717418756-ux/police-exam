@@ -224,6 +224,15 @@ function logicTests() {
     ok('綜合方向：方向照執行計畫（做多）；順風 1（營收）、逆風 4（台股大盤、美股、匯率利率、法人），逆風多要提醒', /^偏多/.test(s1.head) && /中期因子最強 20%（有回測）/.test(s1.head) && /順風 1 項（營收）/.test(s1.sub) && /逆風 4 項/.test(s1.sub) && /逆風明顯較多/.test(s1.sub) && /不改方向與部位/.test(s1.sub), JSON.stringify(s1));
     ok('綜合方向：計畫沒有方向就是觀望，背景偏多也不升格成進場理由', /^觀望/.test(s2.head) && /1 項偏多/.test(s2.sub) && /不構成進場理由/.test(s2.sub), JSON.stringify(s2));
     ok('綜合方向：換股後遲到的舊結果丟掉；畫面有寫出來', !stale && /觀望/.test(el.innerHTML) && el.style.display === 'block'); }
+  { // v227 互動 K 線（T-030）：原始市價、日期嚴格遞增、均線；函式庫載不到時不顯示、計畫價位晚到也補畫
+    const ks = fs.readFileSync(path.join(ROOT, 'kchart.js'), 'utf8'), html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8'), bf = fs.readFileSync(path.join(ROOT, 'bingfa.js'), 'utf8');
+    const K = new Function(ks.slice(ks.indexOf('function kcBars('), ks.indexOf('function kcColors(')) + '\nreturn { kcBars, kcSMA };')();
+    const D = { dates: ['20261101', '20261102', 'bad', '20261102', '20261104'], closes: [50, 55, 60, 60, 66], rawCloses: [100, 110, 120, 120, 132], rawHighs: [101, 112, 121, 121, 135], rawLows: [99, 108, 119, 119, 130], opens: [49, 50, 60, 60, 60], volumes: [1, 2, 3, 4, 5] };
+    const b = K.kcBars(D), sma = K.kcSMA(b, 2);
+    ok('互動K線：開盤換回原始市價（還原開盤×原始收÷還原收）、日期壞掉或重複的略過、日期格式 YYYY-MM-DD', b.length === 3 && b[0].open === 98 && b[1].open === 100 && b[2].time === '2026-11-04' && b[2].open === 120 && b[2].high === 135 && b[1].volume === 2, JSON.stringify(b));
+    ok('互動K線：均線用原始收盤', sma.length === 2 && sma[0].value === 105 && sma[1].value === 121, JSON.stringify(sma));
+    ok('互動K線：函式庫非同步載入、鎖版本，載到後補畫；載不到時整張圖不顯示', /<script async src="https:\/\/cdn\.jsdelivr\.net\/npm\/lightweight-charts@4\.2\.3\/dist\/lightweight-charts\.standalone\.production\.js" onload="try\{if\(window\._lastD\)kchartRender\(window\._lastD\)\}catch\(e\)\{\}"><\/script>/.test(html) && /typeof LightweightCharts === 'undefined'\) \{ wrap\.style\.display = 'none'; return; \}/.test(ks));
+    ok('互動K線：保留 TradingView 署名（Apache 2.0 授權要求）；計畫價位用執行計畫同一組 pbC，晚到也補畫', /attributionLogo: true/.test(ks) && /kchartPlan\(D, pbC, planSide\)/.test(bf) && /if \(KC\.plan && KC\.plan\.code === D\.code\) kchartPlan/.test(ks)); }
   ok('v209 結論列在紀律門開頭先清空（出錯時不殘留上一檔的價位）', /function renderTradeGate\(ctx\) \{\n  renderPlanLine\(null, null\);/.test(fs.readFileSync(path.join(ROOT, 'bingfa.js'), 'utf8')));
   ok('盤中時鐘 twMarketPhase 已移除（推估全日量的依據已不存在），沒有殘留呼叫', !/twMarketPhase/.test(['config.js', 'bingfa.js', 'enhance.js', 'mainforce.js', 'app.js'].map(f => fs.readFileSync(path.join(ROOT, f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')).join('')));
   // 台北時間一律「+8h 時間戳搭配 getUTC*」：混用 getHours 會整個時區錯位
