@@ -17,7 +17,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['market.js'] = 188; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['market.js'] = 225; } catch (e) {}
 
 /* v186 原本每查一檔都重抓一次大盤（期交所＋美股隔夜＋多檔報價）。
    台美任一邊在盤中 5 分鐘；兩邊都收盤時留到下一個開盤（最多 30 分鐘），有來源失敗的只留 5 分鐘 */
@@ -30,6 +30,7 @@ async function fetchMarket() {
     const r = await fetchT(`${GAS_URL}?action=market`);
     if (!r.ok) return null;
     const j = await r.json();
+    if (j.ok && j.fx && j.fx.usdtwd) setFxUsdTwd(j.fx.usdtwd.price);   // v225 美股部位換算用（config.js）
     if (j.ok) pcSet(_mktCache, 'all', 'market', j, (j.sourceErrors || []).length ? Date.now() + CACHE_TTL : cacheUntil('market', j, Date.now()));
     return j.ok ? j : null;
   } catch (e) {
@@ -112,6 +113,25 @@ function renderMarket(m) {
       value: `${(us.tnx.price/10).toFixed(2)}%`, valCls: tUp ? 'sell' : 'buy',
       sub: `${tUp?'升':'降'}｜殖利率升=資金離開風險資產` });
   }
+  /* v225 匯率與原物料（T-029）：只顯示、不計分。解讀是常見說法，本系統沒有回測過；
+     台幣升貶以「美元兌台幣」漲跌表示：數字變大＝台幣貶值 */
+  const fx = m.fx || {}, cmd = m.cmd || {};
+  const chg = d => d.changePct != null ? `${d.changePct >= 0 ? '+' : ''}${d.changePct.toFixed(2)}%` : '漲跌—';
+  if (fx.usdtwd && fx.usdtwd.price != null) {
+    const weak = fx.usdtwd.changePct > 0;
+    boxes.push({ label: '💱 美元兌台幣', cls: weak ? 'bad' : 'good', value: fx.usdtwd.price.toFixed(3), valCls: weak ? 'sell' : 'buy',
+      sub: `${chg(fx.usdtwd)}｜台幣${weak ? '貶' : '升'}｜常見說法：台幣貶＝外資匯出、升＝熱錢流入（未回測，僅顯示）｜美股部位用這個匯率換算` });
+  }
+  if (fx.usdjpy && fx.usdjpy.price != null) {
+    const yenUp = fx.usdjpy.changePct < 0;
+    boxes.push({ label: '💴 美元兌日圓', cls: yenUp && fx.usdjpy.changePct < -1 ? 'bad' : '', value: fx.usdjpy.price.toFixed(2), valCls: yenUp ? 'buy' : 'sell',
+      sub: `${chg(fx.usdjpy)}｜日圓${yenUp ? '升' : '貶'}${yenUp && fx.usdjpy.changePct < -1 ? '｜單日急升，留意日圓套利平倉（2024-08 曾引發全球急跌）' : ''}｜僅顯示` });
+  }
+  if (cmd.gold && cmd.gold.price != null) boxes.push({ label: '🥇 黃金期貨', cls: '', value: fmt(cmd.gold.price), valCls: cmd.gold.changePct >= 0 ? 'buy' : 'sell',
+    sub: `${chg(cmd.gold)}｜避險需求指標｜僅顯示` });
+  if (cmd.oil && cmd.oil.price != null) boxes.push({ label: '🛢️ 原油期貨（WTI）', cls: '', value: fmt(cmd.oil.price), valCls: cmd.oil.changePct >= 0 ? 'buy' : 'sell',
+    sub: `${chg(cmd.oil)}｜影響通膨預期、塑化與航空｜僅顯示` });
+
   // 雙壓判讀：美元+殖利率同步走強 = 外資賣壓環境
   if (us.dxy && us.tnx && us.dxy.changePct > 0.3 && us.tnx.changePct > 0.8) {
     boxes.push({ label: '⚠️ 總體逆風', cls: 'bad', value: '外資賣壓環境', valCls: 'sell',

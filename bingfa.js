@@ -54,7 +54,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 223; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 225; } catch (e) {}
 
 /* v159：marginChg5 名為「5日變化」，但後端資料不足 6 筆時是拿現有最舊那筆當基準，
    實際可能只跨 2~3 天。2 天漲 4% 與 5 天漲 4% 意義完全不同，直接套同一個門檻
@@ -1086,7 +1086,7 @@ function renderTradeGate(ctx) {
     if (!planSide) {
       html += `<div style="padding:12px;text-align:center;background:var(--bg);border:1px dashed var(--bd);border-radius:10px;margin-bottom:10px;font-size:13px;font-weight:700;color:var(--muted)">⛔ 今日此標的無戰事<div style="font-size:11px;font-weight:400;color:var(--muted2);margin-top:3px">不出手，就是最精準的打擊</div></div>`;
     } else {
-      const capital = parseFloat(document.getElementById('in-capital')?.value) || 1000000;
+      const capInfo = capitalFor(D), capital = capInfo.cap;   // v225 美股依匯率換成美元（config.js）
       const riskPct = parseFloat(document.getElementById('in-risk')?.value) || 1;
       // ATR統一用app.js的calcATR（Wilder平滑，業界標準）+原始市價序列（下單價位鐵律）
       // v93修：原本此處有獨立的_gateATR（簡單平均+還原價），與執行計畫/劇本的calcATR
@@ -1130,7 +1130,7 @@ function renderTradeGate(ctx) {
         ? (lots2 >= 1 ? lots2 + ' 張' + (shr2 - lots2 * 1000 >= 1 ? `（＋${shr2 - lots2 * 1000} 零股）` : '') : shr2 >= 1 ? shr2 + ' 股' : null)
         : (shr2 >= 1 ? shr2 + ' 股' : null);
       const sizeTxt2 = sizeShort ? sizeShort + (D.currency === 'TWD' && lots2 < 1 ? '（零股，2%風險下不足1張屬正常）' : '')
-        : D.currency === 'TWD' ? '風險額不足最小單位——此股停損距離過大，跳過' : '不足1股';
+        : D.currency === 'TWD' ? '風險額不足最小單位——此股停損距離過大，跳過' : capital > 0 ? '不足1股' : capInfo.note;
       ol.plan = { entry, stop, tp1, days: pickT ? pickT.days : null, size: sizeShort, blocked: !!(rb && rb.blocked), cur };
 
       if (rb && rb.blocked) {

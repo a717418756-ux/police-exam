@@ -20,7 +20,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['db.js'] = 219; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['db.js'] = 225; } catch (e) {}
 
 const DB_NAME = 'stockRadarDB';
 // DB schema 版本獨立管理（schema 沒變就不用動；這裡固定 1）
@@ -396,15 +396,23 @@ async function cloudLoad() {
    ════════════════════════════════════════════════════════════════════ */
 /* v183 交易金額：有填股數才有金額。舊版沒股數時存的是「盈虧%×100」冒充金額，一律當成未知 */
 function pnlAmt(t) { return t && t.shares != null && t.pnl != null ? t.pnl : null; }
+/* v225 預算用台幣算：美股單（代號不是數字開頭）的損益是美元，乘匯率；沒有匯率就當成「沒填金額」，不混進台幣 */
+function pnlTwd(t) {
+  const a = pnlAmt(t);
+  const code = String(t.code || '');
+  if (a == null || !code || /^\d/.test(code)) return a;   // 沒填代號的舊單當台股（與日誌成本 journalCost 相同）
+  const fx = typeof fxUsdTwd === 'function' ? fxUsdTwd() : null;
+  return fx ? a * fx.rate : null;
+}
 function computeRiskBudget(trades, capital) {
   try {
     if (!capital || capital <= 0) return null;
     const now = new Date(Date.now() + 8 * 3600e3);   // v183：台北月份
     const ym = now.getUTCFullYear() + '-' + String(now.getUTCMonth() + 1).padStart(2, '0');
     const real = (trades || []).filter(t => !t.sim && t.date && String(t.date).slice(0, 7) === ym);
-    const known = real.filter(t => pnlAmt(t) != null);
-    const lossSum = known.filter(t => t.pnl < 0).reduce((a, t) => a + Math.abs(t.pnl), 0);
-    const winSum = known.filter(t => t.pnl > 0).reduce((a, t) => a + t.pnl, 0);
+    const known = real.map(pnlTwd).filter(v => v != null);
+    const lossSum = known.filter(v => v < 0).reduce((a, v) => a - v, 0);
+    const winSum = known.filter(v => v > 0).reduce((a, v) => a + v, 0);
     const netPnl = winSum - lossSum;
     // 6%原則採「淨虧損」計算（獲利可回補預算，符合Elder原意：保護的是帳戶淨值）
     const usedPct = netPnl < 0 ? Math.abs(netPnl) / capital * 100 : 0;

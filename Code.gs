@@ -1367,7 +1367,7 @@ function avgN(arr, n) {
  * ════════════════════════════════════════════════════════
  */
 function fetchMarket() {
-  var out = { ok: true, taifex: {}, us: {} };
+  var out = { ok: true, taifex: {}, us: {}, fx: {}, cmd: {} };
   // v156：來源失敗要讓使用者看得到（前端對缺欄位是「不顯示那一格」，會整個維度靜默消失）
   var srcErr = [];
 
@@ -1443,7 +1443,9 @@ function fetchMarket() {
   /* v183：原本沒抓加權指數（worker 有）→ GAS 上「假強／假弱」判斷整個失效；
      六檔美股報價共用一個 try，一檔回非 JSON 其餘全部跟著消失、也沒列進來源錯誤。改成逐檔、缺了就講 */
   var qs = [['tw', 'index', '^TWII', '加權指數'], ['us', 'sox', '^SOX', '費半'], ['us', 'nasdaq', '^IXIC', '那斯達克'], ['us', 'sp500', '^GSPC', '標普500'],
-    ['us', 'vix', '^VIX', 'VIX'], ['us', 'dxy', 'DX-Y.NYB', '美元指數'], ['us', 'tnx', '^TNX', '美債10年']], qMiss = [];
+    ['us', 'vix', '^VIX', 'VIX'], ['us', 'dxy', 'DX-Y.NYB', '美元指數'], ['us', 'tnx', '^TNX', '美債10年'],
+    // v225 匯率與原物料（與 worker.js 對等）
+    ['fx', 'usdtwd', 'TWD=X', '美元兌台幣'], ['fx', 'usdjpy', 'JPY=X', '美元兌日圓'], ['cmd', 'gold', 'GC=F', '黃金'], ['cmd', 'oil', 'CL=F', '原油']], qMiss = [];
   for (var qi = 0; qi < qs.length; qi++) {
     var qv = null; try { qv = yahooQuote(qs[qi][2]); } catch (e) {}
     if (qv) { if (!out[qs[qi][0]]) out[qs[qi][0]] = {}; out[qs[qi][0]][qs[qi][1]] = qv; } else qMiss.push(qs[qi][3]);

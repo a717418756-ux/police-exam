@@ -11,7 +11,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 
 // ▼▼▼ 每次改版把這個數字 +1（例如 6 → 7），就會自動清除舊快取 ▼▼▼
-const APP_VERSION = 224;
+const APP_VERSION = 225;
 
 /* ── 快取存活時間（統一常數，v95）─────────────────────────────────────
    v95修：原本四個快取各自寫死不同TTL（股價5分/融資5分/大盤10分/縱深10分），
@@ -43,7 +43,7 @@ const RISK_RULE = { perTrade: 2, monthly: 6 };
    app.js 啟動時比對，不符就直接點名是哪個檔沒更新——
    以前只能靠「畫面文字怎麼還是舊的」去猜，這種事發生過不只一次。 */
 const FILE_VERS = {
-  'help.js': 224, 'db.js': 219, 'market.js': 188, 'enhance.js': 218, 'advanced.js': 224, 'smc.js': 198, 'mainforce.js': 213, 'mtf.js': 197, 'bingfa.js': 223, 'layout.js': 223, 'journal.js': 224, 'scan.js': 224, 'intel.js': 199, 'app.js': 221, 'names.js': 221
+  'help.js': 224, 'db.js': 225, 'market.js': 225, 'enhance.js': 218, 'advanced.js': 224, 'smc.js': 198, 'mainforce.js': 213, 'mtf.js': 197, 'bingfa.js': 225, 'layout.js': 223, 'journal.js': 224, 'scan.js': 224, 'intel.js': 199, 'app.js': 225, 'names.js': 221
 };
 
 /* 證據等級登記（文件；各規則直接寫在使用它的地方）
@@ -254,6 +254,26 @@ async function fetchT(url, opts = {}, ms = FE_TIMEOUT) {
 let GAS_URL = '';
 let SYNC_URL = '';
 let FINMIND_TOKEN = '';
+/* v225 帳戶資金一律以台幣填寫；美股部位、損益用美元兌台幣換算（T-029）。
+   原本設定寫「美股以美元計」，同一個數字台股當台幣、美股當美元——資金 100 萬台幣查美股會算成 100 萬美元，部位大約 33 倍；
+   每月 6% 預算也把美元損益直接加進台幣。匯率由大盤資料（Yahoo TWD=X）帶進來，存在本機；沒有匯率時美股部位不算、不猜。 */
+const FX_KEY = 'sr_fx_usdtwd';
+function fxUsdTwd() {
+  try { const o = JSON.parse(localStorage.getItem(FX_KEY) || 'null'); return o && o.rate > 20 && o.rate < 60 ? o : null; } catch (e) { return null; }
+}
+function setFxUsdTwd(rate) {
+  if (!(rate > 20 && rate < 60)) return;
+  try { localStorage.setItem(FX_KEY, JSON.stringify({ rate, t: Date.now() })); } catch (e) {}
+}
+/* 這一檔要用的資金（該檔幣別）：台股＝設定的台幣；美股＝台幣 ÷ 匯率，沒有匯率回 0 並附原因 */
+function capitalFor(D) {
+  const el = typeof document !== 'undefined' ? document.getElementById('in-capital') : null;
+  const twd = parseFloat(el && el.value) || 1000000;
+  if (!D || D.currency === 'TWD') return { cap: twd, twd, note: '' };
+  const fx = fxUsdTwd();
+  return fx ? { cap: twd / fx.rate, twd, fx, note: `資金 NT$${Math.round(twd).toLocaleString()} ÷ 匯率 ${fx.rate.toFixed(2)}` }
+    : { cap: 0, twd, note: '還沒取得美元兌台幣匯率，美股部位暫不計算（大盤資料載入後會自動帶入）' };
+}
 /* v137 台股升降單位（原始市價）：短線近停損時，1檔常占停損距離的一成以上，必須計入 */
 const twTick = p => p < 10 ? 0.01 : p < 50 ? 0.05 : p < 100 ? 0.1 : p < 500 ? 0.5 : p < 1000 ? 1 : 5;
 /* v218 台股交易成本單一來源（使用者 11/18 決定）：手續費 0.1425% × 折數，進出各一次；預設 2.8 折＝使用者對帳單的實際折數。
