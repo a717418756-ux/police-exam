@@ -54,7 +54,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 225; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 226; } catch (e) {}
 
 /* v159：marginChg5 名為「5日變化」，但後端資料不足 6 筆時是拿現有最舊那筆當基準，
    實際可能只跨 2~3 天。2 天漲 4% 與 5 天漲 4% 意義完全不同，直接套同一個門檻
@@ -1222,6 +1222,7 @@ function renderTradeGate(ctx) {
     }
   } catch (e) { /* 執行計畫失敗不影響裁決顯示 */ }
   renderPlanLine(ctx.D, ol);
+  if (ol && typeof dirFromPlan === 'function') dirFromPlan(ctx.D, ol);   // v226 綜合方向卡：方向只取執行計畫這一邊
 
   html += `<div style="font-size:10px;color:var(--muted2);line-height:1.8;padding-top:8px;border-top:1px solid var(--bd)">
     <b style="color:var(--muted)">⚔️ 出手四律（依回測結果）</b><br>

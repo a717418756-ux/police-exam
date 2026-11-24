@@ -1456,7 +1456,7 @@ async function fetchMarket() {
   out.us.sp500 = sp500;
   out.us.vix = vix;
   out.us.dxy = dxy;   // 美元指數（強美元=外資匯出台股壓力）
-  out.us.tnx = tnx;   // 美債10年殖利率×10（升=資金離開風險資產）
+  out.us.tnx = tnx;   // 美債10年殖利率（Yahoo 報的就是百分比；升=資金離開風險資產）
   out.fx.usdtwd = usdtwd; out.fx.usdjpy = usdjpy;
   out.cmd.gold = gold; out.cmd.oil = oil;
 

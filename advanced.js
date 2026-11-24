@@ -32,7 +32,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['advanced.js'] = 224; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['advanced.js'] = 226; } catch (e) {}
 
 /* ── 大盤基準快取（避免每檔都重抓）─────────────────────────────────── */
 let _benchCache = {};   // key → { d: { closes, lastDate }, t, until }（v177：台美各自計時；v186 有效期看資料日期，見 cacheUntil）
@@ -334,6 +334,7 @@ async function loadFundamentalCard(D) {
     } catch (e) { why = String(e && e.message || e); if (typeof ErrorLog !== 'undefined') ErrorLog.push('基本面', e); }
   }
   if (window._activeCode && window._activeCode !== D.code) return;  // 已換股，丟棄遲到結果
+  if (typeof dirFromFund === 'function') dirFromFund(D, f);   // v226 綜合方向卡
   card.style.display = 'block';
   // v187 拿不到要講原因（原本整張卡默默消失：上櫃股看不出是「沒資料」還是「來源不支援」）
   if (!f) { document.getElementById('fundamental-content').innerHTML = `<div style="font-size:12px;color:var(--warn);line-height:1.6">⚠️ 基本面取得失敗：${escI(why)}（估值表只涵蓋上市股；上櫃股的營收來源尚未用真實回應驗證過）</div>`; return; }

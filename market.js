@@ -17,7 +17,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['market.js'] = 225; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['market.js'] = 226; } catch (e) {}
 
 /* v186 原本每查一檔都重抓一次大盤（期交所＋美股隔夜＋多檔報價）。
    台美任一邊在盤中 5 分鐘；兩邊都收盤時留到下一個開盤（最多 30 分鐘），有來源失敗的只留 5 分鐘 */
@@ -38,6 +38,10 @@ async function fetchMarket() {
     return null;
   }
 }
+
+/* v226 美債 10 年：Yahoo ^TNX 報的就是百分比（11/25 實測 4.88＝4.88%），原本再除以 10 顯示成 0.49%。
+   CBOE 原始指數是殖利率×10（48.8）：大於 20 才除以 10，兩種來源都對 */
+const tnxPct = p => p > 20 ? p / 10 : p;
 
 function renderMarket(m) {
   if (!m) { $('market-card').style.display = 'none'; return; }
@@ -110,7 +114,7 @@ function renderMarket(m) {
   if (us.tnx && us.tnx.price != null) {
     const tUp = us.tnx.changePct >= 0;
     boxes.push({ label: '🏛️ 美債10Y殖利率', cls: tUp ? 'bad' : 'good',
-      value: `${(us.tnx.price/10).toFixed(2)}%`, valCls: tUp ? 'sell' : 'buy',
+      value: `${tnxPct(us.tnx.price).toFixed(2)}%`, valCls: tUp ? 'sell' : 'buy',
       sub: `${tUp?'升':'降'}｜殖利率升=資金離開風險資產` });
   }
   /* v225 匯率與原物料（T-029）：只顯示、不計分。解讀是常見說法，本系統沒有回測過；

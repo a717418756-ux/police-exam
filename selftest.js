@@ -203,10 +203,27 @@ function logicTests() {
   { // v209 一句話結論列：只讀執行計畫與 planBasis，不另算
     const bf = fs.readFileSync(path.join(ROOT, 'bingfa.js'), 'utf8'), html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
     const pl = bf.slice(bf.indexOf('function renderPlanLine('), bf.indexOf('function renderTradeGate('));
-    ok('v209 結論列在決策橫幅最上方（vb-inner 第一個子元素）', /<div id="vb-inner"[^>]*>\s*<div id="vb-oneline"/.test(html));
+    ok('v209／v226 決策橫幅最上方：綜合方向卡，接著一句話結論列', /<div id="vb-inner"[^>]*>\s*<div id="vb-dir"[^>]*><\/div>\s*<div id="vb-oneline"/.test(html));
     ok('v209 結論列由紀律門用同一組計畫變數繪製（ol.plan 取自執行計畫、renderPlanLine 在計畫之後呼叫）', /ol = \{ planSide, md, sh, pbC \};/.test(bf) && /ol\.plan = \{ entry, stop, tp1, days: pickT \? pickT\.days : null, size: sizeShort, blocked: !!\(rb && rb\.blocked\), cur \};/.test(bf) && /\n  renderPlanLine\(ctx\.D, ol\);\n/.test(bf));
     ok('v209 結論列不自行計算 ATR／停損／部位（只有 planBasis 一個來源）', pl.length > 0 && !/calcATR|computeSmartStop|Math\.floor|riskAmt|capital/.test(pl) && /planBasis\(D, 'long'\)/.test(pl));
     ok('v209 部位文字由同一個 sizeShort 組成（結論列與執行計畫同一字串）', /const sizeTxt2 = sizeShort \? sizeShort \+/.test(bf)); }
+  { // v226 綜合方向卡（T-035）：方向只取執行計畫；其他面向只算順逆風；換股後遲到的結果丟掉
+    const src = fs.readFileSync(path.join(ROOT, 'direction.js'), 'utf8'), el = { style: {}, innerHTML: '' }, mks = fs.readFileSync(path.join(ROOT, 'market.js'), 'utf8');
+    const tp = new Function(mks.match(/const tnxPct = [^\n]+/)[0] + '\nreturn tnxPct;')();
+    ok('美債 10 年：Yahoo 報百分比（4.88）照原數字；CBOE 的×10（48.8）才除以 10', tp(4.88) === 4.88 && Math.abs(tp(48.8) - 4.88) < 1e-9 && !/tnx\.price\s*\/\s*10/.test(mks + src));
+    const win = { _activeCode: '2330' }, doc = { getElementById: id => id === 'vb-dir' ? el : null };
+    const X = new Function('window', 'document', 'escI', 'fmtV', 'chipUsable', 'tnxPct', src + '\nreturn { DIR, dirReset, dirSet, dirFromPlan, dirFromMarket, dirFromChip, dirFromFund, dirSummary };')(win, doc, t => String(t), n => String(n), () => true, tp);
+    const D = { code: '2330', currency: 'TWD', chip: { foreign5: -500, trust5: 100 } };
+    X.dirReset('2330'); X.dirFromPlan(D, { planSide: 'long', md: { side: 'long', label: '最強', q: 4 }, sh: { grade: 'D' } });
+    X.dirFromMarket(D, { tw: { breadth: { up: 10, dn: 27, total: 37 } }, us: { nasdaq: { changePct: -1.2 }, sox: { changePct: -2 }, dxy: { changePct: 0.5 }, tnx: { price: 45, changePct: 1 } }, fx: { usdtwd: { changePct: 0.4 } } });
+    X.dirFromChip(D); X.dirFromFund(D, { revYoY: 25 });
+    const s1 = X.dirSummary();
+    win._activeCode = '2317'; X.dirSet('intel', { lean: -1, v: 'x', tier: 'U' }, '2330'); const stale = !!X.DIR.rows.intel;
+    X.dirReset('2317'); win._activeCode = '2317'; X.dirFromPlan({ code: '2317', currency: 'TWD' }, { planSide: null, md: { side: null, label: '待定' }, sh: { grade: 'C' } });
+    X.dirSet('fund', { lean: 1, v: 'y', tier: 'U' }, '2317'); const s2 = X.dirSummary();
+    ok('綜合方向：方向照執行計畫（做多）；順風 1（營收）、逆風 4（台股大盤、美股、匯率利率、法人），逆風多要提醒', /^偏多/.test(s1.head) && /中期因子最強 20%（有回測）/.test(s1.head) && /順風 1 項（營收）/.test(s1.sub) && /逆風 4 項/.test(s1.sub) && /逆風明顯較多/.test(s1.sub) && /不改方向與部位/.test(s1.sub), JSON.stringify(s1));
+    ok('綜合方向：計畫沒有方向就是觀望，背景偏多也不升格成進場理由', /^觀望/.test(s2.head) && /1 項偏多/.test(s2.sub) && /不構成進場理由/.test(s2.sub), JSON.stringify(s2));
+    ok('綜合方向：換股後遲到的舊結果丟掉；畫面有寫出來', !stale && /觀望/.test(el.innerHTML) && el.style.display === 'block'); }
   ok('v209 結論列在紀律門開頭先清空（出錯時不殘留上一檔的價位）', /function renderTradeGate\(ctx\) \{\n  renderPlanLine\(null, null\);/.test(fs.readFileSync(path.join(ROOT, 'bingfa.js'), 'utf8')));
   ok('盤中時鐘 twMarketPhase 已移除（推估全日量的依據已不存在），沒有殘留呼叫', !/twMarketPhase/.test(['config.js', 'bingfa.js', 'enhance.js', 'mainforce.js', 'app.js'].map(f => fs.readFileSync(path.join(ROOT, f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')).join('')));
   // 台北時間一律「+8h 時間戳搭配 getUTC*」：混用 getHours 會整個時區錯位

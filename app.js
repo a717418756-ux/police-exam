@@ -1,6 +1,6 @@
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['app.js'] = 225; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['app.js'] = 226; } catch (e) {}
 
 // ══════════════════════════════════════════════════════════════════════
 // 短線雷達 Pro — 風險優先分層決策系統
@@ -484,6 +484,7 @@ async function go(){
   activeCat='全部';
 
   const queryCode=raw.toUpperCase();
+  if(typeof dirReset==='function') dirReset(queryCode);   // v226 綜合方向卡換股清空（direction.js）
   window._activeCode=queryCode;  // 立即登記，任何比這更早查詢的舊請求回來時會被丟棄（防async競爭張冠李戴）
   /* v177：按鈕停用擋不住 Enter／最近查詢／掃描「開啟完整分析」——它們直接呼叫 go()。
      舊查詢的 await 回來時若已換股，整段不准再畫（否則會把上一檔的卡片畫進這一檔的畫面） */
@@ -564,7 +565,7 @@ async function go(){
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('趨勢卡',err); }
     // ADX 市場狀態（該用趨勢還是震盪策略）
     let regimeResult=null;
-    try{ regimeResult=computeRegime(D); renderRegime(regimeResult); }
+    try{ regimeResult=computeRegime(D); renderRegime(regimeResult); if(typeof dirFromRegime==='function') dirFromRegime(D,regimeResult); }
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('市場狀態',err); }
     // v188 單卡失敗只記錄、不拖垮後面所有卡
     try{ renderRisk(risk); }
@@ -577,11 +578,11 @@ async function go(){
     // 大盤環境（第⓪層）
     const market=await fetchMarket();
     if(stale())return;
-    try{ renderMarket(market); }
+    try{ renderMarket(market); if(typeof dirFromMarket==='function') dirFromMarket(D,market); }
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('大盤卡',err); }
 
     // 籌碼面（外資/投信，台股才有）
-    try{ renderChip(D.chip, D); }
+    try{ renderChip(D.chip, D); if(typeof dirFromChip==='function') dirFromChip(D); }
     catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('籌碼面',err); }
 
     // 進出場劇本
@@ -650,7 +651,7 @@ async function go(){
       try{
         const rs=computeRSRating(bi.D, bi.bench);
         rsRating=rs.excess!=null?rs.rating:null;   // v187 大盤沒抓到時那是「絕對報酬」，不可當相對強弱餵進勢能（RS 卡自己會標明）
-        renderRSRating(rs, bi.note);
+        renderRSRating(rs, bi.note); if(typeof dirFromRS==='function') dirFromRS(D, rs, bi.note);
       }catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('RS評級',err); }
       try{ renderBetaAlpha(computeBetaAlpha(bi.D, bi.bench)); }
       catch(err){ if(typeof ErrorLog!=='undefined')ErrorLog.push('BetaAlpha',err); }
