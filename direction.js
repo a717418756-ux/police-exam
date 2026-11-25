@@ -6,13 +6,13 @@
 
    證據規則（與 config.js 證據等級登記一致，不可放寬）：
      • 方向只取「執行計畫」的那一邊（bingfa.js renderTradeGate：中期因子最強／最弱 20%，A 級；
-       沒有中期訊號才退回勢能等級，未回測）。這裡不另外算方向、不投票決定方向。
+       v230 起沒有中期訊號就觀望，勢能等級不再當備用方向，台股、美股都一樣）。這裡不另外算方向、不投票決定方向。
      • 其餘面向（大盤、匯率、籌碼、基本面、情報、相對強弱）只算「順風／逆風」，標「未回測」，
        不改方向、不改部位。全部偏同一邊也只是背景，不是訊號。
      • 計畫重演的正負號不列入順逆風（T-019：對下一筆沒有預測力）。
    各卡是非同步到的：每次有新的一列就重畫；換股時 dirReset 清空，遲到的舊結果用代碼擋掉。
    ═══════════════════════════════════════════════════════════════════ */
-try { (window.SR_FV = window.SR_FV || {})['direction.js'] = 229; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['direction.js'] = 230; } catch (e) {}
 
 const DIR = { code: null, cur: 'TWD', plan: null, rows: {}, ai: null };
 /* 表格列的順序；go＝點了要跳去的卡片 id */
@@ -22,7 +22,7 @@ const DIR_ROWS = [
   ['intel', '新聞情報', 'intel-card'], ['twmkt', '台股大盤', 'market-card'], ['usmkt', '美股大盤', 'market-card'],
   ['macro', '匯率與利率', 'market-card'],
 ];
-const DIR_BASIS = { mid: 1, mom: 1 };   // 方向的依據本身，不重複算進順逆風
+const DIR_BASIS = { mid: 1 };   // 方向的依據本身，不重複算進順逆風（v230 勢能不再是依據，改列背景）
 
 function dirReset(code, cur) {
   DIR.code = code; DIR.cur = cur || (/^\d/.test(String(code || '')) ? 'TWD' : 'USD'); DIR.plan = null; DIR.rows = {}; DIR.ai = null;
@@ -39,8 +39,9 @@ function dirSet(key, row, code) {
 /* ── 各卡的結論 → 一列。門檻跟原卡片的文字一致，不另訂 ── */
 function dirFromPlan(D, ol) {
   if (!D || !dirLive(D.code)) return;
-  const { md, sh, planSide } = ol || {};
-  DIR.plan = { side: planSide || null, why: md && md.side ? `中期因子${md.side === 'long' ? '最強' : '最弱'} 20%（有回測）` : sh && planSide ? `勢能 ${sh.grade} 級（未回測）` : '' };
+  const { md, sh, planSide, mid } = ol || {};
+  DIR.plan = { side: planSide || null, why: planSide && md ? `中期因子${md.side === 'long' ? '最強' : '最弱'} 20%（有回測）` : '',
+    none: planSide ? '' : typeof midWhy === 'function' ? midWhy(D.currency, mid, md) : '' };   // v230 觀望時講原因
   DIR.rows.mid = md ? { lean: md.side === 'long' ? 1 : md.side === 'short' ? -1 : 0, v: md.label || (md.side ? '' : '待定'), tier: 'A' } : D.currency === 'TWD' ? { lean: null, v: '待定', tier: 'A' } : { lean: null, v: '美股沒有中期因子', tier: '' };
   if (sh) {
     const up = sh.grade === 'A' || sh.grade === 'B', dn = sh.shortGrade === 'A' || sh.shortGrade === 'B';
@@ -118,7 +119,7 @@ function dirSummary() {
   const ctx = DIR_ROWS.map(r => r[0]).filter(k => DIR.rows[k] && !DIR_BASIS[k] && DIR.rows[k].lean != null);
   const bull = ctx.filter(k => DIR.rows[k].lean > 0), bear = ctx.filter(k => DIR.rows[k].lean < 0);
   if (!DIR.plan) return { tone: 'wait', head: '分析中…', why: '', pro: [], con: [], proL: '', conL: '', note: '' };
-  if (!s) return { tone: 'wait', head: '觀望', why: '沒有回測過的方向訊號', pro: bull, con: bear, proL: '偏多的背景', conL: '偏空的背景',
+  if (!s) return { tone: 'wait', head: '觀望', why: DIR.plan.none || '沒有回測過的方向訊號', pro: bull, con: bear, proL: '偏多的背景', conL: '偏空的背景',
     note: '背景因子未回測，只供參考，不構成進場理由' };
   const withK = s > 0 ? bull : bear, against = s > 0 ? bear : bull;
   return { tone: s > 0 ? 'bull' : 'bear', head: s > 0 ? '做多試單' : '做空試單', why: `依${DIR.plan.why || '執行計畫'}`,

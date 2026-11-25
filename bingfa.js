@@ -54,7 +54,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 227; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['bingfa.js'] = 230; } catch (e) {}
 
 /* v159：marginChg5 名為「5日變化」，但後端資料不足 6 筆時是拿現有最舊那筆當基準，
    實際可能只跨 2~3 天。2 天漲 4% 與 5 天漲 4% 意義完全不同，直接套同一個門檻
@@ -280,13 +280,18 @@ function renderVerdictBanner(shi, D, regime, mtf) {
 
   // ══ 主結論（v78 修復：D 改由參數傳入——先前引用未定義變數導致空方分支靜默失效）══
   let color, bg, title, summary;
+  /* v230（T-038）勢能沒有回測，不單獨給方向：勢能 A/B 但中期因子不是同一邊的最強／最弱 20% → 灰色「沒有回測過的方向」，執行計畫也是觀望 */
+  const midB = midFactors(D), mdB = midDirection(midB);
+  const noDir = () => { color = 'var(--muted)'; bg = 'var(--bg)'; title = `⚪ ${grade}級勢能，但沒有回測過的方向`;
+    summary = `勢能 ${grade.startsWith('空') ? shi.shortShi : shi.shi}分（未經回測）不單獨當方向；${midWhy(D && D.currency, midB, mdB)} → 觀望`; };
   if (grade === 'A' || grade === 'B') {
     color = grade === 'A' ? 'var(--buy)' : '#10B981'; bg = 'var(--buy-d)';
     title = `🟢 ${grade}級標的，多方條件${grade === 'A' ? '完整' : '良好'}`;
     /* v195 勢能未經回測；與有回測的中期因子相反時以中期為準（執行計畫也是先看中期）。紀律門不禁止任何方向（v218 起連高波動放空也只提醒），v183 的做多禁止檢查已無作用，移除 */
-    const md = midDirection(midFactors(D));
+    const md = mdB;
     if (md && md.side === 'short') { color = 'var(--warn)'; bg = 'var(--warn-d)'; title = `🟡 ${grade}級多方勢能，但中期因子最弱 20%`;
       summary = `勢能 ${shi.shi}分（未經回測）與中期因子（全市場回測）相反：中期最弱組之後3個月平均超額 ${md.ex}%——以中期為準，不做多；執行計畫依中期方向`; }
+    else if (!(md && md.side === 'long')) noDir();
     else {
       summary = `勢能 ${shi.shi}分（未經回測）${syn && syn.decisive ? `、行為結構 ${syn.score >= 0 ? '+' : ''}${syn.score}` : ''}。${warns.length ? '有警示需先看（見下方）' : '沒有警示'}，進場價位與停損照出手紀律門的執行計畫，嚴設停損${simNote(D, 'long')}`;
     }
@@ -300,7 +305,11 @@ function renderVerdictBanner(shi, D, regime, mtf) {
     const biasPct = (barPx(D) - ma20v) / ma20v * 100;
     const drop5 = n >= 6 ? (c[n - 1] - c[n - 6]) / c[n - 6] * 100 : 0;
     const bounceRisk = rsiV <= 30 || biasPct <= -8 || drop5 <= -8;
-    if (bounceRisk) {
+    /* v195 與中期因子相反時以中期為準；v230 中期沒有方向：不追空、也不教怎麼空 */
+    if (mdB && mdB.side === 'long') { color = 'var(--warn)'; bg = 'var(--warn-d)'; title = `🟡 空方${shi.shortGrade}級勢能，但中期因子最強 20%`;
+      summary = `空方勢能 ${shi.shortShi}分（未經回測）與中期因子（全市場回測）相反：中期最強組之後3個月平均超額 +${mdB.ex}%——以中期為準，不放空；執行計畫依中期方向`; }
+    else if (!(mdB && mdB.side)) noDir();
+    else if (bounceRisk) {
       color = 'var(--warn)'; bg = 'var(--warn-d)';
       title = '⚠️ 空方勢能強，但此刻「不宜追空」';
       const reasons = [];
@@ -313,9 +322,6 @@ function renderVerdictBanner(shi, D, regime, mtf) {
       title = `🔻 空方${shi.shortGrade}級標的，弱勢明確`;
       summary = `空方勢能 ${shi.shortShi}分（趨勢/籌碼/量能同弱，未經回測），且非跌深超賣區${ms && ms.stage === '尾端' && ms.dir === -1 ? '，但行情已尾端——等反彈找位而非市價追' : '，偏空可依紀律門評估'}。做空嚴守停損${simNote(D, 'short')}`;
       /* v218 拿掉 v187「紀律門禁止做空 → 標題改黃」：紀律門已沒有禁止一級 */
-      const md = midDirection(midFactors(D));   // v195 與中期因子相反時以中期為準
-      if (md && md.side === 'long') { color = 'var(--warn)'; bg = 'var(--warn-d)'; title = `🟡 空方${shi.shortGrade}級勢能，但中期因子最強 20%`;
-        summary = `空方勢能 ${shi.shortShi}分（未經回測）與中期因子（全市場回測）相反：中期最強組之後3個月平均超額 +${md.ex}%——以中期為準，不放空；執行計畫依中期方向`; }
     }
   } else {
     color = 'var(--muted)'; bg = 'var(--bg)';
@@ -537,7 +543,8 @@ function midFactors(D) {
   const e0 = typeof _intelCache !== 'undefined' && _intelCache[D.code], ic = e0 && e0.v === APP_VERSION && Date.now() - e0.t < 864e5 && e0, rv = ic && ic.d && ic.d.revenue, ql = ic && ic.d && ic.d.quality;
   const sur = rv && rv.sur != null ? rv.sur : null, rev3 = rv && rv.rev3 != null ? rv.rev3 : null, qual = ql ? ql.acc : null;
   const r = (x, k) => x == null ? 0 : midPct(x, MID_EV[k].cut) - 0.5;   // 回測：缺值＝中間
-  return { hi52, sur, rev3, qual, qq: ql ? ql.q : null, ym: rv ? rv.ym : null,
+  const revErr = sur == null && ic && ic.d && (ic.d.srcErrors || []).find(x => /^月營收/.test(x)) || null;   // v230 例如 FinMind 額度用完（HTTP 402）
+  return { hi52, sur, rev3, qual, qq: ql ? ql.q : null, ym: rv ? rv.ym : null, revErr,
     comp: sur == null ? null : (r(hi52, 'hi52') + r(sur, 'sur') + r(rev3, 'rev3') + r(qual, 'qual')) / 4 };   // 回測：合成需要 52週高點與營收驚奇
 }
 /* v217 月營收是否過期：每月 10 日前公布上個月（回測假設 11 日可用）。最新一筆比「應已公布的月份」舊就回傳應有的月份（YYYYMM），否則 null。
@@ -554,6 +561,14 @@ function midDirection(mid) {
   if (!mid || mid.why || mid.comp == null) return null;
   const q = midQ(mid.comp, MID_EV.comp.cut);
   return { q, label: MID_DIR[q], ex: MID_EV.comp.ex[q], side: q === 4 ? 'long' : q === 0 ? 'short' : null };
+}
+/* v230（T-038）方向只認中期因子最強／最弱 20%；勢能沒有回測，不再當備用方向。沒有方向時用這句講原因（有方向回空字串） */
+function midWhy(cur, mid, md) {
+  if (cur !== 'TWD') return '美股沒有回測過的方向依據';
+  if (!mid) return '中期因子待定';
+  if (mid.why) return `中期因子算不出（${mid.why}）`;
+  if (!md) return mid.revErr ? `中期因子待定（${mid.revErr}）` : '中期因子待定（月營收還沒拿到）';
+  return md.side ? '' : `中期因子${md.label}（只有最強／最弱 20% 才給方向）`;
 }
 /* v193 量價事件（research_volume.js，全市場 2,123 檔 2006~2026，隔日開盤進場、減全市場平均、同日事件先平均）：
    B1 盤整後爆量大漲（前20日高低差≤15%、漲≥5%、量≥3倍）13,161 次：之後 5／20／60 日 −0.63／−0.78／−1.14%，t −8.5／−5.8／−4.5，三段都為負
@@ -1023,8 +1038,8 @@ function renderPlanLine(D, ol) {
   if (!ol || !D) { el.style.display = 'none'; el.innerHTML = ''; return; }
   const pct = x => `<b>${x >= 0 ? '+' : ''}${x.toFixed(2)}%</b>`;
   const sideTxt = s => s === 'long' ? '做多' : '做空';
-  const { md, sh, planSide, pbC, plan } = ol;
-  const why = md && md.side ? `依中期因子${md.side === 'long' ? '最強' : '最弱'} 20%` : sh ? `依勢能 ${sh.grade} 級，未經回測` : '';
+  const { md, planSide, pbC, plan } = ol;
+  const why = md && md.side ? `依中期因子${md.side === 'long' ? '最強' : '最弱'} 20%` : '';
   const item = (k, v) => `<span style="display:inline-block;margin-right:12px"><span style="color:var(--muted2)">${k}</span> ${v}</span>`;
   let h;
   if (planSide && !plan) { el.style.display = 'none'; el.innerHTML = ''; return; }   // 計畫中途出錯：不顯示，免得誤寫「無計畫」
@@ -1038,7 +1053,7 @@ function renderPlanLine(D, ol) {
     let eL = null, eS = null;
     try { const a = planBasis(D, 'long').sim; if (a) eL = a.ev; } catch (e) {}
     try { const b = planBasis(D, 'short').sim; if (b) eS = b.ev; } catch (e) {}
-    const reason = `${sh ? `勢能 ${sh.grade}` : '勢能未算出'}、中期${md ? md.label : '待定'}`;
+    const reason = midWhy(ol.cur || D.currency, ol.mid, md);
     const ev = eL == null && eS == null ? '' : `、照計畫重演（${eL != null ? `多 ${pct(eL)}` : ''}${eL != null && eS != null ? '／' : ''}${eS != null ? `空 ${pct(eS)}` : ''}）`;
     h = `<b style="color:var(--txt)">今日無計畫</b>：${reason}${ev} → <b>觀望</b>`;
   }
@@ -1074,14 +1089,14 @@ function renderTradeGate(ctx) {
   let ol = null;   // v209 一句話結論列：與下方執行計畫同一組變數（不另算）
   try {
     const D = ctx.D;
-    /* v192 做哪一邊：先看有回測證據的中期因子（最強／最弱 20%），沒有中期訊號時才退回勢能等級（A/B 做多、空A/空B 做空，未經回測）。
-       計畫一律是試單：風險預算減半。v218 紀律門不再禁止任何一邊，有方向就給計畫 */
-    const sh = ctx.shi, md = midDirection(midFactors(D));
-    const planSide = md && md.side ? md.side : !sh ? null : (sh.grade === 'A' || sh.grade === 'B') ? 'long' : (sh.shortGrade === 'A' || sh.shortGrade === 'B') ? 'short' : null;
-    const basis = md && md.side ? `方向依據：中期因子${md.side === 'long' ? '最強' : '最弱'} 20%（回測 3 個月 ${md.ex > 0 ? '+' : ''}${md.ex}%）` : '方向依據：勢能等級（未經回測，僅供參考）';
+    /* v192 做哪一邊：只看有回測證據的中期因子（最強／最弱 20%）。v230（T-038）拿掉「沒有中期訊號時退回勢能等級」：
+       勢能沒有回測，台股、美股都一樣，沒有回測過的方向就觀望。計畫一律是試單：風險預算減半。v218 紀律門不禁止任何一邊 */
+    const sh = ctx.shi, mid = midFactors(D), md = midDirection(mid);
+    const planSide = md && md.side ? md.side : null;
+    const basis = planSide ? `方向依據：中期因子${md.side === 'long' ? '最強' : '最弱'} 20%（回測 3 個月 ${md.ex > 0 ? '+' : ''}${md.ex}%）` : '';
 
     const pbC = planSide ? planBasis(D, planSide) : null;
-    ol = { planSide, md, sh, pbC };
+    ol = { planSide, md, sh, pbC, mid, cur: D.currency };
     try { if (typeof kchartPlan === 'function') kchartPlan(D, pbC, planSide); } catch (e) {}   // v227 互動 K 線畫同一組計畫價位
     html += planChart(D, pbC, planSide);   // v202 近 60 日 K 線＋計畫價位＋重演結果
     if (!planSide) {
