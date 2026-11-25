@@ -900,6 +900,13 @@ async function scanFlowTests() {
     _deepCache.TLND = { d: { ok: true, lend: { bal: 1000, chg5: null, chg5N: 5 } }, t: Date.now() };
     await loadDeepChipCard({ code: 'TLND', currency: 'TWD', price: 100, closes: c });
     out.lend0 = document.getElementById('deepchip-content').innerText;
+    // v231 收到千張大戶／分點的 HTTP 400 → 記住 7 天、之後帶 skip；重新儲存 token 就清掉
+    { const urls = [], fT = fetchT, t0 = Date.now(); await dbSetSetting('fmTierSkip', null);
+      fetchT = async u => { urls.push(u); const e = urls.length === 1 ? 'FinMind HTTP 400' : '免費會員沒有這項資料'; return { json: async () => ({ ok: true, lend: { bal: 1000, chg5: 1, chg5N: 5 }, bigErr: e, brokerErr: e }) }; };
+      const ld = async code => { window._activeCode = code; await loadDeepChipCard({ code, currency: 'TWD', price: 100, closes: c }); };
+      await ld('TLN1'); await ld('TLN2'); out.tier1 = await dbGetSetting('fmTierSkip');
+      document.getElementById('set-finmind-token').value = 'x'; await saveFinmindToken(); out.tierCleared = await dbGetSetting('fmTierSkip');
+      await ld('TLN3'); fetchT = fT; out.tierUrls = urls.map(u => u.replace(/^.*\?/, '')); out.tierT0 = t0; }
     FINMIND_TOKEN = ''; delete _deepCache.TLND;
     return out;
   });
@@ -909,6 +916,10 @@ async function scanFlowTests() {
   ok('勢能：沒有籌碼與大盤基準時標明「以中性50計」', nv.na[0] === true && nv.na[1] === true, JSON.stringify(nv.na));
   ok('借券：只跨 2 日時不判讀、照實寫天數（不寫「5日」「明顯增」）', /只跨 2 個交易日/.test(nv.lend2) && /2日 \+12%/.test(nv.lend2) && !/明顯增/.test(nv.lend2), nv.lend2.slice(0, 160));
   ok('借券：基期為 0 時寫「算不出」，不寫 0%', /基期為 0/.test(nv.lend0) && /變化率：—/.test(nv.lend0) && !/\+0%/.test(nv.lend0), nv.lend0.slice(0, 160));
+  { const u = nv.tierUrls || [], d7 = 7 * 864e5, near = x => x >= nv.tierT0 + d7 - 6e4 && x <= Date.now() + d7;
+    ok('v231 主力縱深：千張大戶與分點回 HTTP 400 後記住 7 天，下一檔帶 skip=big,broker；重新儲存 token 後清掉、下一檔不帶',
+      u.length === 3 && !/skip=/.test(u[0]) && /&skip=big,broker$/.test(u[1]) && !/skip=/.test(u[2]) && nv.tier1 && near(nv.tier1.big) && near(nv.tier1.broker) && nv.tierCleared == null,
+      JSON.stringify([u, nv.tier1, nv.tierCleared])); }
   ok('scan.js：掃描的 D 帶前一日收盤', /prevClose: it\.prevClose === null \? null : it\.closes\[it\.closes\.length - \(it\._trimmed \? 1 : 2\)\]/.test(fs.readFileSync(path.join(ROOT, 'scan.js'), 'utf8')));
   { const mf = fs.readFileSync(path.join(ROOT, 'mainforce.js'), 'utf8'), it = fs.readFileSync(path.join(ROOT, 'intel.js'), 'utf8');
     ok('籌碼：主力行為、擁擠度、明牌陷阱、情報判讀的法人加總都先過「可用」檢查（不把缺的當 0）',
@@ -1907,6 +1918,18 @@ async function backendTests() {
     try { await run({ TaiwanStockHoldingSharesPer: { status: 402 }, TaiwanDailyShortSaleBalances: { json: { data: [] } }, TaiwanStockTradingDailyReport: { json: { data: [] } } }); } catch (e) { de[0] = e.message; }
     try { G.fetchDeepChip('2330', 'tok'); } catch (e) { de[1] = e.message; }
     ok('主力縱深：全部拿不到時，錯誤訊息帶真正原因（402），不只「無此股資料」', /402/.test(de[0]) && /402/.test(de[1]), JSON.stringify(de));
+    { // v231 免費 token 拿不到的兩項：帶 skip 就不打，其餘照常
+      const r0 = route(), calls = skip => { const seen = []; fetchImpl = async u => { seen.push(dsOf(u)); return jt(r0(u).json); }; gsFetch = u => { seen.push(dsOf(u)); return gsOf(r0(u).json); };
+        return Promise.all([W.fetchDeepChip('2330', 'tok', skip), G.fetchDeepChip('2330', 'tok', skip)]).then(x => ({ seen, w: x[0], g: x[1] })); };
+      const n = (s, re) => s.filter(k => re.test(k)).length;
+      const all = await calls(''), sk = await calls('big,broker'), b1 = await calls('big');
+      ok('v231 主力縱深：沒帶 skip 照舊叫持股分級 1 次、分點 3 次（每個後端）', n(all.seen, /HoldingSharesPer/) === 2 && n(all.seen, /TradingDailyReport/) === 6 && all.seen.length === 16, all.seen.join(','));
+      ok('v231 主力縱深：帶 skip=big,broker 時兩個後端都不叫這兩項（每檔省 4 次），借券、當沖、法人照常，兩項寫明免費會員沒有',
+        sk.seen.length === 8 && !n(sk.seen, /HoldingSharesPer|TradingDailyReport/) && [sk.w, sk.g].every(o => o.lend && o.lend.bal === 1400 && o.dayTrading && !o.big && !o.brokers.length && /免費會員沒有.*backer/.test(o.bigErr) && /免費會員沒有.*sponsor/.test(o.brokerErr)),
+        JSON.stringify([sk.seen, sk.w.bigErr, sk.g.brokerErr]));
+      ok('v231 主力縱深：只略過千張大戶時分點照抓', n(b1.seen, /HoldingSharesPer/) === 0 && n(b1.seen, /TradingDailyReport/) === 6 && b1.w.brokers.length && b1.g.brokers.length, b1.seen.join(','));
+      const mf = fs.readFileSync(path.join(ROOT, 'mainforce.js'), 'utf8');
+      ok('v231 主力縱深：略過的那兩項不算暫時性錯誤（快取照資料日期，不是 30 分鐘就重抓）', !/HTTP|逾時|超時|timeout|abort|Unexpected token|JSON|fetch|network/i.test(sk.w.bigErr + sk.w.brokerErr + sk.g.bigErr + sk.g.brokerErr) && /const fetchFail = x => x && \/HTTP\|/.test(mf)); }
     fetchImpl = async u => jt(T86); gsFetch = u => gsOf(T86); }
   { // 大盤：GAS 原本沒抓加權指數；一檔報價失敗其餘不可跟著消失，且要列在來源錯誤
     const qq = c => ({ chart: { result: [{ meta: {}, timestamp: [1, 2], indicators: { quote: [{ close: [100, c], high: [1, 1], low: [1, 1], open: [1, 1], volume: [1, 1] }], adjclose: [{ adjclose: [100, c] }] } }] } });
@@ -2933,6 +2956,43 @@ ${Array.from({ length: 3 }, (_, i) => `<item><title>台積電法說重點第${i}
       global.UrlFetchApp = { fetch: U0.fetch, fetchAll: rq => { if (rq.some(r => /ptt\.cc/.test(r.url))) throw new Error('Timeout'); return U0.fetchAll(rq); } };
       cmp('GAS：預抓整批失敗→逐一抓，結果與預抓相同', strip(G.fetchIntel('2330')), strip(gp));
       global.UrlFetchApp = U0; gsProps = {}; }
+    // v231 月營收、財報、過去新聞快取：同一檔第二次只叫今天的新聞
+    { const wc = new Map(), gc = {}, gt = {}, pc = global.caches, ps = global.CacheService;
+      global.caches = { default: { match: async k => wc.has(String(k)) ? wc.get(String(k)).clone() : undefined, put: async (k, v) => { wc.set(String(k), v.clone()); } } };
+      global.CacheService = { getScriptCache: () => ({ get: k => (k in gc ? gc[k] : null), put: (k, v, t) => { gc[k] = v; gt[k] = t; } }) };
+      const fm = [], sd = u => (/start_date=([\d-]+)/.exec(u) || [])[1];
+      const rt = u => { const m = /dataset=(\w+)/.exec(u); if (m) fm.push(m[1] + (m[1] === 'TaiwanStockNews' ? '@' + sd(u) : ''));
+        if (/TaiwanStockNews/.test(u)) return { json: { data: [{ date: sd(u) + ' 02:00:00', title: '台積電新聞 ' + sd(u), link: 'https://x.test/' + sd(u), source: '來源', stock_id: '2330', description: 'x'.repeat(40) }] } };
+        return IT.route(u, IT.gem); };
+      let route = rt;
+      fetchImpl = async u => asResp(route(u)); gsFetch = u => gsResp(route(u)); gsProps = { GEMINI_KEY: 'k-test' };
+      const runW = async () => { fm.length = 0; const r = await W2.fetchIntel('2330', { GEMINI_KEY: 'k-test' }, 'tok'); return { r, n: fm.slice() }; };
+      const runG = () => { fm.length = 0; const r = G.fetchIntel('2330', 'tok'); return { r, n: fm.slice() }; };
+      const w1 = await runW(), w2 = await runW(), g1 = runG(), g2 = runG();
+      const day = k => new Date(Date.now() - k * 864e5).toISOString().slice(0, 10), cnt = (n, re) => n.filter(x => re.test(x)).length;
+      ok('v231 情報：第一次照抓 8 天新聞＋月營收 1＋財報 3（兩個後端各 12 次）', [w1, g1].every(x => x.n.length === 12 && cnt(x.n, /TaiwanStockNews/) === 8 && cnt(x.n, /MonthRevenue/) === 1 && cnt(x.n, /FinancialStatements|BalanceSheet|CashFlows/) === 3), JSON.stringify([w1.n, g1.n]));
+      ok('v231 情報：同一檔再開只叫今天的新聞（每檔省 11 次），月營收、財報、過去 7 天新聞取快取', [w2, g2].every(x => x.n.length === 1 && x.n[0] === 'TaiwanStockNews@' + day(0)), JSON.stringify([w2.n, g2.n]));
+      const st = o => { const c = JSON.parse(JSON.stringify(o)); delete c.asOf; delete c.snapshot; delete c.timing; return c; };
+      cmp('v231 情報：取快取的結果與第一次相同（Worker）', st(w2.r), st(w1.r));
+      cmp('v231 情報：取快取的結果與第一次相同（GAS）', st(g2.r), st(g1.r));
+      ok('v231 情報：快取時有 FinMind 新聞（不是兩邊都沒抓到而相同）', /FinMind/.test(w2.r.newsVia) && /FinMind/.test(g2.r.newsVia) && w2.r.items.some(x => /台積電新聞/.test(x.title)), w2.r.newsVia);
+      const wcc = k => { const r = wc.get('https://stockradar.cache/fm/' + k); return r ? r.headers.get('Cache-Control') : null; };
+      ok('v231 快取時間：月營收、財報、兩天前以前的新聞 6 小時，昨天的新聞 1 小時，今天不存（兩個後端）',
+        gt.fm_rev_2330 === 21600 && gt.fm_qual_2330 === 21600 && gt['fm_news_2330_' + day(1)] === 3600 && gt['fm_news_2330_' + day(7)] === 21600 && !(('fm_news_2330_' + day(0)) in gc)
+        && wcc('rev_2330') === 'max-age=21600' && wcc('qual_2330') === 'max-age=21600' && wcc('news_2330_' + day(1)) === 'max-age=3600' && wcc('news_2330_' + day(7)) === 'max-age=21600' && !wcc('news_2330_' + day(0)),
+        JSON.stringify([gt, [...wc.keys()]]));
+      { const wn = await wc.get('https://stockradar.cache/fm/news_2330_' + day(3)).clone().json(), gn = JSON.parse(gc['fm_news_2330_' + day(3)]);
+        ok('v231 新聞快取只存解析用的四個欄位（不存內文，避開 GAS 單值上限；兩個後端）', [wn, gn].every(x => Object.keys(x[0]).join() === 'date,title,link,source'), JSON.stringify([wn[0], gn[0]])); }
+      // 抓失敗不存：402 的月營收下次照抓
+      for (const k in gc) delete gc[k]; wc.clear();
+      route = u => /MonthRevenue/.test(u) ? (rt(u), { status: 402, txt: '' }) : rt(u);
+      const e1 = await runW(), e2 = runG(), had = 'fm_rev_2330' in gc || wc.has('https://stockradar.cache/fm/rev_2330');
+      route = rt;
+      const e3 = runG();
+      ok('v231 月營收抓失敗（402）不存快取，原因照常列出，下次照抓', !had
+        && e1.r.srcErrors.some(x => /月營收.*402/.test(x)) && e2.r.srcErrors.some(x => /月營收.*402/.test(x)) && cnt(e3.n, /MonthRevenue/) === 1 && e3.r.revenue && 'fm_rev_2330' in gc,
+        JSON.stringify([e1.r.srcErrors, e2.r.srcErrors, e3.n]));
+      global.caches = pc; global.CacheService = ps; fetchImpl = async u => asResp(IT.route(u, IT.gem)); gsFetch = u => gsResp(IT.route(u, IT.gem)); gsProps = {}; }
     // v181 入庫當天 14:00 前查詢：FinMind 已經有＝早就公布，時間不可排到未來（原本會被當成未來消息丟掉）
     { const n0 = Date.now, fake = Date.parse(new Date(n0() + 8 * 3600e3).toISOString().slice(0, 10) + 'T10:00:00+08:00'), seen0 = IT.revSeen;
       IT.revSeen = new Date(fake + 8 * 3600e3).toISOString().slice(0, 10); Date.now = () => fake;

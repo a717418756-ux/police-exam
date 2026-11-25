@@ -21,7 +21,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['journal.js'] = 224; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['journal.js'] = 231; } catch (e) {}
 
 /* ── 開啟 / 關閉面板 ─────────────────────────────────────────────────── */
 /* ── 分批進場 / 加碼工具 ──────────────────────────────────────────────
@@ -415,6 +415,7 @@ async function saveFinmindToken() {
   const msg = $('settings-msg');
   await dbSetSetting('finmindToken', tk);
   FINMIND_TOKEN = tk;
+  try { await dbSetSetting('fmTierSkip', null); } catch (e) {}   // v231 換 token／升級方案後重新試千張大戶與分點
   msg.textContent = tk ? '✅ FinMind Token 已儲存，主力縱深已啟用' : '✅ 已清空，主力縱深停用';
   msg.style.color = 'var(--buy)';
 }
