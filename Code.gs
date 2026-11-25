@@ -1481,20 +1481,39 @@ function fetchMarket() {
 }
 
 /** 抓單一美股/指數最新報價與漲跌幅 */
-function yahooQuote(symbol) {
-  var url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(symbol) + '?interval=1d&range=5d';
+/* v182：原本用 5 日圖的 meta.chartPreviousClose——那是「整段圖表開始前」的收盤，漲跌幅其實是約 5 日變化。
+   v229（與 worker.js 對等）：最後一根有效K棒的前一根若是空的（Yahoo 把前一交易日給成 close=null，
+   2026-11-25 實測 ^TWII、GC=F、CL=F），原本會拿今天跟「前天」比——加權實際 −3.8% 卻顯示 +4.84%。
+   改用 range=1d 的 chartPreviousClose（前一交易日收盤）；該快照必須是同一個交易日、價格不等於前收，否則不給漲跌。 */
+function sessDate(ts, off) { return validTs(ts) ? new Date((ts + (off || 0)) * 1000).toISOString().slice(0, 10).replace(/-/g, '') : ''; }
+function mkQuote(price, prev, date) { return { price: price, prevClose: prev, changePct: prev > 0 ? (price - prev) / prev * 100 : null, date: date }; }
+function quoteFromChart(res) {
+  var q = res && res.indicators && res.indicators.quote && res.indicators.quote[0];
+  if (!q || !(q.close instanceof Array)) return null;
+  fillLastClose(res, q);
+  var cl = q.close, ts = res.timestamp || [], off = res.meta && res.meta.gmtoffset, k = cl.length - 1;
+  while (k >= 0 && cl[k] == null) k--;
+  if (k < 1) return null;   // 只有一根K棒時沒有前一日收盤，不可用自己當前收算出 0%
+  var date = sessDate(ts[k], off);
+  return cl[k - 1] == null ? { price: cl[k], prevClose: null, changePct: null, date: date, needPrev: true } : mkQuote(cl[k], cl[k - 1], date);
+}
+function quoteFromDay(meta, date) {
+  var m = meta || {}, p = m.regularMarketPrice, prev = m.chartPreviousClose;
+  if (!(p > 0) || !(prev > 0) || p === prev || !date || sessDate(m.regularMarketTime, m.gmtoffset) !== date) return null;
+  return mkQuote(p, prev, date);
+}
+function yahooRaw(symbol, range) {
+  var url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(symbol) + '?interval=1d&range=' + range;
   var r = UrlFetchApp.fetch(url, { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } });
+  if (r.getResponseCode() !== 200) return null;
   var j = JSON.parse(r.getContentText());
-  var res = j.chart && j.chart.result && j.chart.result[0];
-  if (!res) return null;
-  /* v182：原本用 meta.chartPreviousClose——那是「整段圖表（5日）開始前」的收盤，漲跌幅其實是約 5 日變化，
-     與 worker.js（取前一根K棒）不一致。改成跟 worker 一樣：最後兩根有效收盤；不足兩根就不給（不寫 0%） */
-  var q = res.indicators && res.indicators.quote && res.indicators.quote[0], cl = [];
-  if (q) fillLastClose(res, q);   // v212 與 worker（yahooQuote 走 yahooChart）相同
-  for (var i = 0; q && i < (q.close || []).length; i++) if (q.close[i] != null) cl.push(q.close[i]);
-  if (cl.length < 2) return null;
-  var price = cl[cl.length - 1], prev = cl[cl.length - 2];
-  return { price: price, prevClose: prev, changePct: (price - prev) / prev * 100 };
+  return j.chart && j.chart.result && j.chart.result[0] || null;
+}
+function yahooQuote(symbol) {
+  var qt = quoteFromChart(yahooRaw(symbol, '5d'));
+  if (!qt || !qt.needPrev) return qt;
+  var d = null; try { d = yahooRaw(symbol, '1d'); } catch (e) {}
+  return quoteFromDay(d && d.meta, qt.date) || { price: qt.price, prevClose: null, changePct: null, date: qt.date };
 }
 
 /**
