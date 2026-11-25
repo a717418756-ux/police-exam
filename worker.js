@@ -1430,7 +1430,7 @@ async function listIntelSnaps(env, code) {
 
 /* ── 大盤環境（完整：期交所 taifex + 美股隔夜）── */
 async function fetchMarket() {
-  const out = { tw: {}, us: {}, taifex: {} };
+  const out = { tw: {}, us: {}, taifex: {}, fx: {}, cmd: {} };
   /* v156：每個來源失敗時把原因留下來（原本一律 .catch(()=>null) 吞掉）。
      前端對缺少的欄位是「不顯示那一格」，所以來源死掉時畫面只是少一塊，
      使用者不會發現——外資台指期與 PCR 就是這樣整個維度靜默消失很久。
@@ -1439,10 +1439,12 @@ async function fetchMarket() {
   const guard = (name, p) => p.catch(e => { srcErr.push({ name, why: String(e && e.message || e).slice(0, 120) }); return null; });
 
   // 平行抓所有來源（Workers 平行，比 GAS 序列快）
-  const [twii, sox, nasdaq, sp500, vix, dxy, tnx, taifexFut, pcr, breadth] = await Promise.all([
+  const [twii, sox, nasdaq, sp500, vix, dxy, tnx, usdtwd, usdjpy, gold, oil, taifexFut, pcr, breadth] = await Promise.all([
     yahooQuote('^TWII'), yahooQuote('^SOX'), yahooQuote('^IXIC'),
     yahooQuote('^GSPC'), yahooQuote('^VIX'),
     yahooQuote('DX-Y.NYB'), yahooQuote('^TNX'),
+    // v225 匯率與原物料（只顯示；美元兌台幣另供美股部位換算）。Code.gs 對等
+    yahooQuote('TWD=X'), yahooQuote('JPY=X'), yahooQuote('GC=F'), yahooQuote('CL=F'),
     guard('外資台指期', fetchTaifexFutures()),
     guard('選擇權PCR', fetchTaifexPCR()),
     guard('類股廣度', fetchSectorBreadth()),
@@ -1454,7 +1456,9 @@ async function fetchMarket() {
   out.us.sp500 = sp500;
   out.us.vix = vix;
   out.us.dxy = dxy;   // 美元指數（強美元=外資匯出台股壓力）
-  out.us.tnx = tnx;   // 美債10年殖利率×10（升=資金離開風險資產）
+  out.us.tnx = tnx;   // 美債10年殖利率（Yahoo 報的就是百分比；升=資金離開風險資產）
+  out.fx.usdtwd = usdtwd; out.fx.usdjpy = usdjpy;
+  out.cmd.gold = gold; out.cmd.oil = oil;
 
   if (taifexFut) { out.taifex.foreignNet = taifexFut.foreignNet; out.taifex.institutionNet = taifexFut.institutionNet; out.taifex.date = taifexFut.date; }
   if (pcr) { out.taifex.pcrOI = pcr.pcrOI; out.taifex.pcrVol = pcr.pcrVol; out.taifex.pcrDate = pcr.pcrDate; }
@@ -1464,7 +1468,7 @@ async function fetchMarket() {
   // v187 欄名改版時回的是 { pcrOI: null } 而不是 null——以「取得到 pcrOI」為準（與 GAS 一致），否則 PCR 格默默消失
   if ((!pcr || pcr.pcrOI == null) && !srcErr.some(x => x.name === '選擇權PCR')) srcErr.push({ name: '選擇權PCR', why: '端點有回應但取不到可用欄位' });
   // v183：報價沒拿到原本只是「那一格不顯示」，看不出是沒資料還是抓失敗
-  const qMiss = [['加權指數', twii], ['費半', sox], ['那斯達克', nasdaq], ['標普500', sp500], ['VIX', vix], ['美元指數', dxy], ['美債10年', tnx]].filter(x => !x[1]).map(x => x[0]);
+  const qMiss = [['加權指數', twii], ['費半', sox], ['那斯達克', nasdaq], ['標普500', sp500], ['VIX', vix], ['美元指數', dxy], ['美債10年', tnx], ['美元兌台幣', usdtwd], ['美元兌日圓', usdjpy], ['黃金', gold], ['原油', oil]].filter(x => !x[1]).map(x => x[0]);
   if (!breadth && !srcErr.some(x => x.name === '類股廣度')) srcErr.push({ name: '類股廣度', why: '端點有回應但取不到可用欄位' });   // v197 與其他維度一致，不靜默消失
   if (qMiss.length) srcErr.push({ name: '報價', why: qMiss.join('、') + ' 沒拿到' });
   if (srcErr.length) out.sourceErrors = srcErr;

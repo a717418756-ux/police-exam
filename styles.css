@@ -448,3 +448,37 @@ header.compact #hdr-sum{display:flex}
 #dm-warn b{color:var(--warn)}
 #dm-warn button{flex-shrink:0;background:transparent;border:1px solid var(--warn);color:var(--warn);
   border-radius:7px;padding:4px 10px;font-size:12px;cursor:pointer}
+/* v226 綜合方向卡（direction.js，T-035）：一句話方向＋多面向表，點一列跳到該卡 */
+#vb-dir{margin-bottom:12px}
+.dir-head{border-left:4px solid var(--muted);padding:4px 0 4px 10px;margin-bottom:10px}
+.dir-title{font-size:16px;font-weight:800;line-height:1.4}
+.dir-sub{font-size:12px;color:var(--txt);opacity:.8;line-height:1.6;margin-top:3px}
+.dir-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+@media (max-width:520px){.dir-grid{grid-template-columns:minmax(0,1fr)}}
+.dir-row{min-width:0;display:flex;align-items:center;gap:8px;min-height:44px;padding:6px 10px;background:var(--bg);border:1px solid var(--bd);border-radius:9px;color:var(--txt);font:inherit;text-align:left;cursor:pointer;width:100%}
+.dir-row:hover,.dir-row:focus-visible{border-color:var(--acc);outline:none}
+.dir-ar{width:16px;text-align:center;font-size:12px;flex-shrink:0}
+.dir-up{color:var(--buy)}.dir-dn{color:var(--sell)}.dir-flat{color:var(--warn)}.dir-na{color:var(--muted)}
+.dir-k{font-size:12px;font-weight:700;flex-shrink:0;min-width:64px}
+.dir-v{font-size:12px;color:var(--txt);opacity:.78;flex:1;min-width:0;overflow-wrap:anywhere;line-height:1.4;font-family:var(--mono)}
+.dir-tier{font-size:10px;color:var(--muted);border:1px solid var(--bd2);border-radius:5px;padding:1px 5px;flex-shrink:0}
+.dir-tier.dir-a{color:var(--buy);border-color:var(--buy-b)}
+.dir-foot{font-size:10px;color:var(--muted);margin-top:8px;line-height:1.5}
+/* v227 互動 K 線（kchart.js，TradingView Lightweight Charts） */
+#kc-wrap{margin-top:12px}
+#kc-tools{display:flex;gap:6px;margin-bottom:6px}
+.kc-btn{min-height:32px;padding:4px 12px;border-radius:8px;border:1px solid var(--bd2);background:var(--bg);color:var(--muted);font:inherit;font-size:12px;cursor:pointer}
+.kc-btn.on{border-color:var(--acc);color:var(--txt);background:var(--acc-d)}
+#kc-legend{font-family:var(--mono);font-size:10.5px;color:var(--muted);line-height:1.5;min-height:32px;overflow-wrap:anywhere}
+#kc-legend b{color:var(--txt);font-weight:600;margin-right:4px}
+#kc-box{height:320px;width:100%;border-radius:10px;overflow:hidden}
+@media (min-width:760px){#kc-box{height:420px}}
+/* v228 決策橫幅：完整理由收進可展開區 */
+.vb-more{margin-top:10px;border:1px solid var(--bd);border-radius:10px;background:var(--bg)}
+.vb-more>summary{min-height:44px;display:flex;align-items:center;padding:0 12px;font-size:12px;font-weight:700;color:var(--txt);cursor:pointer;list-style:none}
+.vb-more>summary::-webkit-details-marker{display:none}
+.vb-more>summary::after{content:'▾';margin-left:auto;color:var(--muted);transition:transform .15s}
+.vb-more[open]>summary::after{transform:rotate(180deg)}
+.vb-more[open]>summary{border-bottom:1px solid var(--bd)}
+.vb-more>div{padding:0 10px}
+.vb-more>div:empty{display:none}

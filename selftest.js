@@ -203,10 +203,37 @@ function logicTests() {
   { // v209 一句話結論列：只讀執行計畫與 planBasis，不另算
     const bf = fs.readFileSync(path.join(ROOT, 'bingfa.js'), 'utf8'), html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
     const pl = bf.slice(bf.indexOf('function renderPlanLine('), bf.indexOf('function renderTradeGate('));
-    ok('v209 結論列在決策橫幅最上方（vb-inner 第一個子元素）', /<div id="vb-inner"[^>]*>\s*<div id="vb-oneline"/.test(html));
+    ok('v209／v226 決策橫幅最上方：綜合方向卡，接著一句話結論列', /<div id="vb-inner"[^>]*>\s*<div id="vb-dir"[^>]*><\/div>\s*<div id="vb-oneline"/.test(html));
     ok('v209 結論列由紀律門用同一組計畫變數繪製（ol.plan 取自執行計畫、renderPlanLine 在計畫之後呼叫）', /ol = \{ planSide, md, sh, pbC \};/.test(bf) && /ol\.plan = \{ entry, stop, tp1, days: pickT \? pickT\.days : null, size: sizeShort, blocked: !!\(rb && rb\.blocked\), cur \};/.test(bf) && /\n  renderPlanLine\(ctx\.D, ol\);\n/.test(bf));
     ok('v209 結論列不自行計算 ATR／停損／部位（只有 planBasis 一個來源）', pl.length > 0 && !/calcATR|computeSmartStop|Math\.floor|riskAmt|capital/.test(pl) && /planBasis\(D, 'long'\)/.test(pl));
     ok('v209 部位文字由同一個 sizeShort 組成（結論列與執行計畫同一字串）', /const sizeTxt2 = sizeShort \? sizeShort \+/.test(bf)); }
+  { // v226 綜合方向卡（T-035）：方向只取執行計畫；其他面向只算順逆風；換股後遲到的結果丟掉
+    const src = fs.readFileSync(path.join(ROOT, 'direction.js'), 'utf8'), el = { style: {}, innerHTML: '' }, mks = fs.readFileSync(path.join(ROOT, 'market.js'), 'utf8');
+    const tp = new Function(mks.match(/const tnxPct = [^\n]+/)[0] + '\nreturn tnxPct;')();
+    ok('美債 10 年：Yahoo 報百分比（4.88）照原數字；CBOE 的×10（48.8）才除以 10', tp(4.88) === 4.88 && Math.abs(tp(48.8) - 4.88) < 1e-9 && !/tnx\.price\s*\/\s*10/.test(mks + src));
+    const win = { _activeCode: '2330' }, doc = { getElementById: id => id === 'vb-dir' ? el : null };
+    const X = new Function('window', 'document', 'escI', 'fmtV', 'chipUsable', 'tnxPct', src + '\nreturn { DIR, dirReset, dirSet, dirFromPlan, dirFromMarket, dirFromChip, dirFromFund, dirSummary };')(win, doc, t => String(t), n => String(n), () => true, tp);
+    const D = { code: '2330', currency: 'TWD', chip: { foreign5: -500, trust5: 100 } };
+    X.dirReset('2330'); X.dirFromPlan(D, { planSide: 'long', md: { side: 'long', label: '最強', q: 4 }, sh: { grade: 'D' } });
+    X.dirFromMarket(D, { tw: { breadth: { up: 10, dn: 27, total: 37 } }, us: { nasdaq: { changePct: -1.2 }, sox: { changePct: -2 }, dxy: { changePct: 0.5 }, tnx: { price: 45, changePct: 1 } }, fx: { usdtwd: { changePct: 0.4 } } });
+    X.dirFromChip(D); X.dirFromFund(D, { revYoY: 25 });
+    const s1 = X.dirSummary();
+    win._activeCode = '2317'; X.dirSet('intel', { lean: -1, v: 'x', tier: 'U' }, '2330'); const stale = !!X.DIR.rows.intel;
+    X.dirReset('2317'); win._activeCode = '2317'; X.dirFromPlan({ code: '2317', currency: 'TWD' }, { planSide: null, md: { side: null, label: '待定' }, sh: { grade: 'C' } });
+    X.dirSet('fund', { lean: 1, v: 'y', tier: 'U' }, '2317'); const s2 = X.dirSummary();
+    ok('綜合方向：方向照執行計畫（做多）；順風 1（營收）、逆風 4（台股大盤、美股、匯率利率、法人），逆風多要提醒', /^偏多/.test(s1.head) && /中期因子最強 20%（有回測）/.test(s1.head) && /順風 1 項（營收）/.test(s1.sub) && /逆風 4 項/.test(s1.sub) && /逆風明顯較多/.test(s1.sub) && /不改方向與部位/.test(s1.sub), JSON.stringify(s1));
+    ok('綜合方向：計畫沒有方向就是觀望，背景偏多也不升格成進場理由', /^觀望/.test(s2.head) && /1 項偏多/.test(s2.sub) && /不構成進場理由/.test(s2.sub), JSON.stringify(s2));
+    ok('綜合方向：換股後遲到的舊結果丟掉；畫面有寫出來', !stale && /觀望/.test(el.innerHTML) && el.style.display === 'block'); }
+  { // v227 互動 K 線（T-030）：原始市價、日期嚴格遞增、均線；函式庫載不到時不顯示、計畫價位晚到也補畫
+    const ks = fs.readFileSync(path.join(ROOT, 'kchart.js'), 'utf8'), html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8'), bf = fs.readFileSync(path.join(ROOT, 'bingfa.js'), 'utf8');
+    const K = new Function(ks.slice(ks.indexOf('function kcBars('), ks.indexOf('function kcColors(')) + '\nreturn { kcBars, kcSMA };')();
+    const D = { dates: ['20261101', '20261102', 'bad', '20261102', '20261104'], closes: [50, 55, 60, 60, 66], rawCloses: [100, 110, 120, 120, 132], rawHighs: [101, 112, 121, 121, 135], rawLows: [99, 108, 119, 119, 130], opens: [49, 50, 60, 60, 60], volumes: [1, 2, 3, 4, 5] };
+    const b = K.kcBars(D), sma = K.kcSMA(b, 2);
+    ok('互動K線：開盤換回原始市價（還原開盤×原始收÷還原收）、日期壞掉或重複的略過、日期格式 YYYY-MM-DD', b.length === 3 && b[0].open === 98 && b[1].open === 100 && b[2].time === '2026-11-04' && b[2].open === 120 && b[2].high === 135 && b[1].volume === 2, JSON.stringify(b));
+    ok('互動K線：均線用原始收盤', sma.length === 2 && sma[0].value === 105 && sma[1].value === 121, JSON.stringify(sma));
+    ok('互動K線：函式庫非同步載入、鎖版本，載到後補畫；載不到時整張圖不顯示', /<script async src="https:\/\/cdn\.jsdelivr\.net\/npm\/lightweight-charts@4\.2\.3\/dist\/lightweight-charts\.standalone\.production\.js" onload="try\{if\(window\._lastD\)kchartRender\(window\._lastD\)\}catch\(e\)\{\}"><\/script>/.test(html) && /typeof LightweightCharts === 'undefined'\) \{ wrap\.style\.display = 'none'; return; \}/.test(ks));
+    ok('互動K線：保留 TradingView 署名（Apache 2.0 授權要求）；計畫價位用執行計畫同一組 pbC，晚到也補畫', /attributionLogo: true/.test(ks) && /kchartPlan\(D, pbC, planSide\)/.test(bf) && /if \(KC\.plan && KC\.plan\.code === D\.code\) kchartPlan/.test(ks)); }
+  ok('v228 完整理由（期望值、中期因子、邏輯鏈）收進預設收起的展開區，提醒仍在外面', (h => /<details id="vb-more" class="vb-more"[^>]*><summary>[^<]+<\/summary>\s*<div id="vb-judgement"><\/div>\s*<div id="vb-narrative"><\/div>\s*<\/details>\s*<div id="vb-warns"/.test(h) && !/<details id="vb-more"[^>]* open/.test(h))(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')));
   ok('v209 結論列在紀律門開頭先清空（出錯時不殘留上一檔的價位）', /function renderTradeGate\(ctx\) \{\n  renderPlanLine\(null, null\);/.test(fs.readFileSync(path.join(ROOT, 'bingfa.js'), 'utf8')));
   ok('盤中時鐘 twMarketPhase 已移除（推估全日量的依據已不存在），沒有殘留呼叫', !/twMarketPhase/.test(['config.js', 'bingfa.js', 'enhance.js', 'mainforce.js', 'app.js'].map(f => fs.readFileSync(path.join(ROOT, f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')).join('')));
   // 台北時間一律「+8h 時間戳搭配 getUTC*」：混用 getHours 會整個時區錯位
@@ -922,6 +949,12 @@ async function scanFlowTests() {
     { const J = [['2330', 'long', 0.4], ['0050', 'long', 0.2], ['2330', 'short', 0.42], ['AAPL', 'long', 0.15], ['', 'long', 0.38]].map(([code, direction, pnlPct]) => ({ code, direction, pnlPct, result: 'win', date: ym + '-01' }));
       const sj = computeStats(J); o.jcost = { netWR: sj.netWinRate, cost: +sj.costPct.toFixed(5), net: +sj.netAvgPnlPct.toFixed(5), noPct: +computeStats([{ code: '0050', direction: 'short', result: 'win', date: ym + '-01' }]).costPct.toFixed(4) }; }
     o.rb = { used: rb.usedPct, noAmt: rb.noAmt };
+    // v225 資金是台幣：美股部位用匯率換算、6% 預算把美元損益換成台幣；沒有匯率不猜
+    { const T2 = [{ code: 'AAPL', result: 'loss', pnl: -1000, shares: 10, date: ym + '-01' }, { code: '2330', result: 'loss', pnl: -10000, shares: 1000, date: ym + '-01' }];
+      localStorage.removeItem(FX_KEY); const noFx = computeRiskBudget(T2, 1000000), capNo = capitalFor({ currency: 'USD' });
+      setFxUsdTwd(32); const wFx = computeRiskBudget(T2, 1000000), capUs = capitalFor({ currency: 'USD' }), capTw = capitalFor({ currency: 'TWD' });
+      setFxUsdTwd(3200); const bad = fxUsdTwd().rate; localStorage.removeItem(FX_KEY);
+      o.fx = { noAmt: noFx.noAmt, noUsed: noFx.usedPct, used: wFx.usedPct, capNo: capNo.cap, capNoNote: capNo.note, capUs: +(capUs.cap * 32).toFixed(6), capTw: capTw.cap, bad }; }
     // 分批進場填的是「張」，股數欄要 ×1000
     document.getElementById('tr-code').value = '2330'; document.getElementById('batch-rows').innerHTML = ''; addBatchRow();
     const id = document.querySelector('[id^="batch-qty-"]').id.replace('batch-qty-', '');
@@ -947,6 +980,7 @@ async function scanFlowTests() {
   ok('最大回撤：只看近一年（兩年前的腰斬不算）', v3.maxDD > -0.05, String(v3.maxDD));
   ok('融資四象限：股價只跌 0.5% 不算「散戶接刀」（與融資卡一致）；落後或基期 0 不判讀', JSON.stringify(v3.q) === '["flat","knife",null,null]', JSON.stringify(v3.q));
   ok('v219 日誌成本後逐筆扣（ETF、放空、美股各自的成本）：5 筆裡 4 筆贏過成本（固定 0.380% 時只算 3 筆）', v3.jcost.netWR === 0.8 && v3.jcost.cost === 0.29984 && v3.jcost.net === 0.01016 && v3.jcost.noPct === 0.3798, JSON.stringify(v3.jcost));
+  ok('美股部位與 6% 預算：資金是台幣，美股用匯率換算；沒匯率時部位不算、美股單不混進台幣；不合理的匯率不存', v3.fx.noAmt === 1 && v3.fx.noUsed === 1 && v3.fx.used === 4.2 && v3.fx.capNo === 0 && /匯率/.test(v3.fx.capNoNote) && v3.fx.capUs === v3.fx.capTw && v3.fx.bad === 32, JSON.stringify(v3.fx));
   ok('日誌：金額只算有填股數的單、盈虧比用%；6%預算明講有幾筆沒算', v3.stats.total === -50000 && v3.stats.noAmt === 2 && v3.stats.payoff === 2 && v3.rb.used === 5 && v3.rb.noAmt === 2, JSON.stringify([v3.stats, v3.rb]));
   ok('日誌：分批進場 3 張＝3000 股（原本填成 3 股，金額小 1000 倍）', v3.shares === '3000', v3.shares);
   ok('日誌：代碼與判斷理由裡的 HTML 不會被執行', v3.xss === 0, String(v3.xss));
@@ -1032,6 +1066,7 @@ async function browserTests() {
       document.getElementById('ticker-input').value = c; return go(); }, code);
     await pg.waitForTimeout(1800);
     return pg.evaluate(() => {
+      const more = document.getElementById('vb-more'); if (more) more.open = true;   // v228 完整理由預設收起，收起時 innerText 讀不到
       const D = window._lastD, txt = id => (document.getElementById(id) || {}).innerText || '';
       const num = s => { const m = String(s).match(/-?\d+(\.\d+)?/); return m ? parseFloat(m[0]) : null; };
       const gate = txt('gate-content');
@@ -1315,7 +1350,7 @@ async function backendTests() {
   let fetchImpl = async () => { throw new Error('未設定'); };
   global.fetch = (...a) => fetchImpl(...a);
   const W = {};
-  new Function('module', src + '\nmodule.yahooChart=yahooChart;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTaifexFutures=fetchTaifexFutures;module.fetchTaifexPCR=fetchTaifexPCR;module.fetchMargin=fetchMargin;module.fetchTopPool=fetchTopPool;module.fetchPoolRouted=fetchPoolRouted;module.rocToYmd=rocToYmd;module.eventStudy=eventStudy;module.infoTilt=infoTilt;module.validateAI=validateAI;module.parseRSS=parseRSS;module.parsePTT=parsePTT;module.parseAnnounce=parseAnnounce;module.fetchIntel=fetchIntel;module.dropIntraday=dropIntraday;module.fetchNews=fetchNews;module.fetchIntelRouted=fetchIntelRouted;module.dedupKey=dedupKey;module.heat=heat;module.parseFinMindNews=parseFinMindNews;module.dayMoves=dayMoves;module.mergeDays=mergeDays;module.intelPrompt=intelPrompt;module.revSurprise=revSurprise;module.fetchNewsEn=fetchNewsEn;module.normCite=normCite;module.yahooQuote=yahooQuote;module.numN=numN;module.peN=peN;module.fetchDeepChip=fetchDeepChip;module.fetchMarket=fetchMarket;module.fetchFundamental=fetchFundamental;module.saveIntelSnap=saveIntelSnap;module.listIntelSnaps=listIntelSnaps;module.snapFwd=snapFwd;module.fetchTaiwan=fetchTaiwan;module.dailySeries=dailySeries;module.fetchYahooTW=fetchYahooTW;')(W);
+  new Function('module', src + '\nmodule.yahooChart=yahooChart;module.fetchMarket=fetchMarket;module.fetchRangeOHLC=fetchRangeOHLC;module.fetchHistUntil=fetchHistUntil;module.fetchTaiwanChip=fetchTaiwanChip;module.fetchTaifexFutures=fetchTaifexFutures;module.fetchTaifexPCR=fetchTaifexPCR;module.fetchMargin=fetchMargin;module.fetchTopPool=fetchTopPool;module.fetchPoolRouted=fetchPoolRouted;module.rocToYmd=rocToYmd;module.eventStudy=eventStudy;module.infoTilt=infoTilt;module.validateAI=validateAI;module.parseRSS=parseRSS;module.parsePTT=parsePTT;module.parseAnnounce=parseAnnounce;module.fetchIntel=fetchIntel;module.dropIntraday=dropIntraday;module.fetchNews=fetchNews;module.fetchIntelRouted=fetchIntelRouted;module.dedupKey=dedupKey;module.heat=heat;module.parseFinMindNews=parseFinMindNews;module.dayMoves=dayMoves;module.mergeDays=mergeDays;module.intelPrompt=intelPrompt;module.revSurprise=revSurprise;module.fetchNewsEn=fetchNewsEn;module.normCite=normCite;module.yahooQuote=yahooQuote;module.numN=numN;module.peN=peN;module.fetchDeepChip=fetchDeepChip;module.fetchMarket=fetchMarket;module.fetchFundamental=fetchFundamental;module.saveIntelSnap=saveIntelSnap;module.listIntelSnaps=listIntelSnaps;module.snapFwd=snapFwd;module.fetchTaiwan=fetchTaiwan;module.dailySeries=dailySeries;module.fetchYahooTW=fetchYahooTW;')(W);
   const W2 = W;
 
   // Code.gs：補上 GAS 全域物件
@@ -1821,6 +1856,15 @@ async function backendTests() {
     gsFetch = u => /finance\/chart\/%5ESOX|chart\/\^SOX/.test(u) ? { getResponseCode: () => 429, getContentText: () => '<html>' } : /finance\/chart/.test(u) ? gsOf(qq(101)) : gsOf([]);
     const gm = G.fetchMarket();
     ok('大盤（GAS）：有加權指數；一檔報價失敗其餘照常，並列出沒拿到的', gm.tw && gm.tw.index && Math.abs(gm.tw.index.changePct - 1) < 1e-9 && !gm.us.sox && gm.us.nasdaq && (gm.sourceErrors || []).some(x => /費半/.test(x.why)), JSON.stringify(gm.sourceErrors));
+    // v225 匯率與原物料：兩邊都有；一檔沒拿到要列出來
+    ok('大盤（GAS）：有美元兌台幣、美元兌日圓、黃金、原油', gm.fx && gm.fx.usdtwd && gm.fx.usdjpy && gm.cmd && gm.cmd.gold && gm.cmd.oil && Math.abs(gm.fx.usdtwd.changePct - 1) < 1e-9, JSON.stringify([gm.fx, gm.cmd]));
+    fetchImpl = async u => /finance\/chart/.test(u) ? jt(qq(101)) : jt([]);
+    const wok = await W.fetchMarket();
+    ok('大盤（Worker）：有美元兌台幣（美股部位換算用）', wok.fx.usdtwd && Math.abs(wok.fx.usdtwd.changePct - 1) < 1e-9, JSON.stringify(wok.fx));
+    fetchImpl = async u => /chart\/TWD%3DX/.test(u) ? { ok: false, status: 404, json: async () => ({}) } : /finance\/chart/.test(u) ? jt(qq(101)) : jt([]);
+    const wm = await W.fetchMarket();
+    ok('大盤（Worker）：匯率與原物料齊全；美元兌台幣沒拿到時列入來源錯誤', !wm.fx.usdtwd && wm.fx.usdjpy && wm.cmd.gold && wm.cmd.oil && (wm.sourceErrors || []).some(x => /美元兌台幣/.test(x.why)), JSON.stringify([wm.fx, wm.cmd, wm.sourceErrors]));
+    fetchImpl = async u => jt(T86);
     gsFetch = u => gsOf(T86); }
   { const wk = fs.readFileSync(path.join(ROOT, 'worker.js'), 'utf8'), gs = fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8');
     ok('PCR：欄名改版（取不到 pcrOI）時 Worker 也列入來源錯誤（與 GAS 一致）', /\(!pcr \|\| pcr\.pcrOI == null\) && !srcErr\.some/.test(wk));
