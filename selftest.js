@@ -212,7 +212,11 @@ function logicTests() {
     const tp = new Function(mks.match(/const tnxPct = [^\n]+/)[0] + '\nreturn tnxPct;')();
     ok('美債 10 年：Yahoo 報百分比（4.88）照原數字；CBOE 的×10（48.8）才除以 10', tp(4.88) === 4.88 && Math.abs(tp(48.8) - 4.88) < 1e-9 && !/tnx\.price\s*\/\s*10/.test(mks + src));
     const win = { _activeCode: '2330' }, doc = { getElementById: id => id === 'vb-dir' ? el : null };
-    const X = new Function('window', 'document', 'escI', 'fmtV', 'chipUsable', 'tnxPct', src + '\nreturn { DIR, dirReset, dirSet, dirFromPlan, dirFromMarket, dirFromChip, dirFromFund, dirSummary };')(win, doc, t => String(t), n => String(n), () => true, tp);
+    const mk = new Function(mks.match(/const mktYmd = [^\n]+/)[0] + '\n' + mks.match(/const mktMD = [^\n]+/)[0] + '\nreturn { mktYmd, mktMD };')();
+    const citeT = (s, items) => String(s).replace(/\[(\d+)\]/g, (m, n) => items[+n] ? `<a href="${items[+n].url}">[${n}]</a>` : '');
+    const X = new Function('window', 'document', 'escI', 'fmtV', 'chipUsable', 'tnxPct', 'mktYmd', 'mktMD', 'inSession', 'SESS', 'citeI', 'localStorage',
+      src + '\nreturn { DIR, dirReset, dirSet, dirFromPlan, dirFromMarket, dirFromChip, dirFromFund, dirFromIntel, dirSummary, dirToday };')(
+      win, doc, t => String(t), n => String(n), () => true, tp, mk.mktYmd, mk.mktMD, () => false, { tw: [] }, citeT, { getItem: () => null });
     const D = { code: '2330', currency: 'TWD', chip: { foreign5: -500, trust5: 100 } };
     X.dirReset('2330'); X.dirFromPlan(D, { planSide: 'long', md: { side: 'long', label: '最強', q: 4 }, sh: { grade: 'D' } });
     X.dirFromMarket(D, { tw: { breadth: { up: 10, dn: 27, total: 37 } }, us: { nasdaq: { changePct: -1.2 }, sox: { changePct: -2 }, dxy: { changePct: 0.5 }, tnx: { price: 45, changePct: 1 } }, fx: { usdtwd: { changePct: 0.4 } } });
@@ -221,9 +225,31 @@ function logicTests() {
     win._activeCode = '2317'; X.dirSet('intel', { lean: -1, v: 'x', tier: 'U' }, '2330'); const stale = !!X.DIR.rows.intel;
     X.dirReset('2317'); win._activeCode = '2317'; X.dirFromPlan({ code: '2317', currency: 'TWD' }, { planSide: null, md: { side: null, label: '待定' }, sh: { grade: 'C' } });
     X.dirSet('fund', { lean: 1, v: 'y', tier: 'U' }, '2317'); const s2 = X.dirSummary();
-    ok('綜合方向：方向照執行計畫（做多）；順風 1（營收）、逆風 4（台股大盤、美股、匯率利率、法人），逆風多要提醒', /^偏多/.test(s1.head) && /中期因子最強 20%（有回測）/.test(s1.head) && /順風 1 項（營收）/.test(s1.sub) && /逆風 4 項/.test(s1.sub) && /逆風明顯較多/.test(s1.sub) && /不改方向與部位/.test(s1.sub), JSON.stringify(s1));
-    ok('綜合方向：計畫沒有方向就是觀望，背景偏多也不升格成進場理由', /^觀望/.test(s2.head) && /1 項偏多/.test(s2.sub) && /不構成進場理由/.test(s2.sub), JSON.stringify(s2));
-    ok('綜合方向：換股後遲到的舊結果丟掉；畫面有寫出來', !stale && /觀望/.test(el.innerHTML) && el.style.display === 'block'); }
+    ok('綜合方向：方向照執行計畫（做多）；順風 1（營收）、逆風 4（法人、台股大盤、美股、匯率利率），逆風多要提醒', s1.head === '做多試單' && /中期因子最強 20%（有回測）/.test(s1.why) && s1.pro.join() === 'fund' && s1.con.join() === 'chip,twmkt,usmkt,macro' && /逆風明顯較多/.test(s1.note) && /不改方向與部位/.test(s1.note), JSON.stringify(s1));
+    ok('綜合方向：計畫沒有方向就是觀望，背景偏多也不升格成進場理由', s2.head === '觀望' && s2.pro.join() === 'fund' && /不構成進場理由/.test(s2.note), JSON.stringify(s2));
+    ok('綜合方向：換股後遲到的舊結果丟掉；畫面有寫出來（支持／反對兩行附數值，十項明細預設收合）', !stale && /觀望/.test(el.innerHTML) && el.style.display === 'block'
+      && /偏多的背景<\/b><span class="dir-it">營收 <span class="dir-iv">y<\/span>/.test(el.innerHTML) && /<details class="dir-more" ontoggle/.test(el.innerHTML), el.innerHTML.slice(0, 300));
+    /* v229 資料日：11/25 實測廣度 97% 上漲是 11/24 的，當天盤中加權 −4.9%——傾向要看比較新的加權，並標出廣度的日期 */
+    const td = X.dirToday(), yd = new Date(Date.UTC(+td.slice(0, 4), +td.slice(4, 6) - 1, +td.slice(6)) - 864e5).toISOString().slice(0, 10).replace(/-/g, '');
+    const roc = String(+yd.slice(0, 4) - 1911) + yd.slice(4);
+    X.dirReset('2330'); win._activeCode = '2330';
+    X.dirFromMarket(D, { tw: { index: { changePct: -4.92, date: td }, breadth: { up: 36, dn: 1, total: 37, date: roc } }, us: { sox: { changePct: -7.9, date: yd } } });
+    const tw1 = X.DIR.rows.twmkt, us1 = X.DIR.rows.usmkt;
+    X.dirFromMarket(D, { tw: { index: { changePct: -4.92, date: yd }, breadth: { up: 36, dn: 1, total: 37, date: roc } }, us: {} });
+    const tw2 = X.DIR.rows.twmkt;
+    X.dirFromMarket(D, { tw: { index: { changePct: -4.92 }, breadth: { up: 36, dn: 1, total: 37 } }, us: {} });
+    const tw3 = X.DIR.rows.twmkt;
+    ok('台股大盤：加權比類股廣度新（盤中）時傾向看加權（−4.9% 偏空），廣度標出前一日日期', tw1.lean === -1 && new RegExp(`類股 97% 上漲（${+yd.slice(4, 6)}/${+yd.slice(6)}）`).test(tw1.v) && /^加權 -4\.92%、/.test(tw1.v), JSON.stringify(tw1));
+    ok('台股大盤：加權與廣度同一天時照舊看廣度；舊後端沒有日期也照舊', tw2.lean === 1 && tw3.lean === 1 && !/（/.test(tw3.v), JSON.stringify([tw2, tw3]));
+    ok('美股大盤：標出資料日（台灣早上看到的是前一晚美股）', new RegExp(`（${+yd.slice(4, 6)}/${+yd.slice(6)}）$`).test(us1.v), us1.v);
+    /* v229 Gemini 併進摘要：只放 AI 成功時、已驗證引用的那一句；AI 失敗不放 */
+    X.dirFromPlan(D, { planSide: null, md: { side: null, label: '待定' }, sh: { grade: 'C' } });
+    const ij = { ai: { status: 'ok', outlook: '若法說會上修展望，則留意[1]', summary: 's' }, items: [{ url: 'u0' }, { url: 'u1' }] };
+    X.dirFromIntel(D, { tone: 'info', head: '資訊面偏多' }, ij); const ai1 = X.DIR.ai, h1 = el.innerHTML;
+    X.dirFromIntel(D, { tone: 'info', head: 'x' }, { ai: { status: 'error' }, items: [] }); const ai2 = X.DIR.ai;
+    X.dirFromIntel(D, { tone: 'info', head: 'x' }, ij);
+    win._activeCode = '2317'; X.dirFromIntel(D, { tone: 'info', head: 'x' }, { ai: { status: 'error' }, items: [] }); const ai3 = X.DIR.ai; win._activeCode = '2330';
+    ok('消息面：Gemini 的下一個交易日展望併進摘要，引用變成連結；AI 失敗就不放；換股後遲到的不覆蓋', ai1 && ai1.outlook && /<a href="u1">\[1\]<\/a>/.test(h1) && /Gemini 整理新聞・下一個交易日・未回測/.test(h1) && ai2 === null && ai3 && ai3.outlook, JSON.stringify([ai1, ai2, ai3])); }
   { // v227 互動 K 線（T-030）：原始市價、日期嚴格遞增、均線；函式庫載不到時不顯示、計畫價位晚到也補畫
     const ks = fs.readFileSync(path.join(ROOT, 'kchart.js'), 'utf8'), html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8'), bf = fs.readFileSync(path.join(ROOT, 'bingfa.js'), 'utf8');
     const K = new Function(ks.slice(ks.indexOf('function kcBars('), ks.indexOf('function kcColors(')) + '\nreturn { kcBars, kcSMA };')();
@@ -880,6 +906,12 @@ async function scanFlowTests() {
   // 情報卡狀態列：實際耗時、或取自後端快取
   const tm0 = intelResp;
   intelResp = Object.assign({}, tm0, { code: '1216', timing: { fetch: 7400, ai: 18600 } });
+  { /* v229 後端拿不到前收時回 changePct:null——大盤卡原本對 null 呼叫 toFixed 會整張當掉，且會把「沒資料」寫成「台幣升」 */
+    const mc = await pg.evaluate(() => { try { renderMarket({ tw: { index: { price: 38000, changePct: null, date: '20261125' }, breadth: { up: 36, dn: 1, total: 37, date: '1151124' } },
+      us: { sox: { price: 8800, changePct: null, date: '20261124' }, nasdaq: { price: 23700, changePct: -1.48, date: '20261124' }, dxy: { price: 103.9, changePct: null }, tnx: { price: 4.9, changePct: null } },
+      fx: { usdtwd: { price: 33, changePct: null }, usdjpy: { price: 159, changePct: null } }, cmd: { gold: { price: 3540, changePct: null } }, taifex: {} });
+      return document.getElementById('market-card').innerText; } catch (e) { return 'ERR ' + e.message; } });
+    ok('大盤卡：漲跌拿不到時顯示「漲跌—」不當掉、不寫升貶；美股標資料日', !/^ERR/.test(mc) && /漲跌—/.test(mc) && !/｜台幣[升貶]｜|｜日圓[升貶]/.test(mc) && /那斯達克（11\/24）/.test(mc) && /-1\.48%/.test(mc), mc.slice(0, 400)); }
   await pg.evaluate(() => { GAS_URL = 'http://scanflow.test/api'; window._activeCode = '1216'; return loadIntelCard({ code: '1216', currency: 'TWD', chip: null }); });
   const tmTxt = (await intelText()).txt;
   intelResp = Object.assign({}, tm0, { code: '1217', cached: true });
@@ -1864,6 +1896,25 @@ async function backendTests() {
     fetchImpl = async u => /chart\/TWD%3DX/.test(u) ? { ok: false, status: 404, json: async () => ({}) } : /finance\/chart/.test(u) ? jt(qq(101)) : jt([]);
     const wm = await W.fetchMarket();
     ok('大盤（Worker）：匯率與原物料齊全；美元兌台幣沒拿到時列入來源錯誤', !wm.fx.usdtwd && wm.fx.usdjpy && wm.cmd.gold && wm.cmd.oil && (wm.sourceErrors || []).some(x => /美元兌台幣/.test(x.why)), JSON.stringify([wm.fx, wm.cmd, wm.sourceErrors]));
+    /* v229（2026-11-25 實測）：Yahoo 把前一交易日的K棒給成空的（^TWII 11/24 close=null），原本拿今天跟前天比：
+       加權實際 −3.8% 卻顯示 +4.84%。改用 range=1d 的前一交易日收盤；快照不是同一天就不給漲跌 */
+    const T = d => Date.UTC(2026, 10, d, 1, 0) / 1000;
+    const c5 = { chart: { result: [{ meta: { gmtoffset: 28800 }, timestamp: [T(23), T(24), T(25)], indicators: { quote: [{ close: [100, null, 110], high: [1, 1, 1], low: [1, 1, 1], open: [1, 1, 1], volume: [1, 1, 1] }] } }] } };
+    const c1 = mt => ({ chart: { result: [{ meta: { gmtoffset: 28800, regularMarketPrice: 110, chartPreviousClose: 105, regularMarketTime: mt }, timestamp: [mt], indicators: { quote: [{ close: [110] }] } }] } });
+    const chk = m => m.tw.index && Math.abs(m.tw.index.changePct - (110 - 105) / 105 * 100) < 1e-9 && m.tw.index.prevClose === 105 && m.tw.index.date === '20261125';
+    fetchImpl = async u => /finance\/chart/.test(u) ? jt(/range=1d/.test(u) ? c1(T(25) + 3600) : c5) : jt([]);
+    gsFetch = u => /finance\/chart/.test(u) ? gsOf(/range=1d/.test(u) ? c1(T(25) + 3600) : c5) : gsOf([]);
+    const wq = await W.fetchMarket(), gq = G.fetchMarket();
+    ok('大盤報價：前一交易日的K棒是空的，改用前一交易日收盤（不是前天）——Worker 與 GAS 一致，並回傳資料日', chk(wq) && chk(gq), JSON.stringify([wq.tw.index, gq.tw.index]));
+    fetchImpl = async u => /finance\/chart/.test(u) ? jt(/range=1d/.test(u) ? c1(T(24)) : c5) : jt([]);
+    gsFetch = u => /finance\/chart/.test(u) ? gsOf(/range=1d/.test(u) ? c1(T(24)) : c5) : gsOf([]);
+    const wq2 = await W.fetchMarket(), gq2 = G.fetchMarket();
+    ok('大盤報價：前收快照跟最後一根K棒不是同一個交易日，就不給漲跌（不寫錯的數字），價格照給', [wq2, gq2].every(m => m.tw.index && m.tw.index.price === 110 && m.tw.index.changePct === null && m.tw.index.prevClose === null), JSON.stringify([wq2.tw.index, gq2.tw.index]));
+    const c5b = { chart: { result: [{ meta: { gmtoffset: 28800 }, timestamp: [T(23), T(24), T(25)], indicators: { quote: [{ close: [100, 104, null] }] } }] } };
+    fetchImpl = async u => /range=1d/.test(u) ? jt({}) : /finance\/chart/.test(u) ? jt(c5b) : jt([]);
+    gsFetch = u => /range=1d/.test(u) ? gsOf({}) : /finance\/chart/.test(u) ? gsOf(c5b) : gsOf([]);
+    const wq3 = await W.fetchMarket(), gq3 = G.fetchMarket();
+    ok('大盤報價：開盤前今天還是空棒時，給的是上一個交易日（前兩根連續有效），資料日標上一個交易日', [wq3, gq3].every(m => m.tw.index && Math.abs(m.tw.index.changePct - 4) < 1e-9 && m.tw.index.date === '20261124'), JSON.stringify([wq3.tw.index, gq3.tw.index]));
     fetchImpl = async u => jt(T86);
     gsFetch = u => gsOf(T86); }
   { const wk = fs.readFileSync(path.join(ROOT, 'worker.js'), 'utf8'), gs = fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8');

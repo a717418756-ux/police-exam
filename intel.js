@@ -12,7 +12,7 @@
 
    ⚠️ EVIDENCE tier U：未經回測，只顯示不計分。任何分數或紀律門都不讀這裡的結果。
    ══════════════════════════════════════════════════════════════════════ */
-try { (window.SR_FV = window.SR_FV || {})['intel.js'] = 226; } catch (e) {}   // v199：v192 改過內容卻沒升版，雲端與手機可能留著舊檔——升版讓版本檢查點名、快取重抓
+try { (window.SR_FV = window.SR_FV || {})['intel.js'] = 229; } catch (e) {}   // v199：v192 改過內容卻沒升版，雲端與手機可能留著舊檔——升版讓版本檢查點名、快取重抓
 
 /* 條目標題來自新聞與PTT（任何人都能發文），一律完整跳脫再進 innerHTML。
    不用 layout.js 的 esc：那支是「刪掉」特殊字元，會把「台積電 & 蘋果」弄成「台積電  蘋果」。 */
@@ -75,7 +75,7 @@ function intelVerdict(j, D) {
 
 function renderIntel(j, D) {
   const v = intelVerdict(j, D);
-  if (typeof dirFromIntel === 'function') dirFromIntel(D, v);   // v226 綜合方向卡（只算順逆風，不改方向）
+  if (typeof dirFromIntel === 'function') dirFromIntel(D, v, j);   // v226 綜合方向卡（只算順逆風，不改方向）
   const C = { bull: 'var(--buy)', bear: 'var(--sell)', warn: 'var(--warn)', info: 'var(--acc)', neutral: 'var(--muted)' }[v.tone];
   const cite = s => citeI(s, j.items);
   const aiLine = {

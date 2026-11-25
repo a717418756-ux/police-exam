@@ -1589,11 +1589,42 @@ async function fetchTaifexPCR() {
   };
 }
 
+/* v229 大盤卡報價（T-037 覆核實測 2026-11-25）：Yahoo 有時把「前一個交易日」的日K棒給成空的
+   （^TWII 11/24、GC=F 11/24、CL=F 11/24、DX-Y.NYB 11/24 都是 close=null）。原本跳過空棒、取前兩根有效收盤，
+   等於拿今天跟「前天」比：加權實際 −3.8%（38,593 對 11/24 收盤 40,122）卻顯示 +4.84%，原油方向也相反。
+   改：最後一根有效K棒的前一根是空的，就改用 range=1d 的 chartPreviousClose（Yahoo 自己的前一交易日收盤；
+   以小時K覆核 ^TWII 11/24 收 40,120 ≈ 40,122）。該次快照必須跟最後一根K棒是同一個交易日、且價格不等於前收，
+   否則不給漲跌（顯示「漲跌—」，不寫錯的數字）。date＝該交易所當地的交易日（YYYYMMDD），前端用來標日期。 */
+function sessDate(ts, off) { return validTs(ts) ? new Date((ts + (off || 0)) * 1000).toISOString().slice(0, 10).replace(/-/g, '') : ''; }
+function mkQuote(price, prev, date) { return { price, prevClose: prev, changePct: prev > 0 ? (price - prev) / prev * 100 : null, date }; }
+function quoteFromChart(res) {
+  const q = res && res.indicators && res.indicators.quote && res.indicators.quote[0];
+  if (!q || !Array.isArray(q.close)) return null;
+  fillLastClose(res, q);
+  const cl = q.close, ts = res.timestamp || [], off = res.meta && res.meta.gmtoffset;
+  let k = cl.length - 1;
+  while (k >= 0 && cl[k] == null) k--;
+  if (k < 1) return null;   // v182：只有一根K棒時沒有前一日收盤，不可用自己當前收算出 0%
+  const date = sessDate(ts[k], off);
+  return cl[k - 1] == null ? { price: cl[k], prevClose: null, changePct: null, date, needPrev: true } : mkQuote(cl[k], cl[k - 1], date);
+}
+function quoteFromDay(meta, date) {
+  const m = meta || {}, p = m.regularMarketPrice, prev = m.chartPreviousClose;
+  if (!(p > 0) || !(prev > 0) || p === prev || !date || sessDate(m.regularMarketTime, m.gmtoffset) !== date) return null;
+  return mkQuote(p, prev, date);
+}
+async function yahooRaw(symbol, range) {
+  const r = await fetchT(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=${range}`, { headers: UA });
+  if (!r.ok) return null;
+  const j = await r.json();
+  return j.chart && j.chart.result && j.chart.result[0] || null;
+}
 async function yahooQuote(symbol) {
   try {
-    const r = await yahooChart(symbol, '5d', '1d');
-    if (!r || r.closes.length < 2) return null;   // v182：只有一根K棒時沒有前一日收盤，不可用自己當前收算出 0%
-    return { price: r.price, prevClose: r.prevClose, changePct: r.prevClose > 0 ? (r.price - r.prevClose) / r.prevClose * 100 : null };
+    const qt = quoteFromChart(await yahooRaw(symbol, '5d'));
+    if (!qt || !qt.needPrev) return qt;
+    const d = await yahooRaw(symbol, '1d');
+    return quoteFromDay(d && d.meta, qt.date) || { price: qt.price, prevClose: null, changePct: null, date: qt.date };
   } catch (e) { return null; }
 }
 

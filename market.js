@@ -17,7 +17,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['market.js'] = 226; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['market.js'] = 229; } catch (e) {}
 
 /* v186 原本每查一檔都重抓一次大盤（期交所＋美股隔夜＋多檔報價）。
    台美任一邊在盤中 5 分鐘；兩邊都收盤時留到下一個開盤（最多 30 分鐘），有來源失敗的只留 5 分鐘 */
@@ -42,6 +42,11 @@ async function fetchMarket() {
 /* v226 美債 10 年：Yahoo ^TNX 報的就是百分比（11/25 實測 4.88＝4.88%），原本再除以 10 顯示成 0.49%。
    CBOE 原始指數是殖利率×10（48.8）：大於 20 才除以 10，兩種來源都對 */
 const tnxPct = p => p > 20 ? p / 10 : p;
+/* v229 報價的資料日（後端 v229 起回傳 date＝交易所當地交易日 YYYYMMDD；類股廣度是民國 1151124）。
+   開盤前、或對方市場還沒開時，數字是「上一個交易日」的——標出日期，免得把昨天的漲跌當成今天 */
+const mktYmd = s => { s = String(s || ''); return /^\d{8}$/.test(s) ? s : /^\d{7}$/.test(s) ? String(+s.slice(0, 3) + 1911) + s.slice(3) : ''; };
+const mktMD = s => { const d = mktYmd(s); return d ? `${+d.slice(4, 6)}/${+d.slice(6)}` : ''; };
+const mktChg = d => d && d.changePct != null ? `${d.changePct >= 0 ? '+' : ''}${d.changePct.toFixed(2)}%` : '漲跌—';
 
 function renderMarket(m) {
   if (!m) { $('market-card').style.display = 'none'; return; }
@@ -79,7 +84,8 @@ function renderMarket(m) {
     const upPct = Math.round(bw.up / bw.total * 100);
     /* v187 盤中：類股廣度是前一交易日收盤後公布的，加權漲跌卻是即時的——兩天比在一起會誤報假強／假弱，盤中不比 */
     const live = inSession(Date.now(), ...SESS.tw);
-    const idxChg = !live && m.tw && m.tw.index && m.tw.index.changePct != null ? m.tw.index.changePct : null;
+    const ix = m.tw && m.tw.index;   // v229 加權與廣度必須是同一個交易日才比
+    const idxChg = !live && ix && ix.changePct != null && (!ix.date || ix.date === mktYmd(bw.date)) ? ix.changePct : null;
     let tone = '', desc = `${live ? '前一交易日 ' : ''}${bw.total}個類股：漲${bw.up}／跌${bw.dn}${bw.flat ? '／平' + bw.flat : ''}`;
     if (idxChg != null && idxChg > 0.3 && upPct < 40) { tone = ''; desc += `——⚠️ 加權漲但僅${upPct}%類股上漲＝權值股獨撐的「假強」，中小型普跌，追多風險高`; }
     else if (idxChg != null && idxChg < -0.3 && upPct > 60) { tone = 'good'; desc += `——加權跌但${upPct}%類股上漲＝權值股拖累的「假弱」，個股其實偏強`; }
@@ -91,9 +97,9 @@ function renderMarket(m) {
   // 美股隔夜
   const usItem = (label, icon, d, note) => {
     if (!d) return;
-    const up = d.changePct >= 0;
-    boxes.push({ cls: up ? 'good' : '', label: `${icon} ${label}（隔夜）`,
-      value: `${up ? '+' : ''}${d.changePct.toFixed(2)}%`, valCls: up ? 'buy' : 'sell',
+    const up = d.changePct != null && d.changePct >= 0;
+    boxes.push({ cls: up ? 'good' : '', label: `${icon} ${label}（${mktMD(d.date) || '隔夜'}）`,
+      value: mktChg(d), valCls: d.changePct == null ? '' : up ? 'buy' : 'sell',
       sub: `收 ${fmt(d.price)}｜${note}` });
   };
   usItem('費城半導體 SOX', '🔌', us.sox, '對台積電/聯發科等連動高');
@@ -106,35 +112,35 @@ function renderMarket(m) {
 
   // 總體因子：美元指數 + 美債殖利率（外資匯出壓力偵測）
   if (us.dxy && us.dxy.price != null) {
-    const dUp = us.dxy.changePct >= 0;
-    boxes.push({ label: '💵 美元指數 DXY', cls: dUp ? 'bad' : 'good',
-      value: `${dUp?'+':''}${us.dxy.changePct.toFixed(2)}%`, valCls: dUp ? 'sell' : 'buy',
+    const dUp = us.dxy.changePct >= 0, dNa = us.dxy.changePct == null;
+    boxes.push({ label: '💵 美元指數 DXY', cls: dNa ? '' : dUp ? 'bad' : 'good',
+      value: mktChg(us.dxy), valCls: dNa ? '' : dUp ? 'sell' : 'buy',
       sub: `收 ${fmt(us.dxy.price)}｜強美元=外資匯出台股壓力` });
   }
   if (us.tnx && us.tnx.price != null) {
-    const tUp = us.tnx.changePct >= 0;
-    boxes.push({ label: '🏛️ 美債10Y殖利率', cls: tUp ? 'bad' : 'good',
-      value: `${tnxPct(us.tnx.price).toFixed(2)}%`, valCls: tUp ? 'sell' : 'buy',
-      sub: `${tUp?'升':'降'}｜殖利率升=資金離開風險資產` });
+    const tUp = us.tnx.changePct >= 0, tNa = us.tnx.changePct == null;
+    boxes.push({ label: '🏛️ 美債10Y殖利率', cls: tNa ? '' : tUp ? 'bad' : 'good',
+      value: `${tnxPct(us.tnx.price).toFixed(2)}%`, valCls: tNa ? '' : tUp ? 'sell' : 'buy',
+      sub: `${tNa ? '漲跌—' : tUp ? '升' : '降'}｜殖利率升=資金離開風險資產` });
   }
   /* v225 匯率與原物料（T-029）：只顯示、不計分。解讀是常見說法，本系統沒有回測過；
      台幣升貶以「美元兌台幣」漲跌表示：數字變大＝台幣貶值 */
   const fx = m.fx || {}, cmd = m.cmd || {};
-  const chg = d => d.changePct != null ? `${d.changePct >= 0 ? '+' : ''}${d.changePct.toFixed(2)}%` : '漲跌—';
+  const tone = (d, upCls, dnCls) => !d || d.changePct == null ? '' : d.changePct >= 0 ? upCls : dnCls;   // 漲跌拿不到時不上色、不寫升貶
   if (fx.usdtwd && fx.usdtwd.price != null) {
     const weak = fx.usdtwd.changePct > 0;
-    boxes.push({ label: '💱 美元兌台幣', cls: weak ? 'bad' : 'good', value: fx.usdtwd.price.toFixed(3), valCls: weak ? 'sell' : 'buy',
-      sub: `${chg(fx.usdtwd)}｜台幣${weak ? '貶' : '升'}｜常見說法：台幣貶＝外資匯出、升＝熱錢流入（未回測，僅顯示）｜美股部位用這個匯率換算` });
+    boxes.push({ label: '💱 美元兌台幣', cls: tone(fx.usdtwd, 'bad', 'good'), value: fx.usdtwd.price.toFixed(3), valCls: tone(fx.usdtwd, 'sell', 'buy'),
+      sub: `${mktChg(fx.usdtwd)}${fx.usdtwd.changePct == null ? '' : `｜台幣${weak ? '貶' : '升'}`}｜常見說法：台幣貶＝外資匯出、升＝熱錢流入（未回測，僅顯示）｜美股部位用這個匯率換算` });
   }
   if (fx.usdjpy && fx.usdjpy.price != null) {
     const yenUp = fx.usdjpy.changePct < 0;
-    boxes.push({ label: '💴 美元兌日圓', cls: yenUp && fx.usdjpy.changePct < -1 ? 'bad' : '', value: fx.usdjpy.price.toFixed(2), valCls: yenUp ? 'buy' : 'sell',
-      sub: `${chg(fx.usdjpy)}｜日圓${yenUp ? '升' : '貶'}${yenUp && fx.usdjpy.changePct < -1 ? '｜單日急升，留意日圓套利平倉（2024-08 曾引發全球急跌）' : ''}｜僅顯示` });
+    boxes.push({ label: '💴 美元兌日圓', cls: yenUp && fx.usdjpy.changePct < -1 ? 'bad' : '', value: fx.usdjpy.price.toFixed(2), valCls: tone(fx.usdjpy, 'sell', 'buy'),
+      sub: `${mktChg(fx.usdjpy)}${fx.usdjpy.changePct == null ? '' : `｜日圓${yenUp ? '升' : '貶'}`}${yenUp && fx.usdjpy.changePct < -1 ? '｜單日急升，留意日圓套利平倉（2024-08 曾引發全球急跌）' : ''}｜僅顯示` });
   }
-  if (cmd.gold && cmd.gold.price != null) boxes.push({ label: '🥇 黃金期貨', cls: '', value: fmt(cmd.gold.price), valCls: cmd.gold.changePct >= 0 ? 'buy' : 'sell',
-    sub: `${chg(cmd.gold)}｜避險需求指標｜僅顯示` });
-  if (cmd.oil && cmd.oil.price != null) boxes.push({ label: '🛢️ 原油期貨（WTI）', cls: '', value: fmt(cmd.oil.price), valCls: cmd.oil.changePct >= 0 ? 'buy' : 'sell',
-    sub: `${chg(cmd.oil)}｜影響通膨預期、塑化與航空｜僅顯示` });
+  if (cmd.gold && cmd.gold.price != null) boxes.push({ label: '🥇 黃金期貨', cls: '', value: fmt(cmd.gold.price), valCls: tone(cmd.gold, 'buy', 'sell'),
+    sub: `${mktChg(cmd.gold)}｜避險需求指標｜僅顯示` });
+  if (cmd.oil && cmd.oil.price != null) boxes.push({ label: '🛢️ 原油期貨（WTI）', cls: '', value: fmt(cmd.oil.price), valCls: tone(cmd.oil, 'buy', 'sell'),
+    sub: `${mktChg(cmd.oil)}｜影響通膨預期、塑化與航空｜僅顯示` });
 
   // 雙壓判讀：美元+殖利率同步走強 = 外資賣壓環境
   if (us.dxy && us.tnx && us.dxy.changePct > 0.3 && us.tnx.changePct > 0.8) {
