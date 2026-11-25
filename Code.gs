@@ -74,7 +74,7 @@ function doGet(e) {
     try {
       var fmToken = (e.parameter.token || '').trim();
       if (!fmToken) throw new Error('no_token');
-      result = fetchDeepChip(code, fmToken);
+      result = fetchDeepChip(code, fmToken, String(e.parameter.skip || ''));
       result.ok = true;
     } catch (err) {
       result = { ok: false, error: String(err.message || err) };
@@ -889,15 +889,27 @@ function parseFinMindNews(rows) {
   }
   return tagSocial(out);
 }
+/* v231 過去的日子留快取：昨天（UTC）1 小時、更早 6 小時，只有今天每次重抓（理由見 worker.js fetchFinMindNews）。
+   只存四個欄位；超過 CacheService 單值上限就不存 */
+function fmNewsSlim(rows) { return rows.map(function (r) { return { date: r.date, title: r.title, link: r.link, source: r.source }; }); }
 function fetchFinMindNews(code, token, now) {
-  var reqs = [];
-  for (var i = 0; i < 8; i++) reqs.push({ url: 'https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockNews&data_id=' + code + '&start_date=' + new Date(now - i * 864e5).toISOString().slice(0, 10),
-    muteHttpExceptions: true, headers: token ? { Authorization: 'Bearer ' + token } : {} });
-  var res = UrlFetchApp.fetchAll(reqs), rows = [];   // 平行抓 8 天；任一天失敗整批丟錯（缺一天逐日計數就不完整）
+  var reqs = [], days = [], rows = [], cache = null, i, hit;
+  try { cache = CacheService.getScriptCache(); } catch (e) { cache = null; }
+  for (i = 0; i < 8; i++) {
+    var d = new Date(now - i * 864e5).toISOString().slice(0, 10);
+    hit = null;
+    if (i > 0 && cache) try { hit = cache.get('fm_news_' + code + '_' + d); } catch (e) { hit = null; }
+    if (hit != null) { rows = rows.concat(JSON.parse(hit)); continue; }
+    days.push({ d: d, i: i });
+    reqs.push({ url: 'https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockNews&data_id=' + code + '&start_date=' + d,
+      muteHttpExceptions: true, headers: token ? { Authorization: 'Bearer ' + token } : {} });
+  }
+  var res = reqs.length ? UrlFetchApp.fetchAll(reqs) : [];   // 平行抓沒快取的日子；任一天失敗整批丟錯（缺一天逐日計數就不完整）
   for (var k = 0; k < res.length; k++) {
     if (res[k].getResponseCode() !== 200) throw new Error(fmErr(res[k].getResponseCode()));
-    var j = JSON.parse(res[k].getContentText());
-    rows = rows.concat((j && j.data) || []);
+    var j = JSON.parse(res[k].getContentText()), slim = fmNewsSlim((j && j.data) || []);
+    rows = rows.concat(slim);
+    if (days[k].i > 0 && cache) try { var js = JSON.stringify(slim); if (utf8Len(js) < 95000) cache.put('fm_news_' + code + '_' + days[k].d, js, days[k].i === 1 ? 3600 : FM_LONG_TTL); } catch (e) {}
   }
   return parseFinMindNews(rows);
 }
@@ -982,11 +994,16 @@ function revSurprise(rows) {
     rev3: hist.length >= 2 ? (g + hist[0] + hist[1]) / 3 : null,   // v190 與 worker.js 同
     seen: /^\d{4}-\d{2}-\d{2}$/.test(at(last).c) ? at(last).c : '' };
 }
+/* v231 月營收、財報留 6 小時（CacheService 上限；理由見 worker.js fmLong）。undefined＝沒有快取；null 也是有效結果（ETF 等） */
+var FM_LONG_TTL = 21600;
+function fmLongGet(key) { try { var v = CacheService.getScriptCache().get('fm_' + key); return v == null ? undefined : JSON.parse(v); } catch (e) { return undefined; } }
+function fmLongPut(key, v) { try { CacheService.getScriptCache().put('fm_' + key, JSON.stringify(v), FM_LONG_TTL); } catch (e) {} return v; }
 function fetchRevenue(code, token, now) {
+  var hit = fmLongGet('rev_' + code); if (hit !== undefined) return hit;
   var r = pfFetch(revUrl(code, now), token ? { Authorization: 'Bearer ' + token } : {});
   if (r.getResponseCode() !== 200) throw new Error('FinMind ' + fmErr(r.getResponseCode()));
   var j = JSON.parse(r.getContentText());
-  return revSurprise((j && j.data) || []);   // null＝沒有可比的月營收（ETF、上市未滿13個月），不是抓取失敗
+  return fmLongPut('rev_' + code, revSurprise((j && j.data) || []));   // null＝沒有可比的月營收（ETF、上市未滿13個月），不是抓取失敗
 }
 /* v191 盈餘品質：與 worker.js quality() 同一算法（理由與回測數字見 worker.js） */
 var QUAL_PAT = { ni: [/^IncomeAfterTaxes$/, /^NetIncome$/, /本期淨利/], ocf: [/^CashFlowsFromOperatingActivities$/, /^NetCashInflowFromOperatingActivities$/, /營業活動之淨現金流入/], ta: [/^TotalAssets$/, /^資產總[額計]$/] };
@@ -1014,12 +1031,13 @@ function quality(isRows, bsRows, cfRows, now) {
 function qualUrl(ds, code, now) { return 'https://api.finmindtrade.com/api/v4/data?dataset=' + ds + '&data_id=' + code + '&start_date=' + new Date(now - 1100 * 864e5).toISOString().slice(0, 10); }
 var QUAL_DS = ['TaiwanStockFinancialStatements', 'TaiwanStockBalanceSheet', 'TaiwanStockCashFlowsStatement'];
 function fetchQuality(code, token, now) {
+  var hit = fmLongGet('qual_' + code); if (hit !== undefined) return hit;
   var rows = QUAL_DS.map(function (ds) {
     var r = pfFetch(qualUrl(ds, code, now), token ? { Authorization: 'Bearer ' + token } : {});
     if (r.getResponseCode() !== 200) throw new Error('FinMind ' + fmErr(r.getResponseCode()));
     var j = JSON.parse(r.getContentText()); return (j && j.data) || [];
   });
-  return quality(rows[0], rows[1], rows[2], now);
+  return fmLongPut('qual_' + code, quality(rows[0], rows[1], rows[2], now));
 }
 function revItem(rs) {
   var sur = rs.sur != null ? '，驚奇度 ' + (rs.sur >= 0 ? '+' : '') + rs.sur.toFixed(1) + '（過去' + rs.n + '個月年增平均 ' + pctS(rs.mean) + '）' : '';
@@ -1269,8 +1287,9 @@ function fetchIntel(code, token) {
   var g = function (nm, fn) { try { return fn(); } catch (e) { errs.push(nm + '：' + String(e && e.message || e).slice(0, 120)); return null; } };
   var nameErr = [], names = stockNames(code, nameErr), name = names.zh;
   var pf = [{ url: newsZhUrl(code, name), headers: UA_GS }, { url: pttUrl(name || code), headers: PTT_HDR }, { url: ANN_URL, headers: UA_GS },
-    { url: yahooUrl(code + '.TW'), headers: UA_GS }, { url: yahooUrl('0050.TW'), headers: UA_GS }, { url: revUrl(code, now), headers: token ? { Authorization: 'Bearer ' + token } : {} }]
-    .concat(QUAL_DS.map(function (ds) { return { url: qualUrl(ds, code, now), headers: token ? { Authorization: 'Bearer ' + token } : {} }; }));
+    { url: yahooUrl(code + '.TW'), headers: UA_GS }, { url: yahooUrl('0050.TW'), headers: UA_GS }]
+    .concat(fmLongGet('rev_' + code) !== undefined ? [] : [{ url: revUrl(code, now), headers: token ? { Authorization: 'Bearer ' + token } : {} }])   // v231 有快取就不預抓
+    .concat(fmLongGet('qual_' + code) !== undefined ? [] : QUAL_DS.map(function (ds) { return { url: qualUrl(ds, code, now), headers: token ? { Authorization: 'Bearer ' + token } : {} }; }));
   if (names.en) pf.push({ url: newsEnUrl(names.en), headers: UA_GS });
   prefetch(pf);
   try { return intelFrom(code, token, now, errs, g, names, nameErr); } finally { _pf = null; }
@@ -1916,14 +1935,17 @@ function fmGet(dataset, params, token) {
   } catch (e) { throw e; }
 }
 
-function fetchDeepChip(stockNo, token) {
+/* v231 免費 token 一定拿不到的兩項：前端帶 skip=big,broker 就不打（理由見 worker.js FM_TIER_MSG） */
+var FM_TIER_MSG = { big: '免費會員沒有這項資料（FinMind backer 以上方案才有）', broker: '免費會員沒有這項資料（FinMind sponsor 方案才有）' };
+function fetchDeepChip(stockNo, token, skip) {
+  var skipBig = /(^|,)big(,|$)/.test(skip || ''), skipBroker = /(^|,)broker(,|$)/.test(skip || '');
   if (!/^\d/.test(stockNo)) throw new Error('僅台股提供主力縱深');
   var iso = function (d) { return Utilities.formatDate(new Date(Date.now() - d * 86400000), 'Asia/Taipei', 'yyyy-MM-dd'); };
 
-  var bigErr = '', lendErr = '', dayTradeErr = '';   // v183 理由見 worker.js
-  var holding = []; try { holding = fmGet('TaiwanStockHoldingSharesPer', { data_id: stockNo, start_date: iso(70) }, token); } catch (e) { bigErr = String(e && e.message || e).slice(0, 80); }
+  var bigErr = skipBig ? FM_TIER_MSG.big : '', lendErr = '', dayTradeErr = '';   // v183 理由見 worker.js
+  var holding = []; if (!skipBig) try { holding = fmGet('TaiwanStockHoldingSharesPer', { data_id: stockNo, start_date: iso(70) }, token); } catch (e) { bigErr = String(e && e.message || e).slice(0, 80); }
   var sbl = fmGet('TaiwanDailyShortSaleBalances', { data_id: stockNo, start_date: iso(20) }, token);
-  var brokerErr = '', dealerErr = '', dtSrcErr = '';   // v184 失敗要講原因（見 worker.js）
+  var brokerErr = skipBroker ? FM_TIER_MSG.broker : '', dealerErr = '', dtSrcErr = '';   // v184 失敗要講原因（見 worker.js）
   var dayTrade = []; try { dayTrade = fmGet('TaiwanStockDayTrading', { data_id: stockNo, start_date: iso(20) }, token); } catch (e) { dtSrcErr = '當沖資料：' + String(e && e.message || e).slice(0, 80); }
   var inst = []; try { inst = fmGet('TaiwanStockInstitutionalInvestorsBuySell', { data_id: stockNo, start_date: iso(15) }, token); } catch (e) { dealerErr = String(e && e.message || e).slice(0, 80); }
   var px = []; try { px = fmGet('TaiwanStockPrice', { data_id: stockNo, start_date: iso(20) }, token); } catch (e) { dtSrcErr = dtSrcErr || '總成交量：' + String(e && e.message || e).slice(0, 80); }
@@ -1973,7 +1995,7 @@ function fetchDeepChip(stockNo, token) {
   }
 
   var brokers = [];
-  var tdates = sbl.map(function (r) { return r.date; }).filter(function (x) { return x; }).sort().slice(-3);
+  var tdates = skipBroker ? [] : sbl.map(function (r) { return r.date; }).filter(function (x) { return x; }).sort().slice(-3);
   for (var t = 0; t < tdates.length; t++) {
     var rows = []; try { rows = fmGet('TaiwanStockTradingDailyReport', { data_id: stockNo, date: tdates[t] }, token); } catch (e) { brokerErr = String(e && e.message || e).slice(0, 80); }   // v183：付費方案才有，與 worker 一樣接住（原本整個主力縱深跟著失敗）
     if (!rows.length) continue;

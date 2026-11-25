@@ -37,7 +37,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* v163 檔案版本宣告：讓前端能查出「站上哪個檔案沒更新到」。
    改這個檔時一併把數字改成當版；config.js 的 FILE_VERS 必須同步（自我檢查會擋）。 */
-try { (window.SR_FV = window.SR_FV || {})['mainforce.js'] = 213; } catch (e) {}
+try { (window.SR_FV = window.SR_FV || {})['mainforce.js'] = 231; } catch (e) {}
 
 /* ══ A. OBV 能量潮 ════════════════════════════════════════════════════
    收漲日加量、收跌日減量的累積線。價與 OBV 背離 = 主力偷跑：
@@ -866,6 +866,21 @@ function renderCrowding(D) {
      背離時站聰明錢那邊——這是誠實版的「套利」
    ════════════════════════════════════════════════════════════════════ */
 const _deepCache = {};
+/* v231 免費 token 拿不到千張大戶（backer 以上）與分點（sponsor）：收到 HTTP 400 就記住 7 天，期間請後端跳過，
+   每檔省 4 次 FinMind 額度。重新儲存 token（例如升級方案後）會清掉，下一次就重試 */
+const FM_TIER_DAYS = 7;
+async function fmTierSkip(now) {
+  let v = null; try { v = await dbGetSetting('fmTierSkip'); } catch (e) {}
+  const t = now || Date.now();
+  return ['big', 'broker'].filter(k => v && v[k] > t);
+}
+async function fmTierLearn(j, now) {
+  const t = now || Date.now(), add = {};
+  if (/HTTP 400/.test(j.bigErr || '')) add.big = t + FM_TIER_DAYS * 864e5;
+  if (/HTTP 400/.test(j.brokerErr || '')) add.broker = t + FM_TIER_DAYS * 864e5;
+  if (!add.big && !add.broker) return;
+  try { const v = (await dbGetSetting('fmTierSkip')) || {}; await dbSetSetting('fmTierSkip', Object.assign({}, v, add)); } catch (e) {}
+}
 async function loadDeepChipCard(D) {
   const card = document.getElementById('deepchip-card');
   if (!card) return;
@@ -875,8 +890,10 @@ async function loadDeepChipCard(D) {
   if (hit) dc = hit.d;
   else {
     try {
-      const r = await fetchT(`${GAS_URL}?action=deepchip&code=${encodeURIComponent(D.code)}&token=${encodeURIComponent(FINMIND_TOKEN)}`);
+      const skip = await fmTierSkip();
+      const r = await fetchT(`${GAS_URL}?action=deepchip&code=${encodeURIComponent(D.code)}&token=${encodeURIComponent(FINMIND_TOKEN)}${skip.length ? '&skip=' + skip.join(',') : ''}`);
       const j = await r.json();
+      if (j.ok) await fmTierLearn(j);
       /* v186 FinMind 籌碼 20:00～21:00 更新：借券到當天就留到下一個 21:00。
          有暫時性錯誤（限流、逾時）30 分鐘後重試；「需付費方案」（402）不會因為重抓而變好，不算 */
       const fetchFail = x => x && /HTTP|逾時|超時|timeout|abort|Unexpected token|JSON|fetch|network/i.test(x);

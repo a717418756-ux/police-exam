@@ -135,7 +135,7 @@ export default {
       if (action === 'deepchip') {
         const token = p.get('token') || '';
         if (!token) return json({ ok: false, error: 'no_token' });
-        const r = await fetchDeepChip(code, token);
+        const r = await fetchDeepChip(code, token, p.get('skip') || '');
         return json({ ok: true, ...r });
       }
 
@@ -884,9 +884,13 @@ function parseFinMindNews(rows) {
   }
   return tagSocial(out);
 }
+/* v231 FinMind 新聞一次只能查一天（官方文件），8 天＝8 次。過去的日子不會再變：昨天（UTC）留 1 小時、更早留 6 小時，
+   只有今天每次重抓——同一檔 6 小時內再開省 6～7 次。只存解析用得到的四個欄位 */
+const fmNewsSlim = rows => rows.map(r => ({ date: r.date, title: r.title, link: r.link, source: r.source }));
 async function fetchFinMindNews(code, token, now) {
   const days = Array.from({ length: 8 }, (_, i) => new Date(now - i * 864e5).toISOString().slice(0, 10));
-  const rows = await Promise.all(days.map(d => fmGet('TaiwanStockNews', { data_id: code, start_date: d }, token)));
+  const one = d => fmGet('TaiwanStockNews', { data_id: code, start_date: d }, token).then(fmNewsSlim);
+  const rows = await Promise.all(days.map((d, i) => i === 0 ? one(d) : fmLong('news_' + code + '_' + d, () => one(d), i === 1 ? 3600 : FM_LONG_TTL)));
   return parseFinMindNews([].concat(...rows));   // 任一天失敗整批丟錯：缺一天的逐日計數就不完整
 }
 async function fetchNewsAll(code, name, token, now) {
@@ -943,7 +947,18 @@ function revSurprise(rows) {
     rev3: hist.length >= 2 ? (g + hist[0] + hist[1]) / 3 : null,   // v190 近 3 個有年增率月份的平均（中期因子「營收成長」，與回測同定義）
     seen: /^\d{4}-\d{2}-\d{2}$/.test(R[last].c) ? R[last].c : '' };
 }
-async function fetchRevenue(code, token, now) {
+/* v231 月營收一個月、財報一季才變一次，原本每開一次就重抓（每檔 4 次 FinMind）。成功的結果留 6 小時
+   （與 GAS CacheService 上限相同），失敗不存。每次回傳新解析的物件，呼叫端改 rev.t 不會改到快取 */
+const FM_LONG_TTL = 21600;
+async function fmLong(key, fn, ttl) {
+  const cache = typeof caches !== 'undefined' ? caches.default : null, url = 'https://stockradar.cache/fm/' + key;
+  try { const hit = cache && await cache.match(url); if (hit) return await hit.json(); } catch (e) { /* 快取不可用時照常抓 */ }
+  const v = await fn();
+  try { if (cache) await cache.put(url, new Response(JSON.stringify(v), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=' + (ttl || FM_LONG_TTL) } })); } catch (e) {}
+  return v;
+}
+async function fetchRevenue(code, token, now) { return fmLong('rev_' + code, () => fetchRevenueRaw(code, token, now)); }
+async function fetchRevenueRaw(code, token, now) {
   const start = new Date(now - 1220 * 864e5).toISOString().slice(0, 7) + '-01';   // 40個月：本月＋前12個月的年增率（留足緩衝），各需再往前12個月
   return revSurprise(await fmGet('TaiwanStockMonthRevenue', { data_id: code, start_date: start }, token));   // null＝沒有可比的月營收（ETF、上市未滿13個月），不是抓取失敗
 }
@@ -968,7 +983,8 @@ function quality(isRows, bsRows, cfRows, now) {
   for (let k = last - 3; k <= last; k++) { if (!Q[k] || Q[k].ni == null || single(k) == null) return null; ni += Q[k].ni; ocf += single(k); }
   return Q[last].ta > 0 ? { acc: (ocf - ni) / Q[last].ta, q: `${Math.floor(last / 4)}Q${last % 4 + 1}` } : null;
 }
-async function fetchQuality(code, token, now) {
+async function fetchQuality(code, token, now) { return fmLong('qual_' + code, () => fetchQualityRaw(code, token, now)); }
+async function fetchQualityRaw(code, token, now) {
   const p = { data_id: code, start_date: new Date(now - 1100 * 864e5).toISOString().slice(0, 10) };   // 3 年：近四季＋年初累計換算需要的前一季
   const [is, bs, cf] = await Promise.all([fmGet('TaiwanStockFinancialStatements', p, token), fmGet('TaiwanStockBalanceSheet', p, token), fmGet('TaiwanStockCashFlowsStatement', p, token)]);
   return quality(is, bs, cf, now);   // null＝沒有連續四季可用的財報（金融業科目不同、新上市），不是抓取失敗
@@ -1721,15 +1737,19 @@ async function fmGet(dataset, params, token) {
 }
 
 /* ── 主力縱深：千張大戶(週) + 借券空單(日) + 分點(日) ── */
-async function fetchDeepChip(stockNo, token) {
+/* v231 免費 token 一定拿不到的兩項（官方：持股分級 backer 以上、分點 sponsor 才有；11/25 實測 6/6 檔都回 HTTP 400）。
+   前端收到一次 400 後 7 天內帶 skip=big,broker，這裡就不打，每檔省 4 次額度、也少 4 次 4xx（短時間大量 4xx 會被封 IP） */
+const FM_TIER_MSG = { big: '免費會員沒有這項資料（FinMind backer 以上方案才有）', broker: '免費會員沒有這項資料（FinMind sponsor 方案才有）' };
+async function fetchDeepChip(stockNo, token, skip) {
+  const skipBig = /(^|,)big(,|$)/.test(skip || ''), skipBroker = /(^|,)broker(,|$)/.test(skip || '');
   if (!/^\d/.test(stockNo)) throw new Error('僅台股提供主力縱深');
   const iso = (d) => { const t = _tpeDateStr(d).ymd; return `${t.slice(0,4)}-${t.slice(4,6)}-${t.slice(6,8)}`; };   // v118：台北時間
 
-  let bigErr = '', lendErr = '', brokerErr = '', dealerErr = '', dtSrcErr = '';
+  let bigErr = skipBig ? FM_TIER_MSG.big : '', lendErr = '', brokerErr = skipBroker ? FM_TIER_MSG.broker : '', dealerErr = '', dtSrcErr = '';
   const why = e => String(e && e.message || e).slice(0, 80);
   const [holding, sbl, dayTrade, inst, px] = await Promise.all([
     // v183：官方文件——持股分級是 Backer 以上方案才有。免費 token 會 402；原本沒接住，整個主力縱深連借券一起失敗
-    fmGet('TaiwanStockHoldingSharesPer', { data_id: stockNo, start_date: iso(70) }, token).catch(e => { bigErr = why(e); return []; }),
+    skipBig ? [] : fmGet('TaiwanStockHoldingSharesPer', { data_id: stockNo, start_date: iso(70) }, token).catch(e => { bigErr = why(e); return []; }),
     fmGet('TaiwanDailyShortSaleBalances', { data_id: stockNo, start_date: iso(20) }, token),
     // v184：這幾份失敗要講原因（原本 .catch(()=>[]) 讓卡片整塊消失、看不出是沒資料還是被擋）
     fmGet('TaiwanStockDayTrading', { data_id: stockNo, start_date: iso(20) }, token).catch(e => { dtSrcErr = '當沖資料：' + why(e); return []; }),
@@ -1792,7 +1812,7 @@ async function fetchDeepChip(stockNo, token) {
 
   // ── 分點主力動向（用 sbl 的日期序列當交易日，取近3日平行抓）──
   let brokers = [];
-  const tdates = sbl.map(r => r.date).filter(Boolean).sort().slice(-3);
+  const tdates = skipBroker ? [] : sbl.map(r => r.date).filter(Boolean).sort().slice(-3);
   if (tdates.length) {
     const reps = await Promise.all(tdates.map(d =>
       fmGet('TaiwanStockTradingDailyReport', { data_id: stockNo, date: d }, token).catch(e => { brokerErr = why(e); return []; })   // 官方：Sponsor 方案才有
